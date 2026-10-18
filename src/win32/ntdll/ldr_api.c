@@ -9,6 +9,7 @@
  * TODO(W^X): images are mapped PAGE_EXECUTE_READWRITE; per-section protections
  * from the PE section table should be applied after relocation and binding. */
 #include "../include/loos_win.h"
+#include "../include/loos_teb.h"
 #include "../ldr/ldr.h"
 #include "../compat/compat.h"
 #include <string.h>
@@ -17,6 +18,22 @@ void rtl_set_version(const compat_version *v);
 
 static ldr_context g_ldr;
 static int g_ready;
+
+/* The loader lock: the loader state is not thread safe, DllMain may load libraries (hence recursive). */
+static RTL_CRITICAL_SECTION loader_lock;
+static volatile int lock_state;                 /* 0 uninitialised, 1 initialising, 2 ready */
+static void lock_loader(void)
+{
+    if (__atomic_load_n(&lock_state, __ATOMIC_ACQUIRE) != 2) {
+        int zero = 0;
+        if (__atomic_compare_exchange_n(&lock_state, &zero, 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            RtlInitializeCriticalSection(&loader_lock);
+            __atomic_store_n(&lock_state, 2, __ATOMIC_RELEASE);
+        } else while (__atomic_load_n(&lock_state, __ATOMIC_ACQUIRE) != 2) __builtin_ia32_pause();
+    }
+    RtlEnterCriticalSection(&loader_lock);
+}
+static void unlock_loader(void) { RtlLeaveCriticalSection(&loader_lock); }
 static const compat_db *g_compat;                 /* optional profile database */
 static compat_db g_default_db;
 
@@ -27,11 +44,12 @@ static int default_call(void *ctx, uint64_t fn, uint64_t base, uint32_t reason, 
 static int (*call_hook)(void *, uint64_t, uint64_t, uint32_t, void *) = default_call;
 void ldr_api_set_entry_caller(int (*fn)(void *, uint64_t, uint64_t, uint32_t, void *)) { call_hook = fn ? fn : default_call; }
 void ldr_api_set_compat_db(const compat_db *db) { g_compat = db; }
-void ldr_api_reset(void) { g_ready = 0; }
+void ldr_api_reset(void) { g_ready = 0; lock_state = 0; }
 
 /* ---------- file reading ---------- */
 #define MAX_VIEWS 8
-static struct { int used; void *mem; SIZE_T size; } views[MAX_VIEWS];
+struct view { int used; void *mem; SIZE_T size; char path[260]; };
+static struct view views[MAX_VIEWS];
 
 static int ascii_to_wide(const char *s, WCHAR *out, size_t cap)
 {
@@ -94,13 +112,19 @@ static int be_open(void *ctx, const char *name, const char *path, const void **d
         if (!read_whole_file(cand, &mem, &sz)) return 0;
     }
     for (i = 0; i < MAX_VIEWS; i++) if (!views[i].used) {
+        const char *src = (path && path[0] && path[1] == ':') ? path : cand;
+        size_t pl = strlen(src);
         views[i].used = 1; views[i].mem = mem; views[i].size = sz;
+        if (pl >= sizeof views[i].path) pl = 0;
+        memcpy(views[i].path, src, pl); views[i].path[pl] = 0;
         *data = mem; *size = sz; *cookie = &views[i];
         return 1;
     }
     { SIZE_T z = 0; PVOID m = mem; NtFreeVirtualMemory(NtCurrentProcess(), &m, &z, MEM_RELEASE); }
     return 0;
 }
+
+static const char *be_module_path(void *ctx, void *cookie) { (void)ctx; return ((struct view *)cookie)->path; }
 
 static void be_release(void *ctx, void *cookie)
 {
@@ -156,7 +180,7 @@ static void ensure_ready(void)
     if (g_ready) return;
     memset(&be, 0, sizeof be);
     be.open_module = be_open; be.release_file = be_release; be.alloc_image = be_alloc; be.free_image = be_free;
-    be.call_entry = be_call; be.redirect_import = be_redirect; be.exe_mapped = be_exe_mapped;
+    be.call_entry = be_call; be.redirect_import = be_redirect; be.exe_mapped = be_exe_mapped; be.module_path = be_module_path;
     ldr_init(&g_ldr, &be, 1);
     compat_db_init(&g_default_db);
     g_ready = 1;
@@ -193,39 +217,45 @@ NTSTATUS NTAPI LdrLoadDll(PWSTR path, ULONG *flags, UNICODE_STRING *name, PVOID 
     char n[260]; ldr_module *m; ldr_status s;
     (void)path; (void)flags;
     if (!name || !handle) return STATUS_INVALID_PARAMETER;
-    ensure_ready();
     if (!narrow(name, n, sizeof n)) return STATUS_DLL_NOT_FOUND;
+    lock_loader();
+    ensure_ready();
     s = ldr_load_dll(&g_ldr, n, &m, NULL);
-    if (s != LDR_OK) return to_nt(s);
-    *handle = (PVOID)(uintptr_t)m->addr;
-    return STATUS_SUCCESS;
+    if (s == LDR_OK) *handle = (PVOID)(uintptr_t)m->addr;
+    unlock_loader();
+    return s == LDR_OK ? STATUS_SUCCESS : to_nt(s);
 }
 
 NTSTATUS NTAPI LdrGetDllHandle(PWSTR path, ULONG *flags, UNICODE_STRING *name, PVOID *handle)
 {
     char n[260]; ldr_module *m;
     (void)path; (void)flags;
+    NTSTATUS st = STATUS_DLL_NOT_FOUND;
     if (!name || !handle) return STATUS_INVALID_PARAMETER;
+    if (!narrow(name, n, sizeof n)) return STATUS_DLL_NOT_FOUND;
+    lock_loader();
     ensure_ready();
-    if (!narrow(name, n, sizeof n) || !(m = ldr_get_module(&g_ldr, n))) return STATUS_DLL_NOT_FOUND;
-    *handle = (PVOID)(uintptr_t)m->addr;
-    return STATUS_SUCCESS;
+    if ((m = ldr_get_module(&g_ldr, n)) != NULL) { *handle = (PVOID)(uintptr_t)m->addr; st = STATUS_SUCCESS; }
+    unlock_loader();
+    return st;
 }
 
 NTSTATUS NTAPI LdrGetProcedureAddress(PVOID module, ANSI_STRING *name, ULONG ordinal, PVOID *addr)
 {
     ldr_module *m; uint64_t a = 0; char nm[128]; ldr_status s;
     if (!addr) return STATUS_INVALID_PARAMETER;
+    if (name && (name->Length == 0 || name->Length >= sizeof nm)) return STATUS_INVALID_PARAMETER;
+    if (!name && (ordinal == 0 || ordinal > 0xFFFF)) return STATUS_INVALID_PARAMETER;
+    lock_loader();
     ensure_ready();
-    if (!(m = module_from_handle(module))) return STATUS_INVALID_HANDLE;
+    if (!(m = module_from_handle(module))) { unlock_loader(); return STATUS_INVALID_HANDLE; }
     if (name) {
-        if (name->Length == 0 || name->Length >= sizeof nm) return STATUS_INVALID_PARAMETER;
         memcpy(nm, name->Buffer, name->Length); nm[name->Length] = 0;
         s = ldr_get_proc(&g_ldr, m, nm, 0, &a, NULL);
     } else {
-        if (ordinal == 0 || ordinal > 0xFFFF) return STATUS_INVALID_PARAMETER;
         s = ldr_get_proc(&g_ldr, m, NULL, (uint16_t)ordinal, &a, NULL);
     }
+    unlock_loader();
     if (s != LDR_OK) return to_nt(s);
     *addr = (PVOID)(uintptr_t)a;
     return STATUS_SUCCESS;
@@ -234,27 +264,94 @@ NTSTATUS NTAPI LdrGetProcedureAddress(PVOID module, ANSI_STRING *name, ULONG ord
 NTSTATUS NTAPI LdrUnloadDll(PVOID module)
 {
     ldr_module *m;
+    ldr_status s;
+    lock_loader();
     ensure_ready();
-    if (!(m = module_from_handle(module))) return STATUS_INVALID_HANDLE;
-    return to_nt(ldr_unload_dll(&g_ldr, m));
+    if (!(m = module_from_handle(module))) { unlock_loader(); return STATUS_INVALID_HANDLE; }
+    s = ldr_unload_dll(&g_ldr, m);
+    unlock_loader();
+    return to_nt(s);
+}
+
+NTSTATUS NTAPI LdrGetDllFullName(PVOID module, UNICODE_STRING *out)
+{
+    ldr_module *m;
+    size_t i, n;
+    NTSTATUS st = STATUS_SUCCESS;
+    if (!out || !out->Buffer) return STATUS_INVALID_PARAMETER;
+    lock_loader();
+    ensure_ready();
+    if (!(m = module_from_handle(module))) st = STATUS_INVALID_HANDLE;
+    else {
+        n = strlen(m->path);
+        if ((n + 1) * sizeof(WCHAR) > out->MaximumLength) st = STATUS_BUFFER_TOO_SMALL;
+        else { for (i = 0; i < n; i++) out->Buffer[i] = (WCHAR)(unsigned char)m->path[i]; out->Buffer[n] = 0; out->Length = (USHORT)(n * sizeof(WCHAR)); }
+    }
+    unlock_loader();
+    return st;
+}
+
+PVOID NTAPI RtlPcToFileHeader(PVOID pc, PVOID *base)
+{
+    int i;
+    PVOID found = NULL;
+    uint64_t a = (uint64_t)(uintptr_t)pc;
+    lock_loader();
+    ensure_ready();
+    for (i = 0; i < LDR_MAX_MODULES; i++)
+        if (g_ldr.mod[i].state != LDR_FREE && a >= g_ldr.mod[i].addr && a < g_ldr.mod[i].addr + g_ldr.mod[i].size) { found = (PVOID)(uintptr_t)g_ldr.mod[i].addr; break; }
+    unlock_loader();
+    if (base) *base = found;
+    return found;
+}
+
+void NTAPI LdrShutdownThread(void)
+{
+    lock_loader();
+    ensure_ready();
+    ldr_thread_notify(&g_ldr, LDR_REASON_THREAD_DETACH);
+    unlock_loader();
+}
+
+static void ldr_initialize_thread(void)
+{
+    lock_loader();
+    ensure_ready();
+    ldr_thread_notify(&g_ldr, LDR_REASON_THREAD_ATTACH);
+    unlock_loader();
+}
+
+void NTAPI RtlExitUserThread(NTSTATUS status)
+{
+    LdrShutdownThread();
+    NtTerminateThread(NtCurrentThread(), status);
+#ifndef LOOS_HOST_TEST
+    for (;;) { }
+#endif
 }
 
 /* ---------- process start ---------- */
+/* Every thread except the first begins here: announce it to the DLLs, run the start routine, exit. */
 void NTAPI RtlUserThreadStart(PVOID entry, PVOID arg)
 {
-    int rc = ((int (NTAPI *)(PVOID))entry)(arg);
-    RtlExitUserProcess(rc);
+    NTSTATUS rc;
+    ldr_initialize_thread();
+    rc = (NTSTATUS)((ULONG (NTAPI *)(PVOID))entry)(arg);
+    RtlExitUserThread(rc);
 }
 
 /* Returns the entry point (0 on failure, with *status set) so the test harness can drive it. */
 uint64_t ldr_api_prepare_process(const char *image_path, NTSTATUS *status)
 {
     ldr_module *exe; ldr_error e; ldr_status s;
+    uint64_t entry = 0;
+    lock_loader();
     ensure_ready();
     s = ldr_load_exe(&g_ldr, image_path, &exe, &e);
-    if (s != LDR_OK) { *status = to_nt(s); return 0; }
-    *status = STATUS_SUCCESS;
-    return ldr_entry_point(exe);
+    if (s != LDR_OK) *status = to_nt(s);
+    else { *status = STATUS_SUCCESS; entry = ldr_entry_point(exe); }
+    unlock_loader();
+    return entry;
 }
 
 void NTAPI LdrStartProcess(PCWSTR image_path)
@@ -264,5 +361,5 @@ void NTAPI LdrStartProcess(PCWSTR image_path)
     p[i] = 0;
     entry = ldr_api_prepare_process(p, &st);
     if (!entry) RtlExitUserProcess(st);
-    RtlUserThreadStart((PVOID)(uintptr_t)entry, NULL);
+    RtlExitUserProcess((NTSTATUS)((ULONG (NTAPI *)(PVOID))(uintptr_t)entry)(NULL));      /* the first thread: returning from the image entry ends the process */
 }

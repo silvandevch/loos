@@ -392,3 +392,8 @@ HANDLE NTAPI RtlGetProcessHeap(void)
     }
     return h;
 }
+
+#ifdef LOOS_HOST_TEST
+/* Host tests tear the fake address space down between cases; forget the cached process heap with it. */
+void loos_heap_test_reset(void) { process_heap = NULL; }
+#endif
