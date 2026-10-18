@@ -1,0 +1,10 @@
+# PE executables and resource compiler outputs are build artifacts.
+*.exe
+*.res
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*~
+*.swp

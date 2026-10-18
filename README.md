@@ -128,3 +128,27 @@ Documented in [`docs/`](docs/README.md). The short version:
 - [`docs/SOURCE-POLICY.md`](docs/SOURCE-POLICY.md) — code-use rules.
 - [`docs/AGENTS.md`](docs/AGENTS.md) + [`prompts/`](prompts/README.md) — how the
   three agents (Astra / Claude / Luna) work and talk (`.agentbus/`).
+
+### Native source build (current increment)
+
+The first source module is the read-only btrfs path under `src/fs/btrfs/`.
+It is independent of the study tree and has no third-party runtime
+dependencies.
+
+```bash
+make test                         # offline fixture + unit/integration test
+docker build -t loos-native .     # reproducible Linux build image
+docker run --rm loos-native       # rerun the same test command in the image
+```
+
+When `mkfs.btrfs`/`btrfs-progs` is installed, `make test` also creates a
+temporary real btrfs image with `--rootdir` and runs the same reader against it;
+the test is explicitly skipped when that optional host tool is absent. The
+Dockerfile installs it so the container path exercises both the deterministic
+format fixture and a genuine image.
+
+The exact pinned build inputs are recorded in `toolchain.lock`; `.python-version`
+pins the fixture generator's Python runtime. The current deploy target for this
+increment is the reproducible test container. The bootable LoOS image remains a
+later milestone and is built with `./loos build && ./loos iso` once the loader
+and kernel targets exist.

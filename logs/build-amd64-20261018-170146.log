@@ -1,0 +1,2778 @@
+014c:fixme:winediag:loader_init wine-staging 11.0 is a testing version containing experimental patches.
+014c:fixme:winediag:loader_init Please mention your exact version when filing bug reports on winehq.org.
+################################################################
+# LoOS NT 5.2 x64 build   (native AMD64 under Wine)
+################################################################
+[build-amd64] SDXROOT=Z:\home\silvan\LoOS-build\srv03rtm
+[build-amd64] args   =free offline no_certcheck
+Can't recognize 'git config user.name' as an internal or external command, or batch script.
+01ac:fixme:console:AddConsoleAliasA : ("src", (null), "CMD.EXE") stub!
+ALIAS: Unable to delete alias - src
+01b4:fixme:console:GetConsoleAliasA ("src",000000000010FCD0,512,"CMD.EXE"): stub
+Z:\home\silvan\LoOS-build\srv03rtm\developer\"silvan"\cue.pri doesn't exist - only using public alias
+01bc:fixme:console:AddConsoleAliasA : ("MK", "nmake /c $*", "CMD.EXE") stub!
+ALIAS: Unable to add alias - MK = nmake /c $*
+01c4:fixme:console:AddConsoleAliasA : ("MK", "nmake /c $*", "remote.exe") stub!
+ALIAS: Unable to add alias - MK = nmake /c $*
+Can't recognize 'on REM' as an internal or external command, or batch script.
+Current user is now "silvan"
+============================================================
+ prebuild  (generates makefiles & build tools)
+ SDXROOT=Z:\home\silvan\LoOS-build\srv03rtm   BuildArch=AMD64
+============================================================
+Administrative permissions required. Detecting permissions...
+Success: Administrative permissions confirmed.
+
+Removing pre-built exinit/systime...
+
+Setting Read-only attribute on required objects/libs...
+ds\security\services\ca\tools\certut\obj\*.lib: File Not Found
+
+Detected OS Version: 
+
+Using updated 16-bit compilers and code
+(as your OS won't work properly with the originals)
+
+Updating map_kv.cxx...
+Updating comlocal.cxx...
+Updating stdalloc.cxx...
+Updating map_kv.h...
+Updating memstm.cxx...
+Updating ole16 tools...
+Updating setupw95.cmd post-build script...
+(as your OS may have problems running hwdatgen simultaneously)
+Updating drivercab.cmd post-build script...
+(as your OS may have problems running cabwrapper simultaneously)
+
+Updates complete.
+
+Importing test-signing keys from driver.pfx...
+(if prompted for anything, just hit enter or press OK)
+Certificate name: Microsoft Windows VBL03CA
+Certificate name: Microsoft Windows Source Kit Test
+Successfully imported certificates in MY store.
+
+Prebuild complete
+============================================================
+ build -bcZP -M 4
+============================================================
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+021c:err:msvcrt:_invalid_parameter (null):0 (null): (null) 0
+BUILD: Using 4 child processes
+BUILD: Start time: Sun Oct 18 17:01:51 2026
+BUILD: Compile and Link for AMD64
+BUILD: Examining z:\home\silvan\loos-build\srv03rtm directory tree for files to compile.
+    z:\home\silvan\loos-build\srv03rtm 
+BUILD: langpack found in windows\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\windows
+    z:\home\silvan\loos-build\srv03rtm\windows 
+    z:\home\silvan\loos-build\srv03rtm\windows\published 
+    z:\home\silvan\loos-build\srv03rtm\windows\dload 
+    z:\home\silvan\loos-build\srv03rtm\windows\core 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\w32inc 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\rtl 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\rtl\client 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\rtl\kernel 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\umode 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\umode\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\inc 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\inc\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\rtl 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\rtl\client 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\rtl\client\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\rtl\kernel 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\rtl\kernel\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\client 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\client\wow64 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\client\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kernel 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kernel\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\server 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\server\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kdexts 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kdexts\kd 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kdexts\kd\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kdexts\ntsd 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kdexts\ntsd\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\kbdus 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\kbdus\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbda1 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbda1\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbda2 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbda2\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbda3 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbda3\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdal 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdal\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdarme 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdarme\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdarmw 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdarmw\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdaze 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdaze\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdazel 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdazel\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdbe 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdbe\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdbene 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdbene\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdblr 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdblr\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdbr 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdbr\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdbu 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdbu\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdca 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdca\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdcan 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdcan\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdcr 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdcr\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdcz 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdcz\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdcz1 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdcz1\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdcz2 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdcz2\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdda 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdda\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbddiv1 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbddiv1\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbddiv2 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbddiv2\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbddv 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbddv\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdes 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdes\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdest 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdest\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdfa 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdfa\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdfc 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdfc\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdfi 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdfi\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdfo 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdfo\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdfr 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdfr\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdgae 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdgae\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdgeo 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdgeo\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdgkl 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdgkl\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdgr 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdgr\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdgr1 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdgr1\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdhe 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdhe\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdhe220 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdhe220\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdhe319 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdhe319\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdheb 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdheb\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdhebx 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdhebx\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdhela2 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdhela2\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdhela3 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdhela3\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdhept 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdhept\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdhu 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdhu\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdhu1 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdhu1\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdic 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdic\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdinasa 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdinasa\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdinben 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdinben\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdindev 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdindev\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdinguj 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdinguj\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdinhin 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdinhin\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdinkan 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdinkan\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdinmal 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdinmal\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdinmar 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdinmar\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdinori 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdinori\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdinpun 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdinpun\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdintam 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdintam\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdintel 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdintel\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdir 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdir\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdit 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdit\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdit142 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdit142\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdkaz 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdkaz\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdkyr 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdkyr\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdla 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdla\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdlt 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdlt\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdlt1 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdlt1\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdlv 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdlv\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdlv1 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdlv1\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdmac 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdmac\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdmon 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdmon\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdne 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdne\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdno 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdno\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdpl 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdpl\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdpl1 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdpl1\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdpo 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdpo\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdro 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdro\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdru 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdru\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdru1 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdru1\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdsf 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdsf\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdsg 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdsg\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdsl 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdsl\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdsl1 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdsl1\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdsp 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdsp\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdsw 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdsw\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdsyr1 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdsyr1\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdsyr2 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdsyr2\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdtat 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdtat\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdth0 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdth0\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdth1 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdth1\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdth2 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdth2\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdth3 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdth3\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdtuf 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdtuf\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdtuq 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdtuq\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbduk 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbduk\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdur 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdur\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdurdu 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdurdu\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdurs 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdurs\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdusa 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdusa\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdusl 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdusl\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdusr 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdusr\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdusx 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdusx\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbduzb 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbduzb\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdvntc 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdvntc\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdycc 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdycc\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdycl 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\all_kbds\kbdycl\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\common 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\common\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\jpn 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\jpn\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\101 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\101\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\106 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\106\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\106n 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\106n\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\ax2 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\ax2\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\ibm02 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\ibm02\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\lk411a 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\lk411a\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\lk411j 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\lk411j\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\f3ahvoas 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\f3ahvoas\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\kbdnec 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\kbdnec\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\kbdnec95 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\kbdnec95\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\kbdnecat 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\kbdnecat\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\kbdnecnt 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\jpn\kbdnecnt\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\kor 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\kor\101a 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\kor\101a\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\kor\101b 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\kor\101b\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\kor\101c 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\kor\101c\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\kor\103 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\kor\103\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\kor\kor 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\fe_kbds\kor\kor\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\kbd\embedded 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\imm 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\imm\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntuser\embedded 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntcon 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntcon\client 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntcon\client\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntcon\client\wow64 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntcon\server 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntcon\server\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntcon\conime 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntcon\conime\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntcon\embedded 
+BUILD: fontsub found in windows\core\ntgdi\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\gre 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\gre\daytona 
+BUILD: otfd found in windows\core\ntgdi\fondrv\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\fondrv
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\fondrv 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\fondrv\bmfd 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\fondrv\vtfd 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\fondrv\tt 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\fondrv\tt\scaler 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\fondrv\tt\ttfd 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\fondrv\tt\ttfd\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\math 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\math\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\icm 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\icm\mscms 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\icm\mscms\winnt 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\icm\mscmm 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\icm\mscmm\lh_core 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\icm\mscmm\lh_core\winnt 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\icm\mscmm\lh_open 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\icm\mscmm\lh_open\winnt 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\icm\mscmm\mscmm 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\icm\mscmm\mscmm\winnt 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\icm\icmui 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\icm\icmui\winnt 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\icm\icmupg 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\icm\embedded 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\client 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\client\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\halftone 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\halftone\ht 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\halftone\htui 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\dciman 
+BUILD: trmn found in windows\core\ntgdi\fonts\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\fonts
+BUILD: chs found in windows\core\ntgdi\fonts\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\fonts
+BUILD: kor found in windows\core\ntgdi\fonts\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\fonts
+BUILD: jpn found in windows\core\ntgdi\fonts\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\fonts
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\fonts 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\fonts\binplace 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\fonts\cht 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\fonts\meti 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\fonts\meti\other 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\fonts\embedded 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\image 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\image\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\mf3216 
+BUILD: t2embed found in windows\core\ntgdi\mstypeo\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\mstypeo
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\mstypeo 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\embedded 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\ntgdi\kdexts2 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\kmode 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\kmode\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\dxkernel 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\dxkernel\dxgthk 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\dxkernel\dxg 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\dxkernel\dxapi 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\dxkernel\embedded 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\termspl 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\winsrv 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\winsrv\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\cslpk 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\cslpk\lpk 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\cslpk\lpk\daytona 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\wow64win 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\wow64win\vermsg 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\wow64win\cgen 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\wow64win\whcon 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\wow64win\whwin32 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\wow64win\wow64lg2 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\wow64win\wow64win 
+    z:\home\silvan\loos-build\srv03rtm\windows\core\syminfo 
+    z:\home\silvan\loos-build\srv03rtm\windows\netdde 
+    z:\home\silvan\loos-build\srv03rtm\windows\netdde\incs 
+    z:\home\silvan\loos-build\srv03rtm\windows\netdde\src 
+    z:\home\silvan\loos-build\srv03rtm\windows\netdde\src\toolkit 
+    z:\home\silvan\loos-build\srv03rtm\windows\netdde\src\ntddecmn 
+    z:\home\silvan\loos-build\srv03rtm\windows\netdde\src\nddenb32 
+    z:\home\silvan\loos-build\srv03rtm\windows\netdde\src\ndeapi 
+    z:\home\silvan\loos-build\srv03rtm\windows\netdde\src\ndeapi\server 
+    z:\home\silvan\loos-build\srv03rtm\windows\netdde\src\ndeapi\client 
+    z:\home\silvan\loos-build\srv03rtm\windows\netdde\src\ddeshare 
+    z:\home\silvan\loos-build\srv03rtm\windows\netdde\src\netdde 
+    z:\home\silvan\loos-build\srv03rtm\windows\netdde\src\nddeexts 
+    z:\home\silvan\loos-build\srv03rtm\windows\oleacc 
+    z:\home\silvan\loos-build\srv03rtm\windows\oleacc\oleacc 
+    z:\home\silvan\loos-build\srv03rtm\windows\oleacc\oleaccrc 
+    z:\home\silvan\loos-build\srv03rtm\windows\oleacc\msaatext 
+    z:\home\silvan\loos-build\srv03rtm\windows\oleacc\embedded 
+    z:\home\silvan\loos-build\srv03rtm\windows\richedit 
+    z:\home\silvan\loos-build\srv03rtm\windows\richedit\re30 
+    z:\home\silvan\loos-build\srv03rtm\windows\richedit\lssrc 
+    z:\home\silvan\loos-build\srv03rtm\windows\richedit\re32wrap 
+    z:\home\silvan\loos-build\srv03rtm\windows\richedit\re41 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\gdiplus_asms 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\inc 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\inc_priv 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\uuid 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\cicmem 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\lib 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\prvlib 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\mslbui 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\muilib 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\uim 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\msuimp 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\cuilib 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\mscandui 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\msutb 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\cicload 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\softkbd 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\inputdll 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\aimm1.2 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\aimm1.2\uuid 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\aimm1.2\dimm 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\aimm1.2\win32 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\aimm1.2\aimmwrap 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\ctf.64 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\ctf.64\sptip 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\embedded 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\msctfime 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\spgrmr 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\cicsthkl 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\cicsthkl\inc 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\ctf\cicsthkl\lib 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\inc 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\inc\public 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\util 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\util\renderutil 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\engine 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\engine\rockall 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\engine\rockall\library 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\engine\rockall\heap 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\engine\rockall\interface 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\engine\objectapi 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\engine\autoutil 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\engine\base 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\engine\core 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\engine\ctrl 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\engine\lava 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\engine\msg 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\engine\motion 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\engine\services 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\engine\winapi 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\engine\duser 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\inc 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\inc\public 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\base 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\base\common 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\base\gdi 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\base\gp 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\util 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\util\common 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\util\gdi 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\util\gp 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\core 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\core\common 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\core\gdi 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\core\gp 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\layout 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\layout\common 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\layout\gdi 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\layout\gp 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\control 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\control\common 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\control\gdi 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\control\gp 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\parser 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\directuilib 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\directuilib\gdi 
+    z:\home\silvan\loos-build\srv03rtm\windows\advcore\duser\directui\engine\directuilib\gp 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\fe 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\fe\femgrate 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\fe\femgrate\jpn 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\fe\femgrate\kor 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\fe\femgrate\cht 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\fe\femgrate\chs 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\fe\femgrate\fe 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\fe\femgrate\misc 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\fe\infcat 
+BUILD: src found in windows\feime\jpn\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\windows\feime\jpn
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\jpn 
+BUILD: ime2k_source found in windows\feime\chs\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\windows\feime\chs
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\chs 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\chs\embedded 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\chs\ntabc 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\chs\ntabc\winabc 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\chs\ntgb 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\chs\ntgb\wingb 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\chs\ntime 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\chs\ntime\imegen 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\chs\ntime\winpy 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\chs\ntime\winsp 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\chs\ntime\winzm 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\chs\ntgen 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\chs\help 
+BUILD: ime2002a found in windows\feime\cht\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\windows\feime\cht
+BUILD: ime98b found in windows\feime\cht\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\windows\feime\cht
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\cht 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\cht\embedded 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\cht\uniime 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\cht\miniime 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\cht\phon 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\cht\chajei 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\cht\quick 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\cht\winime 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\cht\unicdime 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\cht\dayi 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\cht\romanime 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\cht\winar30 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\cht\lctool 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\cht\uimetool 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\cht\data 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\cht\data2 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k\dicts 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k\help 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k\fecommon 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k\fecommon\include 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k\fecommon\srcimm 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k\fecommon\srcuim 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k\fecommon\lib 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k\fecommon\lib\ddbtn 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k\fecommon\lib\exbtn 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k\fecommon\lib\plv 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k\fecommon\lib\ptt 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k\fecommon\padrs 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k\cicerolib 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k\cicerolib\inc 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k\cicerolib\src 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k\imm32 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k\ntmigexe 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k\imkrinst 
+    z:\home\silvan\loos-build\srv03rtm\windows\feime\kor\ime2k\embedded 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\sdbapi 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\sdbapi\lib 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\sdbapi\kmode 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\sdbapi\win32a 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\sdbapi\win32al 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\sdbapi\win32u 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shimdbc 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shimdbc\exe 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shimdbc\lib 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shims 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shims\lib 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shims\avrflib 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shims\layer 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shims\layer\whistler 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shims\lua 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shims\lua\whistler 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shims\specific 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shims\specific\whistler 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shims\verifier 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shims\verifier\whistler 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shims\verifier\win2k 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shims\general64 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shims\general64\whistler 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shims\sample 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shims\resource 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\slayerui 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\slayerui\whistler 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\apphelp 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\compatui 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\db 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\db\db 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\db\helpfile 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\db\helpfile\usa 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shimengines 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shimengines\engiat 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\shimengines\engiat\whistler 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\buildtools 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\buildtools\x86 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\tools 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\tools\dumpsdb 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\tools\qfixapp 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\tools\acbrowser 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\tools\sdbinst 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\tools\grabmi 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\tools\infstrip 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\tools\fcopy 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\tools\toolkit 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\tools\shimviewer 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\exts 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\ahui 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\appverifier 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\appverifinst64 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\appverifinst64\exe 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\appverifinst64\package 
+    z:\home\silvan\loos-build\srv03rtm\windows\appcompat\sld 
+    z:\home\silvan\loos-build\srv03rtm\windows\ddk 
+    z:\home\silvan\loos-build\srv03rtm\base 
+    z:\home\silvan\loos-build\srv03rtm\base\published 
+    z:\home\silvan\loos-build\srv03rtm\base\dload 
+    z:\home\silvan\loos-build\srv03rtm\base\dloadhandler 
+    z:\home\silvan\loos-build\srv03rtm\base\strsafe 
+    z:\home\silvan\loos-build\srv03rtm\base\strsafe\strsafe 
+    z:\home\silvan\loos-build\srv03rtm\base\strsafe\ntstrsafe 
+    z:\home\silvan\loos-build\srv03rtm\base\wdmlib 
+    z:\home\silvan\loos-build\srv03rtm\base\wdmlib\wdmsec 
+    z:\home\silvan\loos-build\srv03rtm\base\wdmlib\wdmsec\published 
+    z:\home\silvan\loos-build\srv03rtm\base\wdmlib\wdmsec\inc 
+    z:\home\silvan\loos-build\srv03rtm\base\wdmlib\wdmsec\io 
+    z:\home\silvan\loos-build\srv03rtm\base\wdmlib\wdmsec\cm 
+    z:\home\silvan\loos-build\srv03rtm\base\wdmlib\wdmsec\se 
+    z:\home\silvan\loos-build\srv03rtm\base\wdmlib\wdmsec\pp 
+    z:\home\silvan\loos-build\srv03rtm\base\wdmlib\wdmsec\wl 
+    z:\home\silvan\loos-build\srv03rtm\base\seaudit 
+    z:\home\silvan\loos-build\srv03rtm\base\seaudit\msaudite 
+    z:\home\silvan\loos-build\srv03rtm\base\seaudit\msobjs 
+    z:\home\silvan\loos-build\srv03rtm\base\crts 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\convert 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\convert\nt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\convert\st 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\convert\st_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\convert\mt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\convert\mt_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\convert\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\convert\dll_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\direct 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\direct\st 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\direct\st_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\direct\mt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\direct\mt_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\direct\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\direct\dll_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\dllstuff 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\dllstuff\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\dllstuff\dll_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\dllstuff\dlllib 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\dllstuff\dlllib_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\dllstuff\dll_ios 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\dos 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\dos\st 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\dos\st_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\dos\mt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\dos\mt_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\dos\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\dos\dll_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\eh 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\eh\st 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\eh\st_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\eh\mt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\eh\mt_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\eh\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\eh\dll_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\eh\dlllib 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\eh\dlllib_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\eh\dll_ios 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\exec 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\exec\st 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\exec\st_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\exec\mt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\exec\mt_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\exec\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\exec\dll_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\hack 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\hack\nt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\heap 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\heap\st 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\heap\st_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\heap\mt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\heap\mt_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\heap\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\heap\dll_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\heap\dlllib 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\heap\dlllib_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\helper 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\helper\nt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\helper\st 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\helper\st_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\helper\mt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\helper\mt_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\helper\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\helper\dll_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\helper\dlllib 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\helper\dlllib_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\iostream 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\iostream\st 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\iostream\st_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\iostream\mt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\iostream\mt_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\iostream\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\iostream\dll_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\linkopts 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\lowio 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\lowio\st 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\lowio\st_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\lowio\mt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\lowio\mt_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\lowio\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\lowio\dll_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\lowio\dlllib 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\lowio\dlllib_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\mbstring 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\mbstring\st 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\mbstring\st_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\mbstring\mt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\mbstring\mt_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\mbstring\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\mbstring\dll_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\misc 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\misc\nt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\misc\st 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\misc\st_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\misc\mt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\misc\mt_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\misc\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\misc\dll_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\misc\dlllib 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\misc\dlllib_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\startup 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\startup\nt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\startup\st 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\startup\st_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\startup\mt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\startup\mt_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\startup\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\startup\dll_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\startup\dlllib 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\startup\dlllib_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\stdcpp64 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\stdio 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\stdio\nt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\stdio\st 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\stdio\st_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\stdio\mt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\stdio\mt_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\stdio\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\stdio\dll_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\stdio\dlllib 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\stdio\dlllib_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\string 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\string\nt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\string\st 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\string\st_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\string\mt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\string\mt_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\string\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\string\dll_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\time 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\time\st 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\time\st_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\time\mt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\time\mt_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\time\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\crtw32\time\dll_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\fpw32 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\fpw32\conv 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\fpw32\conv\st 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\fpw32\conv\st_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\fpw32\conv\mt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\fpw32\conv\mt_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\fpw32\conv\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\fpw32\conv\dll_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\fpw32\tran 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\fpw32\tran\st 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\fpw32\tran\st_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\fpw32\tran\mt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\fpw32\tran\mt_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\fpw32\tran\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\fpw32\tran\dll_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\fpw32\tran\nt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\libw32 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\libw32\lib 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\libw32\lib\st 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\libw32\lib\st_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\libw32\lib\mt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\libw32\lib\mt_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\libw32\lib\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\libw32\lib\dll_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\libw32\lib\dlllib 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\libw32\lib\dlllib_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\libw32\lib\nt 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\libw32\inc64 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\asms 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\asms\whistler 
+    z:\home\silvan\loos-build\srv03rtm\base\crts\asms\policy_7.0 
+    z:\home\silvan\loos-build\srv03rtm\base\urtl 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\nls 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\rtl 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\rtl\user 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\rtl\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\rtl\boot 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\rtl\boot_dbg 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\rtl\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\rtl\userlib 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\config 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\config\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\config\boot 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\config\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\kd64 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\kd64\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\kd64\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\ex 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\ex\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\ex\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\ob 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\ob\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\ob\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\se 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\se\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\se\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\mm 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\mm\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\mm\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\ke 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\ke\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\ke\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\po 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\po\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\po\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\ps 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\ps\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\ps\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\arb 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\arb\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\arb\lib 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\arb\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\arb\hal 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\io 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\io\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\io\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\io\iomgr 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\io\iomgr\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\io\iomgr\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\io\iomgr\ddk 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\io\pnpmgr 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\io\pnpmgr\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\io\pnpmgr\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\cache 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\cache\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\cache\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\lpc 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\lpc\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\lpc\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\dbgk 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\dbgk\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\dbgk\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\raw 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\raw\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\raw\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\fstub 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\fstub\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\fstub\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\fsrtl 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\fsrtl\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\fsrtl\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\vdm 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\vdm\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\vdm\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\verifier 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\verifier\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\verifier\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\wmi 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\wmi\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\wmi\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\wmi\kdexts 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\wmi\kdexts\tracing 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\perf 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\perf\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\perf\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\init 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\init\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\init\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\ntsym 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\ntsym\up 
+    z:\home\silvan\loos-build\srv03rtm\base\ntos\ntsym\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\hals 
+    z:\home\silvan\loos-build\srv03rtm\base\hals\x86new 
+    z:\home\silvan\loos-build\srv03rtm\base\hals\halacpi 
+    z:\home\silvan\loos-build\srv03rtm\base\hals\halacpi\mpapic 
+    z:\home\silvan\loos-build\srv03rtm\base\hals\processor 
+    z:\home\silvan\loos-build\srv03rtm\base\hals\processor\lib 
+    z:\home\silvan\loos-build\srv03rtm\base\hals\processor\generic 
+    z:\home\silvan\loos-build\srv03rtm\base\hals\processor\procsym 
+    z:\home\silvan\loos-build\srv03rtm\base\hals\processor\procsym\processr 
+    z:\home\silvan\loos-build\srv03rtm\base\hals\mcasample 
+    z:\home\silvan\loos-build\srv03rtm\base\hals\mcasample\imca 
+    z:\home\silvan\loos-build\srv03rtm\base\hals\mcasample\imca\exe 
+    z:\home\silvan\loos-build\srv03rtm\base\hals\mcasample\imca\sys 
+    z:\home\silvan\loos-build\srv03rtm\base\hals\halsym 
+    z:\home\silvan\loos-build\srv03rtm\base\wdmdrv 
+    z:\home\silvan\loos-build\srv03rtm\base\wmi 
+    z:\home\silvan\loos-build\srv03rtm\base\wmi\bmof 
+    z:\home\silvan\loos-build\srv03rtm\base\wmi\bmof\daytona 
+    z:\home\silvan\loos-build\srv03rtm\base\wmi\bmof\ansi 
+    z:\home\silvan\loos-build\srv03rtm\base\wmi\bmf2mof 
+    z:\home\silvan\loos-build\srv03rtm\base\wmi\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\wmi\dll\daytona 
+    z:\home\silvan\loos-build\srv03rtm\base\wmi\mofcheck 
+    z:\home\silvan\loos-build\srv03rtm\base\wmi\wmisecur 
+    z:\home\silvan\loos-build\srv03rtm\base\wmi\proppage 
+    z:\home\silvan\loos-build\srv03rtm\base\wmi\ntdll 
+    z:\home\silvan\loos-build\srv03rtm\base\wmi\ntdll\daytona 
+    z:\home\silvan\loos-build\srv03rtm\base\ntdll 
+    z:\home\silvan\loos-build\srv03rtm\base\ntdll\daytona 
+    z:\home\silvan\loos-build\srv03rtm\base\ntdllsym 
+    z:\home\silvan\loos-build\srv03rtm\base\boot 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootcode 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootcode\nlspatch 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\br 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\chs 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\cht 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\cs 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\da 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\el 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\es 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\fi 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\fr 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\ger 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\hu 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\it 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\jpn 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\kor 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\nl 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\no 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\pl 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\pt 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\ru 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\sv 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootfont\tr 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootvid 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\bootvid\daytona 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\kdcom 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\kdcom\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\boot\kd1394 
+    z:\home\silvan\loos-build\srv03rtm\base\fsrec 
+    z:\home\silvan\loos-build\srv03rtm\base\fs 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\cdfs 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\efs 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\fastfat 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\fastfat\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\fastfat\fskd 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\fltsamples 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\fltsamples\filespy 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\fltsamples\filespy\lib 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\fltsamples\filespy\filter 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\fltsamples\filespy\user 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\fltsamples\filespy\fspykd 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\fltsamples\sfilter 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\lfs 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\lfs\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\ntfs 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\ntfs\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\ntfs\fu 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\ntfs\ntfskd 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\udfs 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\mailslot 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\npfs 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\npfs\mp 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\npfs\npfskd 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\mup 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\mup\daytona 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\mup\wml 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\mup\wml\km 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\smbtrsup 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\wmi 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\bowser 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rxce 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rxce\daytona 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\copysup.nt 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\copysup.nt\daytona 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\daytona 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\monolithic 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\smb.mrx 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\smb.mrx\csc.nt5 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\smb.mrx\rdrssp 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\smb.mrx\daytona 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\dav.mrx 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\dav.mrx\reflector 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\dav.mrx\reflector\kernel 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\dav.mrx\reflector\user 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\dav.mrx\webdav 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\dav.mrx\webdav\inc 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\dav.mrx\webdav\client 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\dav.mrx\webdav\kernel 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\dav.mrx\webdav\server 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\dav.mrx\dav2kd 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\ifskit.mrx 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\ifskit.mrx\nulmrx 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\ifskit.mrx\nulmrx\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\ifskit.mrx\nulmrx\sys 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\ifskit.mrx\smbmrx 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\ifskit.mrx\smbmrx\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\ifskit.mrx\smbmrx\exe 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdbss\ifskit.mrx\smbmrx\sys 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\csc 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\csc\inc 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\csc\record.mgr 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\csc\record.mgr\daytona 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\csc\record.mgr\umreclib 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\csc\usermode 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\csc\usermode\lib3 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\csc\usermode\lib3\daytona 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\csc\usermode\reint 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\csc\usermode\reint\daytona 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\csc\util 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\csc\util\cscutil 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\csc\util\cscutil\internal 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\csc\util\cscutil\external 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdr2kd 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdpdr 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdpdr\sys 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\rdr2\rdpdr\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\sis 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\sis\filter 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\sis\groveler 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\sis\groveler\grovmsg 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\sis\groveler\grovctrl 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\sis\groveler\groveler 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\sis\groveler\grovperf 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\sis\sisbkup 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\sis\siscompatibility 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\srv 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\srv\daytonam 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\srv\srvkd 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\dfsinit 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\dfsserver 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\dfsserver\serverlibrary 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\dfsserver\referralserver 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\dfsserver\serverfilterapi 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\dfsserver\reflector 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\dfsserver\reflector\kernel 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\dfsserver\serverfilter 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\lib 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\lib\prefix 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\lib\prefix\um 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\lib\prefix\km 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\lib\misc 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\lib\shash 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\lib\shash\um 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\lib\security 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\setup 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\tools 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\tools\debug 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\tools\dfscmd 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\tools\dfsapi 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\tools\dfsutil 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\remotefs\dfs\tools\dfscompat 
+BUILD: lnk found in base\fs\hsm\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\base\fs\hsm
+BUILD: test found in base\fs\hsm\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\base\fs\hsm
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\types 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\types\wsb 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\types\hsm 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\types\job 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\types\rms 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\types\fsa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\types\mover 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\types\hsmservr 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\idl 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\idl\wsbguid 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\idl\fsaguid 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\idl\fsaps 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\idl\hsmguid 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\idl\hsmps 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\idl\hsmsguid 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\idl\hsmsps 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\idl\jobguid 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\idl\mvrguid 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\idl\rmsguid 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\idl\rmsps 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\wsb 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\idb 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\hsmconn 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\job 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\job\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\fsa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\fsa\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\engine 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\engine\task 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\engine\hsmeng 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\mover 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\mover\server 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\rms 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\rms\server 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\hsmservr 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\hsmservr\service 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\launch 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\gui 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\gui\utility 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\gui\hsmadmin 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\gui\hsmadmin\idl 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\gui\hsmadmin\mergeps 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\gui\hsmadmin\computer 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\gui\hsmadmin\device 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\gui\hsmadmin\volume 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\gui\hsmadmin\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\gui\shellext 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\gui\shellext\idl 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\gui\shellext\proppage 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\gui\shellext\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\gui\rsntfy 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\gui\rsntfy\exe 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\gui\rsoptcom 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\gui\rsoptcom\rscln 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\gui\rsoptcom\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\rstore 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\filter 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\cluster 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\cluster\rsclustr 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\cli 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\cli\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\cli\exe 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\kdexts 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\hsm\sld 
+BUILD: dfrg found in base\fs\utils\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\base\fs\utils
+BUILD: ntback50 found in base\fs\utils\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\base\fs\utils
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\ulib 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\ulib\src 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\ulib\src\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\ntlib 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\ntlib\src 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\ntlib\src\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\ureg 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\ureg\src 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\ureg\src\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\ifsutil 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\ifsutil\src 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\ifsutil\src\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\fmifs 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\fmifs\src 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\fmifs\src\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\ufat 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\ufat\src 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\ufat\src\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\untfs 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\untfs\src 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\untfs\src\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\cufat 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\cufat\src 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\cufat\src\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\asr_fmt 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\asrtools 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\asrtools\asr_pfu 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\asrtools\confdisk 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\attrib 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\attrib\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\autochk 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\autochk\daytona 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\autoconv 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\autoconv\daytona 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\autofmt 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\autofmt\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\chcp 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\chcp\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\chkdsk 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\chkdsk\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\chkntfs 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\chkntfs\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\cipher 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\comp 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\comp\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\compact 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\component 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\convert 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\convert\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\cryptmnu 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\diskcomp 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\diskcomp\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\diskcopy 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\diskcopy\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\diskedit 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\diskedit\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\doskey 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\doskey\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\driverquery 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\fc 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\fc\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\find 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\find\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\findstr 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\help 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\label 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\label\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\format 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\format\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\mode 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\mode\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\more 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\more\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\mountvol 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\openfiles 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\pentbug 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\print 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\print\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\recover 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\recover\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\reg 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\regedit 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\regedt32 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\replace 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\replace\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\runas 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\seclist 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\seclist\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\sigverif 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\sigverif\sigverif 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\sigverif\sigtab 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\sigverif\sld 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\sort 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\sort\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\subst 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\subst\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\tree 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\tree\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\wintools 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\wintools\clb 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\xcopy 
+    z:\home\silvan\loos-build\srv03rtm\base\fs\utils\xcopy\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\csr 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\csr\server 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\csr\csrss 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\sm 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\sm\sfc 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\sm\sfc\publish 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\sm\sfc\rpc 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\sm\sfc\rpc\idl 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\sm\sfc\rpc\cli 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\sm\sfc\rpc\srv 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\sm\sfc\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\sm\sfc\exe 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\sm\sfc\sfcexts 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\sm\sfc\stress 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\sm\sfc\postbuild 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\sm\sfc\cpl 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\sm\sfc\sfpcopy 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\sm\sfc\sfc_fwd 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\sm\server 
+    z:\home\silvan\loos-build\srv03rtm\base\subsys\sm\client 
+    z:\home\silvan\loos-build\srv03rtm\base\win32 
+BUILD: cht found in base\win32\winnls\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\base\win32\winnls
+    z:\home\silvan\loos-build\srv03rtm\base\win32\winnls 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\winnls\daytona 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\winnls\data 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\winnls\data\codepage 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\winnls\data\dlls 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\winnls\data\dlls\euc_db 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\winnls\data\dlls\gb18030 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\winnls\data\dlls\iscii 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\winnls\data\dlls\iso_2022 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\winnls\data\dlls\sna_db 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\winnls\data\dlls\nls 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\winnls\data\dlls\tools 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\winnls\data\dlls\tools\gb18030 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\winnls\data\dlls\tools\gb18030\gbunicnv 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\winnls\data\other 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\winnls\data\sorting 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\winnls\data\embedded 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\winnls\wow64 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\client 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\client\daytona 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\client\wow64 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\server 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\win32simplelock 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\sxs 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\sxs\whistler 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\sxs\whistler_2 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\sxs\drain 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\sxsmain 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\sxsmain\whistler 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\syscompact 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\syscompact_policy_5.1 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\id 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\id\whistler 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\idl 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\eventlog 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\eventlog\whistler 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\utils 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\utils\whistler 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\uuid 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\xmlparser 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\xmlparser\whistler 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\xml 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\xml\whistler 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\dumplib 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\tests 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\tests\sxstest 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\tests\sxstest\idl 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\tests\sxstest\lib 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\tests\sxstest\lib\whistler 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\tests\sxstest\whistler 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\tests\sxstest\dll1 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\tests\sxstest\dll1\1 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\tests\sxstest\dll1\2 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\tests\sxstest\sxsofflineinstall 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\tests\sxstest\sxsofflineinstall\whistler 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\debugexts 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\debugexts\lib 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\debugexts\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\dll\whistler 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\oa 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\oa\idl 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\oa\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\fusion\oa\ps 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\lz32 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\lz32\winlza 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\lz32\tools 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\lz32\tools\expand 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\lz32\lz32_forwarder 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\lz32\embedded 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\verifier 
+    z:\home\silvan\loos-build\srv03rtm\base\win32\verifiersym 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\tools 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\tools\genlib 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\tools\sortpp 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\tools\ppm2pps 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\tools\genthnk 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\tools\idlclean 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\tools\gennt32t 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\cgen 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\whbase 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\whnt32 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\cpu 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\cpu\amd64 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\cpu\amd64\context 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\cpu\amd64\cpu 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\cpu\amd64\dbgexts 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\cpu\ia64 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\wow64log 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\dbgexts 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\dbgexts\wow64 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\ntvdm64 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\regremap 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\regremap\thunk 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\regremap\wow64reg 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\regremap\test 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\regremap\regsetup 
+    z:\home\silvan\loos-build\srv03rtm\base\wow64\wow64 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\idl 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\lib 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\umpnpmgr 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\cfgmgr32 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\setupapi 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\setupapi\sputils 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\setupapi\sputils\ansi 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\setupapi\sputils\unicode 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\setupapi\sputils\extended 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\setupapi\unicode 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\setupapi\wowreg32 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\cfgmgrf 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\newdev 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\hdwwiz 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\hotplug 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\tools 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\tools\pnpreg 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\tools\dock 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\tools\devcon 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\tools\infscan 
+    z:\home\silvan\loos-build\srv03rtm\base\pnp\tools\wmiinst 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\migshared 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\migshared\pcha 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\migshared\pchw 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\migshared\migutil 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\migshared\memdb 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\migshared\regw32d 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\migshared\win95reg 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\migshared\progbar 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\migshared\snapshot 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\migshared\fileenum 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\migshared\fileenum\ansi 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\migshared\fileenum\unicode 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\hwlog 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\setuplog 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\setuplog\ansi 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\setuplog\unicode 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\pidgen 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\pidgen\pidgen 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\pidgen\pidgen\wks 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\pidgen\pidgen\srv 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\pidgen\pidgen\per 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\pidgen\pidgen\ddk 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\pidgen\pidgen\trial 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\pidgen\pidgen\vol 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\pidgen\pidgen\eval 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\complnce 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\complnce\uniuser 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\complnce\ansiuser 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\complnce\kernel 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\complnce\pidinit 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\excppkg 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\pencrypt 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\encrypt 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\migdlls 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\migdlls\src 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\migdlls\src\miglib 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\migdlls\src\miglib\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\migdlls\src\miglib\lib 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\pnpsif 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\hwdb 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\hwdb\hwdb 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\hwdb\hwdblib 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\bom 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\bom\general 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\bom\checkhiv 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\bom\makeboot 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\bom\makeboot\32bit 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\bom\makeboot\16bit 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\legacy 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\legacy\exe 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\moricons 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\textmode 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\textmode\inc 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\textmode\user 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\textmode\spddlang 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\textmode\spddlang\sbcs 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\textmode\spddlang\fe 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\textmode\kernel 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\textmode\kernel\daytona 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\textmode\cmdcons 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\textmode\winnt 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\winnt32 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\winnt32\exe 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\winnt32\apmupgrd 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\winnt32\scripts 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\winnt32\boscomp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\winnt32\faulth 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\winnt32\ftcomp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\stripinf 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\oeminf 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\inf 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\inf\win4 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\inf\win4\tools 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\inf\win4\tools\prodfilt 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\inf\win4\tools\xdosnet 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\inf\win4\tools\unitext 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\inf\win4\tools\stampinf 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\inf\win4\tools\recab 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\inf\win4\tools\wowlist 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\inf\win4\tools\inflib 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\inf\win4\tools\escpeinf 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\inf\win4\tools\infdump 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\inf\win4\tools\inftest 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\inf\win4\tools\infmerge 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\inf\win4\tools\ocinf 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\inf\win4\tools\cabcheck 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\ocmanage 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\ocmanage\common 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\ocmanage\common\unicode 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\ocmanage\sysocmgr 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\ocmanage\sysocmgr\unicode 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\ocmanage\generic 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\ocmanage\generic\unicode 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\readme 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\ntoc 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\svcpack 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\setexts 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\basewin 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\hives 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\hives\bin 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\setupmsi 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\eulas_etc 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\eulas_etc\dtconly 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\eulas_etc\dtconly\common 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\eulas_etc\entonly 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\eulas_etc\entonly\common 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\eulas_etc\blaonly 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\eulas_etc\blaonly\common 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\eulas_etc\sbsonly 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\eulas_etc\sbsonly\export 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\eulas_etc\sbsonly\common 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\bmps 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\billbrd 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\billbrd\unicode 
+BUILD: docs found in base\ntsetup\opktools\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\lib 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\lib\msdinst 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\opklib 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\setupmgr 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\setupmgr\supplib 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\setupmgr\common 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\setupmgr\base 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\setupmgr\net 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\setupmgr\main 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\setupmgr\oc 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\setupmgr\oem 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\setupmgr\exe 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\syslib 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\factory 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\sysprep 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\setupcl 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\sprestrt 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\lfn 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\rcpatch 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\samples 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\deploycb 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\autorun 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\langinst 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\files 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\files\wizard 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\files\autorun 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\setup 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\oemmint 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\netcfg 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\buildhive 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\dskimage 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\depend 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\wpebins 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\msdinst 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\sbsi 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\sbsi\per 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\sbsi\perset 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\sbsi\pro 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\opktools\sbsi\proset 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\setupapi 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\setupapi\wrapper 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\bootent 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\libmsg 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\undostub 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\tools 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\tools\html2bmp 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\bosprep 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\ar 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\br 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\cn 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\cs 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\da 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\de 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\el 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\en 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\es 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\fi 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\fr 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\he 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\hu 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\gb 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\it 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\ja 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\ko 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\nl 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\no 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\pl 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\ru 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\sv 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\tr 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\srvpack_binary_release\tw 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\winbrand 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\syssetup 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\oobe 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\oobe\idl 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\oobe\common 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\oobe\msoobe 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\oobe\msobweb 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\oobe\msobcomm 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\oobe\msobmain 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\oobe\msobshel 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\oobe\msobdl 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\oobe\oobebaln 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\oobe\html 
+    z:\home\silvan\loos-build\srv03rtm\base\ntsetup\oobe\data 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\asl 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\driver 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\driver\amlinew 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\driver\shared 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\driver\nt 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\driver\acpisym 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\battc 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\smbus 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\smbus\smbbatt 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\smbus\smbclass 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\smbus\smbhc 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\smbus\smbali 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\oprghdlr 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\ec 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\tools 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\tools\kdext 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\tools\acpiwake 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\tools\acpisim 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\tools\acpisim\lib 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\tools\acpisim\driver 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\cmbatt 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\compbatt 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\hidbatt 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\wmiacpi 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\sld 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\acpi\upsdemo 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\agp 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\agp\agplib 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\agp\agp440 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\agp\alim1541 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\agp\agpcpq 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\agp\amdagp8x 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\agp\viaagp 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\isapnp 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\mf 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\pccard 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\pccard\pcmcibus 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\pccard\memcard 
+    z:\home\silvan\loos-build\srv03rtm\base\busdrv\pci 
+    z:\home\silvan\loos-build\srv03rtm\base\basedrv 
+    z:\home\silvan\loos-build\srv03rtm\base\basedrv\pnpmem 
+    z:\home\silvan\loos-build\srv03rtm\base\screg 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\idl 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\prflbmsg 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\lib 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\perflib 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\perflib\daytona 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\perfdlls 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\perfdlls\common 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\perfdlls\os 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\perfdlls\disk 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\perfdlls\process 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\perfdlls\netsvcs 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\perfdlls\perfctrs 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\cntrtext 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\cntrtext\initodat 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\cntrtext\common 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\cntrtext\lodctr 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\cntrtext\unlodctr 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\cntrtext\perfini 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\cntrtext\perfini\usa 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\cntrtext\showperf 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\regconn 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\server 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\local 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\client 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\winreg\regsvc 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\sc 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\sc\lib 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\sc\svcslib 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\sc\client 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\sc\server 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\sc\sc 
+    z:\home\silvan\loos-build\srv03rtm\base\screg\sc\svchost 
+    z:\home\silvan\loos-build\srv03rtm\base\eventlog 
+    z:\home\silvan\loos-build\srv03rtm\base\eventlog\server 
+    z:\home\silvan\loos-build\srv03rtm\base\eventlog\elfclnt 
+    z:\home\silvan\loos-build\srv03rtm\base\tools 
+    z:\home\silvan\loos-build\srv03rtm\base\tools\bldrthnk 
+    z:\home\silvan\loos-build\srv03rtm\base\tools\genxx 
+    z:\home\silvan\loos-build\srv03rtm\base\tools\instaler 
+    z:\home\silvan\loos-build\srv03rtm\base\tools\kdexts2 
+    z:\home\silvan\loos-build\srv03rtm\base\tools\kernprof 
+    z:\home\silvan\loos-build\srv03rtm\base\tools\kernrate 
+    z:\home\silvan\loos-build\srv03rtm\base\tools\ntsdexts 
+    z:\home\silvan\loos-build\srv03rtm\base\tools\qsys 
+    z:\home\silvan\loos-build\srv03rtm\base\tools\resmon 
+    z:\home\silvan\loos-build\srv03rtm\base\tools\umdh 
+    z:\home\silvan\loos-build\srv03rtm\base\tools\vadump 
+    z:\home\silvan\loos-build\srv03rtm\base\tools\winerror 
+    z:\home\silvan\loos-build\srv03rtm\base\tools\devctl 
+BUILD: docs found in base\cluster\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\base\cluster
+    z:\home\silvan\loos-build\srv03rtm\base\cluster 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\service 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\service\idl 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\service\api 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\service\ep 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\service\fm 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\service\om 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\service\nm 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\service\gum 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\service\dm 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\service\mm 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\service\lm 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\service\cp 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\service\evtlog 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\service\vss 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\service\init 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\clusrtl 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\clnetcfg 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\clusapi 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\common 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\cluscfg 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\cluscfg\inc 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\cluscfg\uuid 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\cluscfg\internalguids 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\cluscfg\privateguids 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\cluscfg\common 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\cluscfg\w2kproxy 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\cluscfg\middletier 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\cluscfg\server 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\cluscfg\wizard 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\cluscfg\basecluster 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\cluscfg\postcfg 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\cluscfg\evictcleanup 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\cluscfg\startup 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\cluscfg\evictnotify 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\cluscfg\iiscluscfg 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\cluscfg\dll 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\clusocm 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\cluscomp 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\mgmt\component 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin\types 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin\types\idl 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin\types\uuid 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin\common 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin\cladmwiz 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin\cladmwiz\types 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin\cladmwiz\types\idl 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin\cladmwiz\types\uuid 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin\cladmwiz\src 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin\cluadmin 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin\cluadmex 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin\cluadmmc 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin\cluadmmc\types 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin\cluadmmc\types\idl 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin\cluadmmc\types\uuid 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin\cluadmmc\src 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin\debugex 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin\msclus 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\admin\cluster 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resmon 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\resutils 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\disks 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\genapp 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\gensvc 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\ipaddr 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\netname 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\smbshare 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\spooler 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\spooler\splsvc 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\lkquorum 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\genscript 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\clusres 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\msmq 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\clnetres 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\clnetres\clnetres 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\clnetres\clnetresex 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\ndquorum 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\vsstask 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\vsstask\vsstask 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\resdll\vsstask\vsstaskex 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\clusdisk 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\clusnet 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\clusnet\api 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\clusnet\ntemgmt 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\clusnet\wshclus 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\clusnet\xport 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\clusnet\driver 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\clusnet\kdcn 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\clussprt 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\wmiprovider 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\clusexts 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\clusexts\clusexts 
+    z:\home\silvan\loos-build\srv03rtm\base\cluster\clusexts\leaks 
+    z:\home\silvan\loos-build\srv03rtm\base\cmd 
+    z:\home\silvan\loos-build\srv03rtm\base\cmd\cmd 
+    z:\home\silvan\loos-build\srv03rtm\base\remoteboot 
+    z:\home\silvan\loos-build\srv03rtm\base\remoteboot\rbsetup 
+    z:\home\silvan\loos-build\srv03rtm\base\remoteboot\rbsetup\server 
+    z:\home\silvan\loos-build\srv03rtm\base\remoteboot\binaries 
+    z:\home\silvan\loos-build\srv03rtm\base\remoteboot\binaries\i386 
+    z:\home\silvan\loos-build\srv03rtm\base\remoteboot\screens 
+    z:\home\silvan\loos-build\srv03rtm\base\remoteboot\admin 
+    z:\home\silvan\loos-build\srv03rtm\base\remoteboot\imirror 
+    z:\home\silvan\loos-build\srv03rtm\base\remoteboot\riprep 
+    z:\home\silvan\loos-build\srv03rtm\base\remoteboot\bootfloppy 
+    z:\home\silvan\loos-build\srv03rtm\base\remoteboot\bootfloppy\bin 
+    z:\home\silvan\loos-build\srv03rtm\base\remoteboot\cleanri 
+    z:\home\silvan\loos-build\srv03rtm\base\remoteboot\rigpsnap 
+    z:\home\silvan\loos-build\srv03rtm\base\firmware 
+    z:\home\silvan\loos-build\srv03rtm\base\headless 
+    z:\home\silvan\loos-build\srv03rtm\base\headless\lib 
+    z:\home\silvan\loos-build\srv03rtm\base\headless\lib\umode 
+    z:\home\silvan\loos-build\srv03rtm\base\headless\lib\umode\c 
+    z:\home\silvan\loos-build\srv03rtm\base\headless\lib\umode\c\sacapi 
+    z:\home\silvan\loos-build\srv03rtm\base\headless\lib\umode\cpp 
+    z:\home\silvan\loos-build\srv03rtm\base\headless\lib\umode\cpp\emsapi 
+    z:\home\silvan\loos-build\srv03rtm\base\headless\lib\umode\cpp\iohandler 
+    z:\home\silvan\loos-build\srv03rtm\base\headless\cmd 
+    z:\home\silvan\loos-build\srv03rtm\base\headless\cmd\sacsvr 
+    z:\home\silvan\loos-build\srv03rtm\base\headless\cmd\sacsess 
+    z:\home\silvan\loos-build\srv03rtm\base\mspatch 
+    z:\home\silvan\loos-build\srv03rtm\base\mspatch\lzx 
+    z:\home\silvan\loos-build\srv03rtm\base\mspatch\lzx\encoder 
+    z:\home\silvan\loos-build\srv03rtm\base\mspatch\lzx\decoder 
+    z:\home\silvan\loos-build\srv03rtm\base\mspatch\api 
+    z:\home\silvan\loos-build\srv03rtm\base\mspatch\api\mspatch 
+    z:\home\silvan\loos-build\srv03rtm\base\mspatch\api\mspatchc 
+    z:\home\silvan\loos-build\srv03rtm\base\mspatch\api\mspatcha 
+    z:\home\silvan\loos-build\srv03rtm\base\mspatch\api\static 
+    z:\home\silvan\loos-build\srv03rtm\base\mspatch\api\statica 
+    z:\home\silvan\loos-build\srv03rtm\base\mspatch\api\samples 
+    z:\home\silvan\loos-build\srv03rtm\base\mspatch\api\samples\mpatch 
+    z:\home\silvan\loos-build\srv03rtm\base\mspatch\api\samples\apatch 
+    z:\home\silvan\loos-build\srv03rtm\base\mspatch\api\samples\wpatch 
+    z:\home\silvan\loos-build\srv03rtm\base\xip 
+    z:\home\silvan\loos-build\srv03rtm\base\xip\xipdisk 
+    z:\home\silvan\loos-build\srv03rtm\base\zlib 
+    z:\home\silvan\loos-build\srv03rtm\base\zlib\std 
+    z:\home\silvan\loos-build\srv03rtm\base\zlib\d3dx 
+    z:\home\silvan\loos-build\srv03rtm\base\ddk 
+BUILD: wsrm found in admin\dirs, is not a subdirectory of z:\home\silvan\loos-build\srv03rtm\admin
+    z:\home\silvan\loos-build\srv03rtm\admin 
+    z:\home\silvan\loos-build\srv03rtm\admin\published 
+    z:\home\silvan\loos-build\srv03rtm\admin\published\inc 
+    z:\home\silvan\loos-build\srv03rtm\admin\published\dload 
+    z:\home\silvan\loos-build\srv03rtm\admin\published\mstask 
+    z:\home\silvan\loos-build\srv03rtm\admin\published\snapin 
+    z:\home\silvan\loos-build\srv03rtm\admin\published\mmc 
+    z:\home\silvan\loos-build\srv03rtm\admin\published\wmiscmgr 
+    z:\home\silvan\loos-build\srv03rtm\admin\published\msi 
+    z:\home\silvan\loos-build\srv03rtm\admin\published\pchpfr 
+    z:\home\silvan\loos-build\srv03rtm\admin\published\cmdline 
+    z:\home\silvan\loos-build\srv03rtm\admin\activec 
+    z:\home\silvan\loos-build\srv03rtm\admin\activec\types 
+    z:\home\silvan\loos-build\srv03rtm\admin\activec\types\idl 
+    z:\home\silvan\loos-build\srv03rtm\admin\activec\types\proxy 
+    z:\home\silvan\loos-build\srv03rtm\admin\activec\lib 
+    z:\home\silvan\loos-build\srv03rtm\admin\activec\core 
+    z:\home\silvan\loos-build\srv03rtm\admin\activec\core\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\activec\base 
+    z:\home\silvan\loos-build\srv03rtm\admin\activec\base\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\activec\nodemgr 
+    z:\home\silvan\loos-build\srv03rtm\admin\activec\nodemgr\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\activec\conui 
+    z:\home\silvan\loos-build\srv03rtm\admin\activec\conui\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\activec\controls 
+    z:\home\silvan\loos-build\srv03rtm\admin\activec\controls\cic 
+    z:\home\silvan\loos-build\srv03rtm\admin\activec\controls\cic\idl 
+    z:\home\silvan\loos-build\srv03rtm\admin\activec\controls\cic\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\activec\shellext 
+    z:\home\silvan\loos-build\srv03rtm\admin\activec\shellext\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\burnslib 
+    z:\home\silvan\loos-build\srv03rtm\admin\burnslib\core 
+    z:\home\silvan\loos-build\srv03rtm\admin\burnslib\core\log-always 
+    z:\home\silvan\loos-build\srv03rtm\admin\burnslib\core\normal 
+    z:\home\silvan\loos-build\srv03rtm\admin\burnslib\core\log-always-static-linkage 
+    z:\home\silvan\loos-build\srv03rtm\admin\burnslib\src 
+    z:\home\silvan\loos-build\srv03rtm\admin\burnslib\src\log-always 
+    z:\home\silvan\loos-build\srv03rtm\admin\burnslib\src\normal 
+    z:\home\silvan\loos-build\srv03rtm\admin\burnslib\src\log-always-static-linkage 
+    z:\home\silvan\loos-build\srv03rtm\admin\dsadminlib 
+    z:\home\silvan\loos-build\srv03rtm\admin\dsadminlib\src 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\corecopy 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\framewrk 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\filemgmt 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\dfsadmin 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\dfsadmin\common 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\dfsadmin\dfscore 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\dfsadmin\dfsgui 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\dfsadmin\dfsshlex 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\dnsmgr 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\dsadmin 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\domain 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\eventlog 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\eventlog\types 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\eventlog\types\idl 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\eventlog\types\proxy 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\eventlog\types\uuid 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\eventlog\src 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\eventlog\exestub 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\mycomput 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\wsecmgr 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\schmmgmt 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\localsec 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\localsec\src 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\smonlog 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\smonlog\smlogsvc 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\smonlog\smlogcfg 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\certmgr 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\sendcmsg 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\adsiedit 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\certentp 
+    z:\home\silvan\loos-build\srv03rtm\admin\snapin\rolemgr 
+    z:\home\silvan\loos-build\srv03rtm\admin\services 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\smdebug 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\types 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\types\uuid 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\pch 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\idl 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\common 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\job 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\schedule 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\folderui 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\schedui 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\at 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\wizard 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\idletask 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\idletask\idl 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\idletask\client 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\idletask\server 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\client 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\clientpublish 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\setup 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\svc_core 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\sched\service 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\drizzle 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\drizzle\idl 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\drizzle\idl15 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\drizzle\utils 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\drizzle\newjob 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\drizzle\lib 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\drizzle\proxy 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\drizzle\proxy15 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\drizzle\service 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\drizzle\bitsadmin 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\drizzle\isapi 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\drizzle\bits_ie 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\drizzle\server 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\drizzle\server\idl 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\drizzle\server\isapi 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\drizzle\server\mmcexts 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\drizzle\server\bitsoc 
+    z:\home\silvan\loos-build\srv03rtm\admin\services\drizzle\client_cust_action 
+    z:\home\silvan\loos-build\srv03rtm\admin\controls 
+    z:\home\silvan\loos-build\srv03rtm\admin\controls\smonctrl 
+    z:\home\silvan\loos-build\srv03rtm\admin\display 
+    z:\home\silvan\loos-build\srv03rtm\admin\display\proppage 
+    z:\home\silvan\loos-build\srv03rtm\admin\display\proppage\winnt 
+    z:\home\silvan\loos-build\srv03rtm\admin\display\proppage\shell 
+    z:\home\silvan\loos-build\srv03rtm\admin\display\proppage\shell\winnt 
+    z:\home\silvan\loos-build\srv03rtm\admin\display\proppage\admin 
+    z:\home\silvan\loos-build\srv03rtm\admin\display\loghours 
+    z:\home\silvan\loos-build\srv03rtm\admin\dcpromo 
+    z:\home\silvan\loos-build\srv03rtm\admin\dcpromo\dll 
+    z:\home\silvan\loos-build\srv03rtm\admin\dcpromo\exe 
+    z:\home\silvan\loos-build\srv03rtm\admin\dcpromo\helper 
+    z:\home\silvan\loos-build\srv03rtm\admin\consoles 
+    z:\home\silvan\loos-build\srv03rtm\admin\netid 
+    z:\home\silvan\loos-build\srv03rtm\admin\select 
+    z:\home\silvan\loos-build\srv03rtm\admin\select\src 
+    z:\home\silvan\loos-build\srv03rtm\admin\extens 
+    z:\home\silvan\loos-build\srv03rtm\admin\extens\oudeleg 
+    z:\home\silvan\loos-build\srv03rtm\admin\extens\acldiag 
+    z:\home\silvan\loos-build\srv03rtm\admin\dsutils 
+    z:\home\silvan\loos-build\srv03rtm\admin\dsutils\migrate 
+    z:\home\silvan\loos-build\srv03rtm\admin\dsutils\migrate\clonepr 
+    z:\home\silvan\loos-build\srv03rtm\admin\dsutils\migrate\scripts 
+    z:\home\silvan\loos-build\srv03rtm\admin\dsutils\displayspecifierupgrade 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\common 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\common\idl 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\common\idl\wbemuuid 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\common\idl\wbemint 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\common\idl\wbemsvcw2k 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\common\idl\reposit 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\common\idl\wbemads_tlb 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\common\idl\wbemdisp_tlb 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\common\idl\wmimsg 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\common\stdlibrary 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\common\stdlibrary\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\common\stdlibrary\ansi 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\common\utillib 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\common\utillib\unicode_debug 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\common\utillib\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\common\utillib\ansi 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\common\wdmlib 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\common\wmiutils 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\common\newthrow 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\mc 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\comlib 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\comlib\comexesv 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\comlib\comdllsv 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\wbemcomn 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\wbemcomn\comnlib 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\wbemcomn\comndll 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscli 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscli\esscdll 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscli\essclib 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\ess3 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\marshalers 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\marshalers\server2 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\marshalers\coreprox 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\marshalers\wbemprox 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\coredll 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\msg 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscomp 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscomp\stdcons 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscomp\stdcons\smtpcons 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscomp\stdcons\wbemcons 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscomp\stdcons\scrcons 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscomp\forwarding 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscomp\correlation 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscomp\correlation\tmplprov 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscomp\correlation\trnsprov 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscomp\correlation\updprov 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscomp\correlation\scenarios 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscomp\noncom 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscomp\noncom\common 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscomp\noncom\utils 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscomp\noncom\ncobjapi 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscomp\noncom\ncprov 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscomp\krnlprov 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscomp\timeprov 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\esscomp\mof 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\minimfc 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\mofcomp_dll 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\wbemtest 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\mofcompiler 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\stdprov 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\redirect 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\provsubsys 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\provsubsys\common 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\provsubsys\server 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\provsubsys\server\dll 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\provsubsys\server\exe 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\provsubsys\decoupledclient 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\adap 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\wmicooker 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\xfiles 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\mofs 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\winmgmt\winmgmt2 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\win32provider 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\win32provider\common 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\win32provider\common\w2k 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\win32provider\providers 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\win32provider\providers\w2k 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\win32provider\dfsprovider 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\win32provider\dfsprovider\dll 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\win32provider\dskquotaprovider 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\win32provider\dskquotaprovider\dll 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\win32provider\sessionandconnections 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\win32provider\sessionandconnections\dll 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\win32provider\cimwin32a 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\win32provider\cimwin32a\w2k 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\framework 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\framework\provexpt 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\framework\provexpt\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\framework\provexpt\ansi 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\framework\provmfc 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\framework\provmfc\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\framework\thrdlog 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\framework\thrdlog\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\framework\pathprsr 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\framework\pathprsr\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\dsprovider 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\dsprovider\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\dsprovider\mofs 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\msiprovider 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\msiprovider\dll 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\nteventprovider 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\nteventprovider\core 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\nteventprovider\dll 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\common 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\common\snmpmfc 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\common\snmpmfc\ansi 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\common\snmpmfc\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\common\thrdlog 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\common\sclcomm 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\smir 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\compilers 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\compilers\smi2smir 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\compilers\smi2smir\lib 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\compilers\smi2smir\lib\smierrsm 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\compilers\smi2smir\lib\smierrsy 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\compilers\smi2smir\lib\smimsgif 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\compilers\smi2smir\lib\simclib 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\compilers\smi2smir\exe 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\provider 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\provider\instclas 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\mofs 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\mofs\snmpv1 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\mofs\snmpv1\rfcs 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\mibs 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\mibs\snmpv1 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\mibs\snmpv1\rfcs 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\smir_mofs 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\smir_mofs\snmpv1 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\smir_mofs\snmpv1\rfcs 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\snmpprovider\snmpsetup 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\wdmprovider 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\viewprovider 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\viewprovider\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\mofs 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\jobobjectprov 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\iproute 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\iproute\dll 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\ping 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\ping\dll 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\providers\ping\dll\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\policman 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\policman\mof 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\policman\provider 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\adapters 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\adapters\wmireverseperformancemonitor 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\adapters\wmireverseperformancemonitor\wmiadapter_messages 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\adapters\wmireverseperformancemonitor\wmiadapter_refresh 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\adapters\wmireverseperformancemonitor\wmiadapter 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\adapters\wmireverseperformancemonitor\wmireverseadapter 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\scripting 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\xmltransport 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\xmltransport\server 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\xmltransport\server\wmixmlidl 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\xmltransport\server\wmi2xml 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\xmltransport\dtd 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\sdk 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\sdk\framedyn 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\sdk\framedyn\dyd 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\sdk\framedyn\dyn 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\sdk\psstools 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\sdk\psstools\utillib 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\sdk\vc7 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\sdk\vc7\wmiscriptutils 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\sdk\license 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\setup 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\setup\bin 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\setup\bin\wbemupgradedll 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\shell 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\shell\atlui 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\shell\atlui\common 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\shell\atlui\common\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\shell\atlui\mmfutil 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\shell\atlui\wmicntl 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\shell\atlui\wmicntl\snapin 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\shell\atlui\wmicntl\msc 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\shell\atlui\cmprops 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\shell\atlui\servdeps 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\tools 
+    z:\home\silvan\loos-build\srv03rtm\admin\wmi\wbem\tools\wmic 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\res 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\res\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\buildtools 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\buildtools\makeodl 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\idl 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\idl\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\auto 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\auto\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\engine 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\engine\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msi 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msi\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\handler 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\handler\jpeg 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\handler\jpeg\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\handler\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\instmsi 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\instmsi\regsip 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\instmsi\regsip\unicode 
+BUILD: z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools: ignoring bad subdirectory: {i386}
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msidb 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msifiler 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msiinfo 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msimerg 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msitran 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msival 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msival\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\cabddfsz 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msistver 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\evalcom 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\evalcom\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msival2 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msival2\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\iceman 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\iceman\msiice.dll 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\iceman\msiice.dll\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\iceman\msiice11.dll 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\iceman\msiice11.dll\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\iceman\msiice15.dll 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\iceman\msiice15.dll\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\iceman\shrice.dll 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\iceman\shrice.dll\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\iceman\shrice11.dll 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\iceman\shrice11.dll\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\iceman\shrice15.dll 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\iceman\shrice15.dll\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\iceman\modice.dll 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\iceman\modice.dll\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\iceman\cubes 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msizap 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msizap\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\mergemod 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\mergemod\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\regmsi 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\regmsi\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msiregmv 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msiregmv\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\orca 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\orca\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msimsg 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msimsg\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msicert 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msistuff 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msistuff\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msitools\msishort 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msiexec 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msiexec\unicode 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msisip 
+    z:\home\silvan\loos-build\srv03rtm\admin\darwin\src\msisip\unicode 

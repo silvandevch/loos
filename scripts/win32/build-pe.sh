@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Build the LoOS user-mode system DLLs (ntdll.dll, kernel32.dll) as real PE32+ images.
+#   scripts/win32/build-pe.sh [outdir]
+# Needs: clang (any x86-64 build with the Windows target) and an LLD in link mode.
+# LLD is taken from $LLD, then PATH (lld-link / ld.lld), then the local Rust toolchain's rust-lld.
+set -euo pipefail
+here="$(cd "$(dirname "$0")/../.." && pwd)"
+out="${1:-${OUT_ROOT:-$here/../loos/out}/win32}"
+src="$here/src/win32"
+mkdir -p "$out/obj"
+
+find_lld() {
+    if [ -n "${LLD:-}" ]; then echo "$LLD"; return; fi
+    for c in lld-link; do command -v "$c" >/dev/null 2>&1 && { echo "$(command -v $c)"; return; }; done
+    for t in "$HOME"/.rustup/toolchains/*/lib/rustlib/*/bin/rust-lld; do [ -x "$t" ] && { echo "$t -flavor link"; return; }; done
+    echo "error: no lld found (install lld, or rustup component rust-lld, or set LLD=)" >&2; exit 1
+}
+LINK="$(find_lld)"
+CC=(clang -target x86_64-pc-windows-msvc -ffreestanding -fno-stack-protector -fno-builtin -O2 -Wall -Wextra -Werror -std=c11
+    -I"$src/crt/include" -I"$src/include")
+
+obj() {   # obj <src> <name>
+    "${CC[@]}" "$1" -c -o "$out/obj/$2.obj"
+    echo "$out/obj/$2.obj"
+}
+
+# ---- shared runtime ----
+crt=( "$(obj "$src/crt/string.c" crt_string)" )
+"${CC[@]}" -x assembler-with-cpp "$src/crt/chkstk.S" -c -o "$out/obj/chkstk.obj"; crt+=( "$out/obj/chkstk.obj" )
+
+# ---- ntdll ----
+python3 "$here/scripts/win32/gen_exports.py" syscalls "$src/ntdll/syscalls.tbl" "$out/syscalls.c"
+nt=( "${crt[@]}" "$(obj "$out/syscalls.c" nt_syscalls)" )
+for f in errmap version ldr_api process; do nt+=( "$(obj "$src/ntdll/$f.c" nt_$f)" ); done
+for f in compat/compat ldr/ldr pe/pe apisets/apiset apisets/apiset_table; do
+    b="nt_$(basename "$f")"
+    nt+=( "$(obj "$src/$f.c" "$b")" )
+done
+python3 "$here/scripts/win32/gen_exports.py" def ntdll "$out" "$src"/ntdll/errmap.c "$src"/ntdll/version.c "$src"/ntdll/ldr_api.c "$src"/ntdll/process.c "$src/ntdll/syscalls.tbl"
+$LINK /dll /nodefaultlib /noentry /machine:x64 /base:0x180000000 /def:"$out/ntdll.def" /implib:"$out/ntdll.lib" /out:"$out/ntdll.dll" "${nt[@]}"
+
+# ---- kernelbase (the implementation; API sets resolve here) and kernel32 (forwarders, as on Windows 10) ----
+kb=( "${crt[@]}" )
+for f in file mem path proc sync version; do kb+=( "$(obj "$src/kernel32/$f.c" kb_$f)" ); done
+python3 "$here/scripts/win32/gen_exports.py" def kernelbase "$out" "$src"/kernel32/*.c
+$LINK /dll /nodefaultlib /noentry /machine:x64 /base:0x180100000 /def:"$out/kernelbase.def" /implib:"$out/kernelbase.lib" /out:"$out/kernelbase.dll" "$out/ntdll.lib" "${kb[@]}"
+
+python3 "$here/scripts/win32/gen_exports.py" def --forward-to=KERNELBASE kernel32 "$out" "$src"/kernel32/*.c
+echo 'const char loos_kernel32_forwarders_only = 0;' > "$out/k32_empty.c"
+$LINK /dll /nodefaultlib /noentry /machine:x64 /base:0x180200000 /def:"$out/kernel32.def" /implib:"$out/kernel32.lib" /out:"$out/kernel32.dll" "$(obj "$out/k32_empty.c" k32_empty)" "$out/kernelbase.lib"
+
+ls -l "$out"/*.dll

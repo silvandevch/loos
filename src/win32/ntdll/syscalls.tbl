@@ -1,0 +1,31 @@
+# NT system service table: name number.
+# PROVISIONAL numbering generated from the Nt* surface kernel32 uses. The syscall ABI and final numbers
+# belong to the kernel (task #12, astra); ntdll's stubs are generated from this file, so changing a number here
+# is the only edit needed on the user-mode side.
+NtCreateFile 0
+NtOpenFile 1
+NtReadFile 2
+NtWriteFile 3
+NtQueryInformationFile 4
+NtSetInformationFile 5
+NtQueryAttributesFile 6
+NtFlushBuffersFile 7
+NtClose 8
+NtDuplicateObject 9
+NtAllocateVirtualMemory 10
+NtFreeVirtualMemory 11
+NtProtectVirtualMemory 12
+NtQueryVirtualMemory 13
+NtCreateEvent 14
+NtSetEvent 15
+NtResetEvent 16
+NtCreateMutant 17
+NtReleaseMutant 18
+NtCreateSemaphore 19
+NtReleaseSemaphore 20
+NtWaitForSingleObject 21
+NtWaitForMultipleObjects 22
+NtDelayExecution 23
+NtQueryPerformanceCounter 24
+NtQuerySystemTime 25
+NtTerminateProcess 26

@@ -9,13 +9,13 @@ Branding is presentation-only — behavior, formats, and interfaces are unchange
 
 ## Registry
 
-Fill this in as you bring apps over. One row per app.
+This registry tracks the application ports and their LoOS runtime status.
 
 | App | Origin (era) | Source in repo | Rebrand only? | Runs on LoOS | Notes |
 |---|---|---|---|---|---|
-| _(example)_ Notepad | Win10 | `apps/notepad/` | yes | ☐ | plain Win32, easy first target |
-| _(example)_ Calculator | Win10/11 | `apps/calc/` | yes | ☐ | UWP-ish; tests API sets |
-| _…_ | | | | | |
+| LoCmd | NT command processor, extended for LoOS | `apps/loos-cmd/` | no | ☐ | CMake target and Windows CI build; network clients/probes removed |
+| LoNotepad | Windows 11 | `apps/loos-notepad/` | no | ☐ | CMake target and Windows CI build; rebranded |
+| LoTaskMgr | Windows 7 / early 10 | `apps/loos-taskmgr/` | no | ☐ | CMake target and Windows CI build; online lookups and unsupported shell/firewall actions removed |
 
 Columns:
 - **Origin (era):** which Windows version the app came from (drives the

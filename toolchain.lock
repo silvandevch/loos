@@ -1,0 +1,5 @@
+# LoOS native read-path build inputs.  No third-party packages are required.
+base_image=debian:12.6-slim
+compiler=gcc
+python=3.11.2
+dependencies=btrfs-progs,gcc,make,python3

@@ -1,0 +1,22 @@
+# Build artefacts
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.exe.bak
+
+# Editor scratch
+*~
+*.swp
+.vscode/
+.idea/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# PE executables are build outputs; CMake writes them under OUT_ROOT.
+*.exe
+# Resource compiler output
+*.res

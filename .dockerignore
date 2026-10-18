@@ -1,0 +1,10 @@
+.git
+.agentbus
+.loosrc
+backups
+build
+logs
+out
+*.exe
+*.obj
+*.res

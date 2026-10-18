@@ -41,7 +41,7 @@ own headers. No MS build tools required for the shipped build.
 
 | Level | How | Gate |
 |---|---|---|
-| Unit | `ctest` per module | must pass to merge |
+| Unit | `./loos source-build` / `ctest` per module | must pass to merge |
 | Kernel boot | `tests/boot/` boots the ISO headless in QEMU, asserts serial output | must pass |
 | Compat corpus | launch each app in QEMU, assert it reaches its main window | must pass per milestone |
 | API sets | resolve every `api-ms-win-*` import in the corpus | must pass |

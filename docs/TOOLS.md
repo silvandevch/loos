@@ -10,6 +10,7 @@ One command does most things: **`./loos`**. Everything else is below it.
 ./loos prep              run the whole prep pipeline (see scripts/)
 ./loos verify            pre-flight: tools, wine prefix, paths
 ./loos build             build under Wine (hours)
+./loos source-build      configure, compile, and test CMake modules
 ./loos iso               (re)make the bootable ISO
 ./loos qemu              boot the ISO
 ./loos fixwine           fix Wine .cmd/.bat association
@@ -20,6 +21,39 @@ One command does most things: **`./loos`**. Everything else is below it.
 ```
 
 Config is `env.sh` + optional `.loosrc` — see [LAYOUT.md](LAYOUT.md).
+
+## LoOS source build (CMake + Ninja)
+
+`CMakePresets.json` provides `host-clang`, `kernel-clang`, `windows-msvc`, and
+`windows-mingw`
+configure/build presets. Source `env.sh` first so the preset writes generated
+files under `OUT_ROOT/cmake/`:
+
+```bash
+source ./env.sh
+cmake --preset host-clang
+cmake --build --preset host-clang
+ctest --preset host-clang
+```
+
+`./loos source-build kernel-clang` configures the freestanding target; it does
+not compile until kernel sources are added. `./loos source-build windows-msvc`
+compiles Windows modules when the Windows SDK and companion tools are installed.
+`./loos source-build windows-mingw` cross-compiles all three LoOS PE apps on
+Linux with MinGW-w64. Neither cross target runs the host CTest suites.
+
+See [BUILD.md](BUILD.md#c-build-the-loos-source-modules-cmake) for the
+cross-target requirements and current test status.
+
+The compatibility runner is `tests/compat/run.py`; validate/list registered
+cases with `python3 tests/compat/run.py --list`. Runtime runs require a LoOS
+launcher, for example `python3 tests/compat/run.py --era 10 --launcher
+./path/to/loos-app-launcher`. See `tests/compat/README.md`.
+
+The headless QEMU assertion harness is `tests/boot/qemu-serial.sh`; it accepts
+an ISO and one or more `--expect TEXT` serial assertions. It runs with
+networking disabled and stores the serial log under `OUT_ROOT/logs/` by
+default.
 
 ---
 

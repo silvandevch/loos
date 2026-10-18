@@ -5,6 +5,8 @@
 #   ./loos setup             fetch source + patchkit, verify layout
 #   ./loos prep              overlay + oobe + certs + media tags + missing bins
 #   ./loos build             build the OS (under Wine, no VM)
+#   ./loos source-build      build and test LoOS CMake modules (host-clang)
+#   ./loos source-build windows-mingw  cross-build LoOS PE apps on Linux
 #   ./loos iso               (re)make the bootable ISO
 #   ./loos qemu              boot the ISO in QEMU
 #   ./loos vm-build          build on the Windows VM over SSH (all steps)
@@ -47,6 +49,27 @@ cmd_docs() {
     ${PAGER:-cat} "$d/$f"
 }
 
+cmd_source_build() {
+    local preset="${1:-host-clang}"
+    case "$preset" in
+        host-clang|kernel-clang|windows-msvc|windows-mingw) ;;
+        *) die "usage: loos source-build [host-clang|kernel-clang|windows-msvc|windows-mingw]" ;;
+    esac
+    command -v cmake >/dev/null || die "cmake is required for source-build"
+    command -v ninja >/dev/null || die "ninja is required for source-build"
+    cmake --preset "$preset" || return $?
+    if [ "$preset" = kernel-clang ]; then
+        log "kernel target configured; no src/kernel build targets exist yet"
+        return 0
+    fi
+    cmake --build --preset "$preset" || return $?
+    if [ "$preset" = host-clang ]; then
+        ctest --preset host-clang || return $?
+    elif [ "$preset" = windows-mingw ]; then
+        cmake --build --preset windows-mingw --target locmd lonotepad lotaskmgr || return $?
+    fi
+}
+
 cmd_relocate() {
     local src="${1:-}" out="${2:-}"
     [ -n "$src" ] || die "usage: loos relocate <SRC_ROOT> [OUT_ROOT]"
@@ -62,6 +85,7 @@ case "${1:-help}" in
     setup)    shift; bash "$SCRIPTS_DIR/00-fetch.sh" && bash "$SCRIPTS_DIR/01-structure.sh" ;;
     prep)     shift; bash "$SCRIPTS_DIR/run-all.sh" ;;
     build)    shift; bash "$SCRIPTS_DIR/09-build-all.sh" ;;
+    source-build) shift; cmd_source_build "$@" ;;
     iso)      shift; bash "$SCRIPTS_DIR/_iso-run.sh" ;;
     qemu)     shift; bash "$HERE/remote/run-qemu.sh" "$NT_OUT/loos.iso" ;;
     vm-build) shift; python3 "$HERE/remote/loos-build.py" all ;;

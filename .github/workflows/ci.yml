@@ -1,0 +1,89 @@
+name: LoOS CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      boot_iso_path:
+        description: Path to a LoOS ISO visible to the self-hosted runner
+        required: false
+        type: string
+      boot_serial_marker:
+        description: Required exact substring emitted on the serial console
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  linux-apps:
+    name: Windows desktop applications (MinGW-w64)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install MinGW-w64
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y cmake ninja-build gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64
+      - name: Build LoOS applications
+        env:
+          OUT_ROOT: ${{ runner.temp }}/loos-out
+        run: |
+          source ./env.sh
+          cmake --preset windows-mingw
+          cmake --build --preset windows-mingw --target locmd lonotepad lotaskmgr --parallel 2
+
+  host-tests:
+    name: Host tests (${{ matrix.compiler }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [clang, gcc]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Configure
+        env:
+          CC: ${{ matrix.compiler }}
+          BUILD_DIR: ${{ runner.temp }}/loos-${{ matrix.compiler }}
+        run: cmake -S . -B "$BUILD_DIR" -G Ninja -DCMAKE_C_COMPILER="$CC" -DBUILD_TESTING=ON
+      - name: Build
+        env:
+          BUILD_DIR: ${{ runner.temp }}/loos-${{ matrix.compiler }}
+        run: cmake --build "$BUILD_DIR" --parallel 2
+      - name: Test
+        env:
+          BUILD_DIR: ${{ runner.temp }}/loos-${{ matrix.compiler }}
+        run: ctest --test-dir "$BUILD_DIR" --output-on-failure
+      - name: Check API-set host coverage report
+        run: python3 tests/win32/apisets/host_coverage.py --check
+      - name: Check source for direct network access
+        run: python3 tests/privacy/privacy_lint.py
+
+  qemu-boot:
+    name: QEMU boot (self-hosted)
+    needs: host-tests
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.boot_iso_path != '' && inputs.boot_serial_marker != '' }}
+    runs-on: self-hosted
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+      - name: Boot and assert serial output
+        env:
+          BOOT_ISO_PATH: ${{ inputs.boot_iso_path }}
+          BOOT_SERIAL_MARKER: ${{ inputs.boot_serial_marker }}
+          QEMU_SERIAL_LOG: ${{ runner.temp }}/loos-qemu-serial.log
+          QEMU_TIMEOUT: 120
+        run: |
+          test -n "$BOOT_ISO_PATH"
+          test -n "$BOOT_SERIAL_MARKER"
+          tests/boot/qemu-serial.sh "$BOOT_ISO_PATH" \
+            --expect "$BOOT_SERIAL_MARKER" --timeout "$QEMU_TIMEOUT" \
+            --log "$QEMU_SERIAL_LOG"
+      - name: Upload serial log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: qemu-serial-${{ github.run_id }}
+          path: ${{ runner.temp }}/loos-qemu-serial.log
+          if-no-files-found: warn

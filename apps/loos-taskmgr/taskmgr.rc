@@ -1,0 +1,249 @@
+/* ============================================================================
+ *  LoOS/taskmgr.exe resources - native dialogs for the LoOS Task Manager.
+ * ============================================================================
+ *  The classic Task Manager builds most of its UI in code; the modal
+ *  dialogs below are the only templates that need resources:
+ *    101  "Create New Task" (Run) - edit + OK/Cancel
+ *    102  "Find" - text + OK/Cancel
+ *    103  "Processor Affinity" - multi-select CPU listbox + OK/Cancel
+ *    104  "Send Message" - title + text + OK/Cancel
+ *    105  "About Task Manager" - static text + OK
+ *  Menus, accelerators and the tab/list UI are built in taskmgr.c so the
+ *  single .c file stays the source of truth (same split as LoOS notepad).
+ *
+ *  NOTE: the window icon is taskmgr.ico (original LoOS art, ID 1).
+ *
+ *  BUILD: rc /fo C:\LoOS\out\taskmgr.res taskmgr.rc
+ * ============================================================================
+ */
+
+#include <windows.h>
+
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+
+/* Application manifest: comctl32 v6, PerMonitorV2 DPI, long paths. */
+1 RT_MANIFEST "taskmgr.exe.manifest"
+
+/* Original LoOS art (dark tile, CPU pulse, memory bars) - not Microsoft art. */
+1 ICON "taskmgr.ico"
+
+/* ---- 101: Create New Task ------------------------------------------------ */
+101 DIALOGEX 0, 0, 260, 78
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Create New Task"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "&Open:", 1102, 8, 10, 28, 8
+    EDITTEXT        1001, 40, 8, 212, 12, ES_AUTOHSCROLL | WS_TABSTOP | WS_GROUP
+    LTEXT           "Type the name of a program, folder, or document, and Windows will open it for you.",
+                    1103, 8, 26, 244, 20
+    DEFPUSHBUTTON   "OK", IDOK, 144, 58, 50, 14, WS_TABSTOP | WS_GROUP
+    PUSHBUTTON      "Cancel", IDCANCEL, 202, 58, 50, 14, WS_TABSTOP
+END
+
+/* ---- 102: Find ------------------------------------------------------------ */
+102 DIALOGEX 0, 0, 240, 60
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Find"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "&Find what:", 1104, 8, 10, 44, 8
+    EDITTEXT        1002, 56, 8, 176, 12, ES_AUTOHSCROLL | WS_TABSTOP | WS_GROUP
+    DEFPUSHBUTTON   "OK", IDOK, 124, 38, 50, 14, WS_TABSTOP | WS_GROUP
+    PUSHBUTTON      "Cancel", IDCANCEL, 182, 38, 50, 14, WS_TABSTOP
+END
+
+/* ---- 103: Processor Affinity ---------------------------------------------- */
+103 DIALOGEX 0, 0, 220, 190
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Processor Affinity"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "The processors that this process may use:",
+                    1105, 8, 8, 204, 8
+    LISTBOX         1003, 8, 20, 204, 140,
+                    LBS_MULTIPLESEL | LBS_NOINTEGRALHEIGHT |
+                    WS_VSCROLL | WS_TABSTOP | WS_BORDER
+    DEFPUSHBUTTON   "OK", IDOK, 104, 168, 50, 14, WS_TABSTOP | WS_GROUP
+    PUSHBUTTON      "Cancel", IDCANCEL, 162, 168, 50, 14, WS_TABSTOP
+END
+
+/* ---- 104: Send Message ----------------------------------------------------- */
+104 DIALOGEX 0, 0, 280, 130
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Send Message"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "&Title:", 1106, 8, 10, 28, 8
+    EDITTEXT        1004, 44, 8, 228, 12, ES_AUTOHSCROLL | WS_TABSTOP | WS_GROUP
+    LTEXT           "&Message:", 1107, 8, 28, 36, 8
+    EDITTEXT        1005, 8, 40, 264, 64,
+                    ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL |
+                    WS_TABSTOP | WS_BORDER
+    DEFPUSHBUTTON   "OK", IDOK, 164, 110, 50, 14, WS_TABSTOP | WS_GROUP
+    PUSHBUTTON      "Cancel", IDCANCEL, 222, 110, 50, 14, WS_TABSTOP
+END
+
+/* ---- 105: About ------------------------------------------------------------ */
+105 DIALOGEX 0, 0, 280, 90
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "About Task Manager"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CTEXT           "LoOS Task Manager", 1108, 8, 10, 264, 10
+    CTEXT           "Native Win32 task manager for LoOS.", 1109, 8, 24, 264, 8
+    CTEXT           "No ETW telemetry. No XAML. Offline help only.",
+                    1110, 8, 36, 264, 8
+    DEFPUSHBUTTON   "OK", IDOK, 115, 62, 50, 14, WS_TABSTOP | WS_GROUP
+END
+
+/* ---- 106: Why is this slow? ------------------------------------------------ */
+106 DIALOGEX 0, 0, 340, 230
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Why Is This Slow?"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    EDITTEXT        1011, 8, 8, 324, 196,
+                    ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL |
+                    WS_VSCROLL | WS_BORDER
+    DEFPUSHBUTTON   "Close", IDOK, 140, 210, 60, 14, WS_TABSTOP | WS_GROUP
+END
+
+/* ---- 107: Network connections ---------------------------------------------- */
+107 DIALOGEX 0, 0, 420, 220
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Connections"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LISTBOX         1010, 8, 8, 404, 170,
+                    LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_HSCROLL |
+                    WS_TABSTOP | WS_BORDER
+    PUSHBUTTON      "Copy line", 1024, 84, 198, 60, 14, WS_TABSTOP
+    DEFPUSHBUTTON   "Close", IDOK, 352, 198, 60, 14, WS_TABSTOP
+END
+
+/* ---- 108: Thread history ---------------------------------------------------- */
+108 DIALOGEX 0, 0, 380, 300
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Threads"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "threads: ?", 1011, 8, 8, 364, 10
+    LISTBOX         1010, 8, 22, 364, 130,
+                    LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_TABSTOP | WS_BORDER
+    CTEXT           "Live thread-count timeline draws below.", 1101, 8, 156, 364, 8
+    DEFPUSHBUTTON   "Close", IDOK, 160, 278, 60, 14, WS_TABSTOP | WS_GROUP
+END
+
+/* ---- 109: GPU driver events -------------------------------------------------- */
+109 DIALOGEX 0, 0, 420, 220
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "GPU Driver Events"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LISTBOX         1010, 8, 8, 404, 180,
+                    LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_HSCROLL |
+                    WS_TABSTOP | WS_BORDER
+    DEFPUSHBUTTON   "Close", IDOK, 180, 198, 60, 14, WS_TABSTOP | WS_GROUP
+END
+
+/* ---- 110: Performance alerts -------------------------------------------------- */
+110 DIALOGEX 0, 0, 260, 110
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Performance Alerts"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "Alert me with a tray balloon when (0 = off):", 1101, 8, 8, 244, 10
+    LTEXT           "CPU at or above (%)", 1102, 8, 26, 120, 8
+    EDITTEXT        1012, 140, 24, 40, 12, ES_NUMBER | WS_TABSTOP | WS_GROUP | WS_BORDER
+    LTEXT           "Memory at or above (%)", 1103, 8, 44, 120, 8
+    EDITTEXT        1013, 140, 42, 40, 12, ES_NUMBER | WS_TABSTOP | WS_BORDER
+    LTEXT           "Sustained (seconds)", 1104, 8, 62, 120, 8
+    EDITTEXT        1014, 140, 60, 40, 12, ES_NUMBER | WS_TABSTOP | WS_BORDER
+    LTEXT           "CPU temperature alerts need vendor drivers and are not available.",
+                    1105, 8, 78, 244, 10
+    DEFPUSHBUTTON   "OK", IDOK, 100, 92, 50, 14, WS_TABSTOP | WS_GROUP
+    PUSHBUTTON      "Cancel", IDCANCEL, 158, 92, 50, 14, WS_TABSTOP
+END
+
+/* ---- 111: Heat-map colors ------------------------------------------------------ */
+111 DIALOGEX 0, 0, 240, 120
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Heat-Map Colors"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "Normal (<50%)", 1101, 8, 12, 90, 8
+    CONTROL         "", 1015, "Static", SS_NOTIFY | SS_SUNKEN | WS_BORDER,
+                    110, 8, 120, 16
+    LTEXT           "High (50-85%)", 1102, 8, 34, 90, 8
+    CONTROL         "", 1016, "Static", SS_NOTIFY | SS_SUNKEN | WS_BORDER,
+                    110, 30, 120, 16
+    LTEXT           "Critical (>85%)", 1103, 8, 56, 90, 8
+    CONTROL         "", 1017, "Static", SS_NOTIFY | SS_SUNKEN | WS_BORDER,
+                    110, 52, 120, 16
+    DEFPUSHBUTTON   "OK", IDOK, 70, 98, 50, 14, WS_TABSTOP | WS_GROUP
+    PUSHBUTTON      "Cancel", IDCANCEL, 128, 98, 50, 14, WS_TABSTOP
+END
+
+/* ---- 112: Automatic process caps ------------------------------------------------ */
+112 DIALOGEX 0, 0, 380, 230
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Automatic Process Caps"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LISTBOX         1010, 8, 8, 364, 100,
+                    LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_TABSTOP | WS_BORDER
+    LTEXT           "Name contains:", 1101, 8, 118, 70, 8
+    EDITTEXT        1018, 84, 116, 120, 12, ES_AUTOHSCROLL | WS_TABSTOP | WS_GROUP | WS_BORDER
+    LTEXT           "Over (MB):", 1102, 210, 118, 50, 8
+    EDITTEXT        1019, 264, 116, 60, 12, ES_NUMBER | WS_TABSTOP | WS_BORDER
+    LTEXT           "Action:", 1103, 8, 138, 40, 8
+    COMBOBOX        1020, 84, 136, 120, 80,
+                    CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "Add rule", 1021, 210, 136, 70, 14, WS_TABSTOP | WS_GROUP
+    PUSHBUTTON      "Delete", 1022, 288, 136, 60, 14, WS_TABSTOP
+    LTEXT           "Checked every refresh. Rules persist in the registry.",
+                    1104, 8, 160, 364, 8
+    DEFPUSHBUTTON   "Close", IDOK, 160, 208, 60, 14, WS_TABSTOP | WS_GROUP
+END
+
+/* ---- 113: Recently terminated --------------------------------------------------- */
+113 DIALOGEX 0, 0, 420, 220
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Recently Terminated"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LISTBOX         1010, 8, 8, 404, 180,
+                    LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_HSCROLL |
+                    WS_TABSTOP | WS_BORDER
+    DEFPUSHBUTTON   "Close", IDOK, 180, 198, 60, 14, WS_TABSTOP | WS_GROUP
+END
+
+/* ---- Version info ---------------------------------------------------------- */
+1 VERSIONINFO
+FILEVERSION     1,0,0,0
+PRODUCTVERSION  1,0,0,0
+FILEFLAGSMASK   0x3fL
+FILEFLAGS       0x0L
+FILEOS          0x40004L
+FILETYPE        0x1L
+FILESUBTYPE     0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName",      "LoOS"
+            VALUE "FileDescription",  "LoOS Task Manager"
+            VALUE "FileVersion",      "1.0"
+            VALUE "InternalName",     "taskmgr"
+            VALUE "OriginalFilename", "taskmgr.exe"
+            VALUE "ProductName",      "LoOS Task Manager"
+            VALUE "ProductVersion",   "1.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

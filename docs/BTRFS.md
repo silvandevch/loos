@@ -67,7 +67,17 @@ implementation. The realistic path:
 
 ## Milestones
 
-- B0: read-only btrfs mount (root subvolume, uncompressed) + list/read files.
+- B0: read-only btrfs mount (top-level root subvolume, uncompressed) + list/read
+  files. The first reader is in `src/fs/btrfs/`: it validates the primary
+  superblock and metadata CRC32C checksums, bootstraps the system/chunk maps,
+  resolves the root tree's top-level filesystem item, and reads inline or regular
+  uncompressed extents through a block-device callback. Striped/parity chunks,
+  compressed/encrypted extents, subvolume selection, and data checksum-tree
+  verification remain explicit follow-up work; unsupported formats fail rather
+  than returning unverified bytes. Single, DUP, and mirrored chunks currently
+  read the first stripe only; mirror verification/fallback is not implemented.
+  Directory enumeration currently follows `DIR_ITEM` hash order rather than
+  `DIR_INDEX` insertion order.
 - B1: write path (allocate, COW, checksum, flush).
 - B2: subvolumes + snapshots + send/receive.
 - B3: compression (zstd), xattr mapping, case-insensitive Win32 layer, ADS
