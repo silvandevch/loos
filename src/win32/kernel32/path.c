@@ -38,6 +38,8 @@ static size_t device_name(const WCHAR *p, size_t n, size_t *start)
     len = e - s;
     if (len == 3) for (i = 0; i < 4; i++)
         if (up(p[s]) == names[i][0] && up(p[s + 1]) == names[i][1] && up(p[s + 2]) == names[i][2]) { *start = s; return 3; }
+    if (len == 6 && up(p[s]) == 'C' && up(p[s + 1]) == 'O' && up(p[s + 2]) == 'N' && up(p[s + 3]) == 'I' && up(p[s + 4]) == 'N' && p[s + 5] == '$') { *start = s; return 6; }
+    if (len == 7 && up(p[s]) == 'C' && up(p[s + 1]) == 'O' && up(p[s + 2]) == 'N' && up(p[s + 3]) == 'O' && up(p[s + 4]) == 'U' && up(p[s + 5]) == 'T' && p[s + 6] == '$') { *start = s; return 7; }
     if (len == 4 && p[s + 3] >= '1' && p[s + 3] <= '9' &&
         ((up(p[s]) == 'C' && up(p[s + 1]) == 'O' && up(p[s + 2]) == 'M') ||
          (up(p[s]) == 'L' && up(p[s + 1]) == 'P' && up(p[s + 2]) == 'T'))) { *start = s; return 4; }
@@ -248,6 +250,17 @@ BOOL WINAPI SetCurrentDirectoryW(LPCWSTR dir)
 }
 
 /* Named kernel objects live under \BaseNamedObjects\ (single session for now). */
+static size_t session_prefix_len(LPCWSTR n)
+{
+    static const char *const pre[] = { "local\\", "global\\" };
+    size_t i, k;
+    for (i = 0; i < 2; i++) {
+        for (k = 0; pre[i][k] && n[k] && (pre[i][k] == '\\' ? n[k] == '\\' : (n[k] | 0x20) == (WCHAR)(unsigned char)pre[i][k]); k++) ;
+        if (!pre[i][k]) return k;
+    }
+    return 0;
+}
+
 DWORD k32_object_attrs(SECURITY_ATTRIBUTES *sa, LPCWSTR name, WCHAR *buf, size_t cap,
                        UNICODE_STRING *us, OBJECT_ATTRIBUTES *oa)
 {
@@ -255,7 +268,9 @@ DWORD k32_object_attrs(SECURITY_ATTRIBUTES *sa, LPCWSTR name, WCHAR *buf, size_t
     ULONG attrs = OBJ_CASE_INSENSITIVE;
     if (sa && sa->bInheritHandle) attrs |= OBJ_INHERIT;
     if (name && *name) {
-        size_t pl = sizeof prefix - 1, nl = wlen(name), i;
+        size_t pl = sizeof prefix - 1, nl, i;
+        name += session_prefix_len(name);   /* Local\\ and Global\\ name the same directory: LoOS has one session */
+        nl = wlen(name);
         if (pl + nl + 1 > cap || (pl + nl) * 2 > 0xFFFE) return ERROR_FILENAME_EXCED_RANGE;
         for (i = 0; i < nl; i++) if (name[i] == '\\') return ERROR_PATH_NOT_FOUND;   /* names may not contain '\' */
         for (i = 0; i < pl; i++) buf[i] = (WCHAR)(unsigned char)prefix[i];

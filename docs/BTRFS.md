@@ -1,88 +1,119 @@
-# LoOS — filesystem: btrfs (not NTFS)
+# LoOS — filesystem: btrfs, and only btrfs
 
-The native, read/write filesystem of LoOS is **btrfs**. NTFS is not the system
-filesystem. This is a deliberate choice: btrfs gives checksums, snapshots,
-subvolumes, compression, and online growth, and avoids NTFS's proprietary,
-patent-encumbered corner cases.
+**btrfs is the only filesystem you choose.** The installer offers no other
+option for root, home, or data: every LoOS volume is btrfs. NTFS is *not* used
+as a system filesystem, and there is no ext4/exFAT/FAT choice for data — btrfs
+replaces all of them. This is deliberate: btrfs gives checksums, copy-on-write,
+snapshots, subvolumes, compression, RAID and online growth in one filesystem,
+with none of NTFS's proprietary, patent-encumbered corner cases.
 
-## What this means
+The only non-btrfs storage in a LoOS system is unavoidable and hidden from the
+user's choice:
 
-- **System volume (root)** is btrfs. Bootloader loads the kernel from btrfs;
-  the kernel mounts a btrfs subvolume as `/`.
-- **FAT32** remains for the EFI System Partition and small boot tooling.
-- **NTFS is not used as the system FS.** For convenience, legacy NTFS volumes
-  may be mounted **read-only** (so users can read old disks), implemented later;
-  never required.
+- **FAT32** — the EFI System Partition (UEFI requirement) and tiny boot tooling.
+- **NTFS, read-only** — an *optional* mount so users can read old Windows disks.
+  Never writable, never a system FS. (See `btrfs-ntfsro` / `ntfs`.)
 
-## Introducing btrfs to a Windows-compatible OS
+## The goal: the full btrfs feature set, 100% stable
 
-Windows apps generally don't care about the filesystem — they call the Win32
-file APIs, which we implement over btrfs. Only a few NTFS-specific features need
-a compatibility layer:
+LoOS implements **all** of btrfs, not a subset, and it must be **100% stable**:
+no data loss, no corruption, clean crash consistency, and `btrfs check` clean
+after every operation, including power-loss and fault injection. Every feature
+below is a task; stability is a task of its own and a gate on all of them.
 
-| Feature apps might expect | How we provide it on btrfs |
+| Feature | What it means | Task |
+|---|---|---|
+| **Copy-on-write** | never overwrite live data; new extents + new tree root | `btrfsw`, `btrfs-cow` |
+| **Checksums** | every data + metadata block checksummed (crc32c, xxhash64/xxh3, sha256, blake2), verified on read, repaired from a good mirror | `btrfs-csum` |
+| **Snapshots** | read-only and writable snapshots, atomic, instant | `btrfs-snap` |
+| **Subvolumes** | nested subvolumes, default subvolume, `readonly`/`nodatacow` flags | `btrfs-subvol` |
+| **Send / receive** | incremental, streamed, deduplicated backup/restore | `btrfs-sendreceive` |
+| **Compression** | zstd, zlib, lzo, lz4, per-file and mount-level, with heuristics | `btrfs-compress` |
+| **RAID** | raid0, raid1, raid1c3, raid1c4, raid10, raid5, raid6 (write-hole-correct) | `btrfs-raid` |
+| **Devices** | multi-device, add/remove/replace, seed devices | `btrfs-device` |
+| **Balance** | rebalance data/metadata/system chunks across devices | `btrfs-balance` |
+| **Scrub** | verify all checksums, auto-repair from mirrors | `btrfs-scrub` |
+| **Free-space tree** | space cache v2 / free-space tree, fast mount | `btrfs-freestree` |
+| **Quotas** | qgroups, subvolume quotas, per-user accounting | `btrfs-qgroup` |
+| **Defrag** | online + autodefrag, compression-aware | `btrfs-defrag` |
+| **Dedupe** | block/ref deduplication | `btrfs-dedupe` |
+| **Reflink** | `FICLONE`/clone_range, `cp --reflink` — instant CoW copies | `btrfs-reflink` |
+| **Preallocation** | `fallocate` modes, sparse files, inline extents | `btrfs-prealloc` |
+| **xattrs / ACLs / caps** | full POSIX xattr, ACL and capability support | `btrfs-xattr` |
+| **Trim** | discard/trim, SSD + zoned-device support | `btrfs-trim` |
+| **Swap** | btrfs swapfile support (CoW-safe) | `btrfs-swap` |
+| **Online resize** | grow/shrink while mounted | `btrfs-resize` |
+| **ioctl surface** | the full btrfs ioctl set apps/tools expect | `btrfs-ioctl` |
+| **Tools** | `check`, `restore`, `rescue` (btrfs-progs equivalent) | `btrfs-check` |
+| **Boot** | boot the kernel from btrfs | `btrfs-boot` |
+| **Stability** | fuzz + power-loss + soak + crash consistency, `check`-clean | `btrfs-stab` |
+
+## Windows-compatible behaviour over btrfs
+
+Windows apps call the Win32 file APIs, which we implement *below* on btrfs. Only
+a few NTFS-specific behaviours need a mapping layer:
+
+| Apps expect | How LoOS provides it on btrfs |
 |---|---|
-| Paths, case-insensitivity | btrfs is case-sensitive; present a case-insensitive lookup layer in the VFS for Win32 callers (and preserve case). |
-| Alternate Data Streams (`file:stream`) | btrfs has no ADS; store named streams as adjacent xattrs or a hidden sidecar subvolume. Document the mapping. |
-| Reparse points / junctions / symlinks | map to btrfs subvolumes/symlinks + our reparse metadata via xattrs. |
-| ACLs / security descriptors | map NT security descriptors to POSIX ACLs + xattrs; keep the Win32 model at the API layer. |
-| File IDs / `FILE_ID_BOTH_DIR_INFO` | synthesize from btrfs inode numbers. |
-| Compression (`NTFS compression`) | use btrfs `zstd` transparent compression; expose as "compress this file". |
-| Encryption (EFS/BitLocker) | use btrfs/LUKS full-volume encryption; BitLocker is not implemented. |
-| Snapshots / previous versions | native btrfs snapshots + send/receive — better than VSS. |
-| Sparse files, preallocation | btrfs supports both natively. |
+| Paths, case-insensitivity | case-insensitive lookup layer in the VFS for Win32 callers (case preserved) |
+| Alternate Data Streams (`file:stream`) | sidecar subvolume / xattrs (documented mapping) |
+| Reparse points / junctions / symlinks | btrfs subvolumes + symlinks + reparse metadata in xattrs |
+| ACLs / security descriptors | NT security descriptors ↔ POSIX ACLs + xattrs, Win32 model at the API layer |
+| File IDs / `FILE_ID_BOTH_DIR_INFO` | synthesized from btrfs inode numbers |
+| NTFS compression | btrfs zstd transparent compression |
+| Encryption (EFS/BitLocker) | btrfs-on-LUKS full-volume encryption (BitLocker not implemented) |
+| Previous versions | native btrfs snapshots + send/receive |
 
-**Design rule:** keep the **Win32 file API** stable (that's the compatibility
-contract) and implement *below* it on btrfs. Apps see normal Windows semantics;
-the disk underneath is btrfs.
-
-## Bootloader requirement
-
-The loader must be able to read btrfs well enough to find and load the kernel
-(superblock → root tree → default subvolume → kernel path). Options:
-
-1. A minimal btrfs reader in the loader (read-only, no compression-at-boot, or
-   zstd support if the kernel image is compressed).
-2. A small FAT32 boot partition that holds kernel + initramfs; the running
-   system's root is btrfs. (Simplest, recommended first.)
+**Design rule:** keep the **Win32 file API** stable (the compatibility contract)
+and implement everything *below* it on btrfs.
 
 ## Implementation: borrow, don't reinvent
 
-A filesystem is exactly where [SOURCE-POLICY.md](SOURCE-POLICY.md)'s "borrow
-from open source" applies. btrfs is a Linux filesystem with a complete, mature
-implementation. The realistic path:
+btrfs is a Linux filesystem with a complete, mature implementation; this is
+exactly where [SOURCE-POLICY.md](SOURCE-POLICY.md)'s "borrow from open source"
+applies.
 
-- Port/adapt the btrfs on-disk logic from the **Linux kernel** (GPL-2.0) or from
-  a userspace btrfs library, behind our VFS interface. **This makes the LoOS
-  filesystem component GPL** — record it in `THIRD-PARTY.md`.
-- Alternatively implement a clean btrfs core from the on-disk format spec
-  ([btrfs docs / wiki](https://btrfs.readthedocs.io/)) if a non-GPL license is
-  required for the whole OS. This is a large effort; decide the OS license
-  first.
+- Port/adapt the btrfs on-disk logic from the **Linux kernel** (GPL-2.0) or a
+  userspace btrfs library, behind our VFS. **This makes the LoOS filesystem
+  component GPL** — record it in `THIRD-PARTY.md`.
+- Or implement a clean core from the on-disk format spec
+  ([btrfs.readthedocs.io](https://btrfs.readthedocs.io/)) if a permissive
+  license is required. Large effort; decide the OS license first.
 
-> **License decision needed.** If LoOS is GPL, borrow the Linux btrfs code.
-> If LoOS must be permissive (MIT/Apache), the btrfs driver is either
-> written from the spec or isolated as a separate GPL component the user links.
-> **[you]** pick the project-wide license; it changes this whole section.
+> **License decision needed** — see the note in [LANGUAGE.md](LANGUAGE.md).
+> **[you]** pick the project-wide license; it shapes this whole section.
+
+## Current state (honest)
+
+Read-only: `src/fs/btrfs/` validates the primary superblock and metadata CRC32C,
+bootstraps chunk maps, resolves the root tree, and reads inline/regular
+uncompressed extents; the VFS adapter provides lookup/stat/readdir/open/read.
+Write: the first B1 primitive (`loos_btrfs_write_transaction_*`) does
+allocate→COW→checksum→flush with a new root published last, but does **not** yet
+update dir/file items, extent accounting, or free-space metadata. Striped/parity
+chunks, compressed/encrypted extents, subvolumes, and data-csum verification are
+not done. Everything else in the table above is **planned**.
 
 ## Milestones
 
-- B0: read-only btrfs mount (top-level root subvolume, uncompressed) + list/read
-  files. The first reader is in `src/fs/btrfs/`: it validates the primary
-  superblock and metadata CRC32C checksums, bootstraps the system/chunk maps,
-  resolves the root tree's top-level filesystem item, and reads inline or regular
-  uncompressed extents through a block-device callback. Striped/parity chunks,
-  compressed/encrypted extents, subvolume selection, and data checksum-tree
-  verification remain explicit follow-up work; unsupported formats fail rather
-  than returning unverified bytes. Single, DUP, and mirrored chunks currently
-  read the first stripe only; mirror verification/fallback is not implemented.
-  Directory enumeration currently follows `DIR_ITEM` hash order rather than
-  `DIR_INDEX` insertion order.
-- B1: write path (allocate, COW, checksum, flush).
-- B2: subvolumes + snapshots + send/receive.
-- B3: compression (zstd), xattr mapping, case-insensitive Win32 layer, ADS
-  sidecar, ACL/security-descriptor mapping.
-- B4: boot-from-btrfs (loader reader or FAT boot partition).
-- B5: optional read-only NTFS for legacy disks.
+- **B0** read-only mount (root subvolume, uncompressed) + list/read — *mostly done*
+- **B1** complete read-write: dir/file items, extent + free-space accounting, CoW, checksums, flush
+- **B2** subvolumes + snapshots + send/receive
+- **B3** compression, xattr/ACL mapping, case-insensitive Win32 layer, ADS sidecar
+- **B4** RAID profiles + multi-device + balance + scrub
+- **B5** quotas, defrag, dedupe, reflink, prealloc, trim, swap, resize, ioctl
+- **B6** tools (`check`/`restore`/`rescue`) + boot-from-btrfs
+- **B7** optional read-only NTFS for legacy disks
+- **S** the stability program, gating every milestone above
 
-`astra` owns this. See [ARCHITECTURE.md](ARCHITECTURE.md).
+`astra` owns the on-disk core; `sol` takes tools and the Win32 mapping layer.
+See [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Tasks
+
+`btrfsr`, `btrfsw`, `btrfs-cow`, `btrfs-csum`, `btrfs-snap`, `btrfs-subvol`,
+`btrfs-sendreceive`, `btrfs-compress`, `btrfs-raid`, `btrfs-device`,
+`btrfs-balance`, `btrfs-scrub`, `btrfs-freestree`, `btrfs-qgroup`,
+`btrfs-defrag`, `btrfs-dedupe`, `btrfs-reflink`, `btrfs-prealloc`,
+`btrfs-xattr`, `btrfs-trim`, `btrfs-swap`, `btrfs-resize`, `btrfs-ioctl`,
+`btrfs-check`, `btrfs-boot`, `btrfs-stab`, `ntfs` (read-only), `fatfs` (ESP).

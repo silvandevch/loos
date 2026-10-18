@@ -119,6 +119,32 @@ int main(int argc, char **argv)
         m = setmask(0, 2 /*VER_MAJORVERSION*/, 3 /*GREATER_EQUAL*/);
         CHECK(verify(&want, 2, m) == 0);
         want.major = 11; CHECK((uint32_t)verify(&want, 2, m) == 0xC0000059u);           /* REVISION_MISMATCH */
+        {   /* more of the freshly linked ntdll: C runtime exports, counted strings, bitmaps */
+            typedef int (MS *f_wcsicmp)(const uint16_t *, const uint16_t *);
+            typedef int (MS *f_towupper)(unsigned);
+            typedef size_t (MS *f_strlen)(const char *);
+            typedef void *(MS *f_memcpy)(void *, const void *, size_t);
+            typedef struct { uint32_t bits; uint32_t *buf; } BM;
+            typedef void (MS *f_initbm)(BM *, uint32_t *, uint32_t);
+            typedef uint32_t (MS *f_findset)(BM *, uint32_t, uint32_t);
+            typedef uint32_t (MS *f_count)(BM *);
+            static const uint16_t a1[] = { 'H', 0xE9, 'Y', 0 }, a2[] = { 'h', 0xC9, 'y', 0 }, a3[] = { 'h', 0xC9, 'z', 0 };
+            char dst[8] = {0};
+            uint32_t words[4] = {0};
+            BM bm;
+            ldr_get_proc(&c, nt, "_wcsicmp", 0, &a, &e); CHECK(((f_wcsicmp)(uintptr_t)a)(a1, a2) == 0 && ((f_wcsicmp)(uintptr_t)a)(a1, a3) < 0);
+            ldr_get_proc(&c, nt, "towupper", 0, &a, &e); CHECK(((f_towupper)(uintptr_t)a)(0x43f) == 0x41f);
+            ldr_get_proc(&c, nt, "strlen", 0, &a, &e); CHECK(((f_strlen)(uintptr_t)a)("loos") == 4);
+            ldr_get_proc(&c, nt, "memcpy", 0, &a, &e); ((f_memcpy)(uintptr_t)a)(dst, "abc", 4); CHECK(!strcmp(dst, "abc"));
+            ldr_get_proc(&c, nt, "RtlInitializeBitMap", 0, &a, &e); ((f_initbm)(uintptr_t)a)(&bm, words, 100);
+            ldr_get_proc(&c, nt, "RtlSetBits", 0, &a, &e); ((void (MS *)(BM *, uint32_t, uint32_t))(uintptr_t)a)(&bm, 0, 10);
+            ldr_get_proc(&c, nt, "RtlFindClearBitsAndSet", 0, &a, &e); CHECK(((f_findset)(uintptr_t)a)(&bm, 5, 0) == 10);
+            ldr_get_proc(&c, nt, "RtlNumberOfSetBits", 0, &a, &e); CHECK(((f_count)(uintptr_t)a)(&bm) == 15);
+            {   char out[64];                                 /* the printf family from the linked image, variadic, with a double */
+                ldr_get_proc(&c, nt, "sprintf", 0, &a, &e);
+                CHECK(((int (MS *)(char *, const char *, ...))(uintptr_t)a)(out, "%s=%d %.2f %x", "n", -3, 2.675, 255u) == 12 && !strcmp(out, "n=-3 2.67 ff"));
+            }
+        }
         printf("  executed code from the loaded ntdll.dll image at %#llx\n", (unsigned long long)nt->addr);
     } else printf("  (mmap RWX unavailable: skipped execution checks)\n");
 

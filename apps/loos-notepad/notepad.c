@@ -100,6 +100,7 @@
 #define _WIN32_WINNT 0x0A00
 #endif
 #include <windows.h>
+#include "brand.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -187,7 +188,7 @@ static DWM_SET_WINDOW_ATTRIBUTE_FN g_dwmSetAttr = NULL;
 #define NP_CLASS_MAIN     L"Notepad"
 #define NP_REG_KEY        L"Software\\Microsoft\\Notepad"
 #define NP_HELP_URL       L"https://go.microsoft.com/fwlink/?LinkId=834783"
-#define NP_VERSION        L"1.0.0"
+#define NP_VERSION        LOOS_BRAND_VERSION_W
 
 /* Exact command IDs from the genuine menu resource (menu 1). The top-level
  * popups are stored as (id-char + text): '&'+'File', '&'+'Edit',
@@ -256,9 +257,9 @@ enum {
 };
 
 /* Genuine UI strings (notepad.exe.mui string tables; IDs in comments). */
-static const wchar_t S_APP[]          = L"LoNotepad";                        /* 9, 3000 */
+static const wchar_t S_APP[]          = LOOS_BRAND_NOTEPAD_W;                 /* 9, 3000 */
 static const wchar_t S_UNTITLED[]     = L"Untitled";                       /* 4 */
-static const wchar_t S_TITLE_FMT[]    = L"%s%s - Notepad";                 /* 5: %1 %2 */
+static const wchar_t S_TITLE_FMT[]    = L"%s%s - LoOS Notepad";               /* 5: %1 %2 */
 static const wchar_t S_SAVE_TASK[]    = L"Do you want to save changes to %1?"; /* 3001 */
 static const wchar_t S_SAVE_BTN[]     = L"&Save";                          /* 3002 */
 static const wchar_t S_DONTSAVE_BTN[] = L"Do&n't Save";                    /* 3003 */
@@ -272,7 +273,7 @@ static const wchar_t S_NOTFOUND_NEW[] = L"Cannot find the %s file.\n\nDo you wan
 static const wchar_t S_BAD_NAME[]     = L"Not a valid file name.";        /* 13 */
 static const wchar_t S_CANT_CREATE[]  = L"Cannot create the %s file.\n\nMake sure that the path and file name are correct."; /* 14 */
 static const wchar_t S_UNICODE_LOSS[] = L"%s\n This file contains characters in Unicode format which will be lost if you save this file as an ANSI encoded text file. To keep the Unicode information, click Cancel below and then select one of the Unicode options from the Encoding drop down list. Continue?"; /* 27 */
-static const wchar_t S_SHUTDOWN[]     = L"You cannot shut down or log off Windows because\nthe Save As dialog box in Notepad is open. Switch to\nNotepad, close this dialog box, and then try shutting\ndown or logging off Windows again."; /* 24 */
+static const wchar_t S_SHUTDOWN[]     = L"You cannot shut down or log off LoOS because\nthe Save As dialog box in LoOS Notepad is open. Switch to\nLoOS Notepad, close this dialog box, and then try shutting\ndown or logging off LoOS again."; /* 24 */
 static const wchar_t S_NO_PRINTER[]   = L"Cannot access your printer.\nBe sure that your printer is connected properly and use Control Panel to verify that the printer is configured properly."; /* 25 */
 static const wchar_t S_PAGE_SMALL[]   = L"Page too small to print one line.\nTry printing using smaller font."; /* 28 */
 static const wchar_t S_FILTER_TXT[]   = L"Text Documents (*.txt)";        /* 20 */
@@ -1082,8 +1083,8 @@ static void np_effective_colors(COLORREF *bg, COLORREF *fg, int *dark)
     }
     *dark = g_np.darkActive;
     if(g_np.darkActive){
-        *bg = RGB(32, 32, 32);
-        *fg = RGB(255, 255, 255);
+        *bg = RGB(LOOS_BRAND_SURFACE_R, LOOS_BRAND_SURFACE_G, LOOS_BRAND_SURFACE_B);
+        *fg = RGB(LOOS_BRAND_TEXT_R, LOOS_BRAND_TEXT_G, LOOS_BRAND_TEXT_B);
     }else{
         *bg = RGB(255, 255, 255);
         *fg = RGB(0, 0, 0);
@@ -1405,7 +1406,7 @@ static HMENU np_build_menu(void)
 
     np_menu_append(help, MF_STRING, CMD_HELP_TOPIC, L"View &Help");
     AppendMenuW(help, MF_SEPARATOR, 0, NULL);
-    np_menu_append(help, MF_STRING, CMD_HELP_ABOUT, L"&About Notepad");
+    np_menu_append(help, MF_STRING, CMD_HELP_ABOUT, L"&About LoOS Notepad");
 
     /* Top-level bar: native in light mode, owner-drawn in dark mode
      * (drawn flat without arrows by np_menu_draw). */
@@ -8241,7 +8242,7 @@ static void np_tab_draw(const DRAWITEMSTRUCT *dis)
 
     /* Accent underline on the selected tab (system accent, else blue). */
     if(selected){
-        COLORREF accent = RGB(0, 120, 215);
+        COLORREF accent = RGB(LOOS_BRAND_ACCENT_R, LOOS_BRAND_ACCENT_G, LOOS_BRAND_ACCENT_B);
         HMODULE dwm = GetModuleHandleW(L"dwmapi.dll");
         if(dwm){
             typedef HRESULT (WINAPI *GCOLOR_FN)(DWORD *, BOOL *);
@@ -8492,7 +8493,7 @@ static int np_watchdog(const WCHAR *args)
                            NULL, dir, &si, &pi)){
             DWORD err = GetLastError();
             wchar_t msg[128];
-            swprintf_s(msg, 128, L"Cannot start supervised Notepad (error %lu).",
+    swprintf_s(msg, 128, L"Cannot start supervised LoOS Notepad (error %lu).",
                        err);
             MessageBoxW(NULL, msg, L"LoOS Watchdog", MB_OK | MB_ICONSTOP);
             return 1;

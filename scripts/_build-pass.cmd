@@ -12,7 +12,11 @@ echo  prebuild  ^(generates makefiles ^& build tools^)
 echo  SDXROOT=%SDXROOT%   BuildArch=%_BuildArch%
 echo ============================================================
 call "%SDXROOT%\tools\prebuild.cmd"
-if errorlevel 1 echo [WARN] prebuild returned %errorlevel% - continuing to build
+set "PREBUILD_RC=%errorlevel%"
+if not "%PREBUILD_RC%"=="0" (
+    echo [FAIL] prebuild exit=%PREBUILD_RC%
+    exit /b %PREBUILD_RC%
+)
 
 echo ============================================================
 echo  build -bcZP -M 4

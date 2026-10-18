@@ -24,6 +24,13 @@ this is the map. If the two ever disagree, fix this doc and the spec together.
         No telemetry. No network I/O that the user didn't start.    -> OVERVIEW.md
 ```
 
+## Language
+
+Every layer is **Rust by default**; C is used only where Rust is a worse fit
+(vendor C-only interfaces, assembly, or modules that would be almost entirely
+`unsafe`). See [LANGUAGE.md](LANGUAGE.md). The C ABI is the boundary between
+them, so a Rust module and a C module link seamlessly.
+
 ## Layer notes
 
 - **Boot** — one kernel image boots via UEFI (`BOOTX64.EFI`) and legacy BIOS;

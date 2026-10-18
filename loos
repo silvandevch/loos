@@ -4,8 +4,8 @@
 #   ./loos status            where things live + disk + tool check
 #   ./loos setup             fetch source + patchkit, verify layout
 #   ./loos prep              overlay + oobe + certs + media tags + missing bins
-#   ./loos build             build the OS (under Wine, no VM)
-#   ./loos source-build      build and test LoOS CMake modules (host-clang)
+#   ./loos build             build all implemented LoOS targets on Linux
+#   ./loos source-build      build a selected LoOS CMake preset
 #   ./loos source-build windows-mingw  cross-build LoOS PE apps on Linux
 #   ./loos iso               (re)make the bootable ISO
 #   ./loos qemu              boot the ISO in QEMU
@@ -59,15 +59,55 @@ cmd_source_build() {
     command -v ninja >/dev/null || die "ninja is required for source-build"
     cmake --preset "$preset" || return $?
     if [ "$preset" = kernel-clang ]; then
-        log "kernel target configured; no src/kernel build targets exist yet"
+        cmake --build --preset kernel-clang || return $?
+        log "freestanding kernel libraries built; no boot-image target exists yet"
         return 0
     fi
-    cmake --build --preset "$preset" || return $?
     if [ "$preset" = host-clang ]; then
+        cmake --build --preset host-clang || return $?
         ctest --preset host-clang || return $?
     elif [ "$preset" = windows-mingw ]; then
-        cmake --build --preset windows-mingw --target locmd lonotepad lotaskmgr || return $?
+        cmake --build --preset windows-mingw --target localc locmd lonotepad lotaskmgr || return $?
+    elif [ "$preset" = windows-msvc ]; then
+        cmake --build --preset windows-msvc || return $?
     fi
+}
+
+cmd_build() {
+    [ "$#" -eq 0 ] || die "usage: ./loos build"
+    local host_status=0 kernel_status=0 app_status=0
+    log "configuring and building LoOS native modules"
+    cmake --preset host-clang || host_status=$?
+    if [ "$host_status" -eq 0 ]; then
+        cmake --build --preset host-clang || host_status=$?
+    fi
+    if [ "$host_status" -eq 0 ]; then
+        log "running LoOS host tests"
+        ctest --preset host-clang || host_status=$?
+    else
+        warn "native build failed; continuing with kernel and desktop app builds"
+    fi
+
+    log "configuring and building LoOS freestanding kernel libraries"
+    cmake --preset kernel-clang || kernel_status=$?
+    if [ "$kernel_status" -eq 0 ]; then
+        cmake --build --preset kernel-clang || kernel_status=$?
+    fi
+    [ "$kernel_status" -eq 0 ] || warn "kernel library build failed (status $kernel_status); continuing with desktop apps"
+
+    for tool in x86_64-w64-mingw32-gcc x86_64-w64-mingw32-windres; do
+        command -v "$tool" >/dev/null 2>&1 || die "missing $tool; install MinGW-w64 to build LoOS desktop apps"
+    done
+    log "cross-compiling LoOS desktop apps for the PE runtime"
+    cmd_source_build windows-mingw || app_status=$?
+
+    if [ "$host_status" -ne 0 ] || [ "$kernel_status" -ne 0 ] || [ "$app_status" -ne 0 ]; then
+        [ "$host_status" -eq 0 ] || warn "native build/tests failed (status $host_status)"
+        [ "$kernel_status" -eq 0 ] || warn "freestanding kernel build failed (status $kernel_status)"
+        [ "$app_status" -eq 0 ] || warn "desktop app build failed (status $app_status)"
+        return 1
+    fi
+    log "all implemented LoOS targets built; no bootable image target is available yet"
 }
 
 cmd_relocate() {
@@ -84,7 +124,7 @@ case "${1:-help}" in
     status)   shift; cmd_status "$@" ;;
     setup)    shift; bash "$SCRIPTS_DIR/00-fetch.sh" && bash "$SCRIPTS_DIR/01-structure.sh" ;;
     prep)     shift; bash "$SCRIPTS_DIR/run-all.sh" ;;
-    build)    shift; bash "$SCRIPTS_DIR/09-build-all.sh" ;;
+    build)    shift; cmd_build "$@" ;;
     source-build) shift; cmd_source_build "$@" ;;
     iso)      shift; bash "$SCRIPTS_DIR/_iso-run.sh" ;;
     qemu)     shift; bash "$HERE/remote/run-qemu.sh" "$NT_OUT/loos.iso" ;;

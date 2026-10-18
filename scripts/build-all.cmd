@@ -8,7 +8,12 @@ echo # LoOS NT 5.2 x64 build   (native AMD64 under Wine)
 echo ################################################################
 
 call "%~dp0build-amd64.cmd"
-if errorlevel 1 echo [FAIL] amd64 build failed & exit /b 1
+set "RC=%errorlevel%"
+if not "%RC%"=="0" goto BuildFailed
 
 echo [OK] build completed
 exit /b 0
+
+:BuildFailed
+echo [FAIL] amd64 build failed with exit code %RC%
+exit /b %RC%

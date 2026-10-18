@@ -4,6 +4,7 @@
 #include "compat.h"
 #include <stdio.h>
 #include <string.h>
+#include <setjmp.h>
 
 void ldr_api_set_entry_caller(int (*fn)(void *, uint64_t, uint64_t, uint32_t, void *));
 void ldr_api_set_compat_db(const compat_db *db);
@@ -34,6 +35,8 @@ static void addimp(bspec *s, const char *dll, const char *sym) { bimport *i = &s
 static bspec dll(uint64_t base) { bspec s; memset(&s, 0, sizeof s); s.is64 = 1; s.is_dll = 1; s.entry = 1; s.relocs = 1; s.base = base; return s; }
 
 extern void rtl_set_version(const void *);
+static int thread_ran; static PVOID thread_arg;
+static ULONG NTAPI thread_entry(PVOID a) { thread_ran++; thread_arg = a; return 5; }
 
 int main(void)
 {
@@ -70,6 +73,25 @@ int main(void)
       as.Buffer = (char *)"Nope"; as.Length = 4; CHECK_EQ(LdrGetProcedureAddress(base_h, &as, 0, &a), STATUS_PROCEDURE_NOT_FOUND);
       CHECK_EQ(LdrGetProcedureAddress(base_h, NULL, 0, &a), STATUS_INVALID_PARAMETER);
       CHECK_EQ(LdrGetProcedureAddress((PVOID)0x1234, &as, 0, &a), STATUS_INVALID_HANDLE); }
+
+    /* module path, address lookup */
+    { WCHAR pbuf[100]; UNICODE_STRING fn; PVOID base = NULL;
+      fn.Buffer = pbuf; fn.Length = 0; fn.MaximumLength = sizeof pbuf;
+      CHECK_EQ(LdrGetDllFullName(h1, &fn), STATUS_SUCCESS);
+      { const char *want = "C:\\Windows\\System32\\user.dll"; size_t i; int ok = fn.Length == strlen(want) * 2; for (i = 0; ok && want[i]; i++) ok &= pbuf[i] == (WCHAR)want[i]; CHECK(ok && pbuf[strlen(want)] == 0); }
+      fn.MaximumLength = 10; CHECK_EQ((ULONG)LdrGetDllFullName(h1, &fn), (ULONG)STATUS_BUFFER_TOO_SMALL);
+      CHECK_EQ((ULONG)LdrGetDllFullName((PVOID)0x1234, &fn), (ULONG)STATUS_INVALID_HANDLE);
+      CHECK(RtlPcToFileHeader((PVOID)((uintptr_t)h1 + 0x1010), &base) == h1 && base == h1);
+      CHECK(RtlPcToFileHeader((PVOID)0x10, &base) == NULL && base == NULL); }
+
+    /* thread life cycle: DLLs hear about the thread, the start routine runs, the thread ends through NtTerminateThread */
+    { int before = ncalls, k; int attach = 0, detach = 0;
+      F.term_calls = 0;
+      RtlUserThreadStart((PVOID)thread_entry, (PVOID)0xABC);
+      CHECK_EQ(thread_ran, 1); CHECK(thread_arg == (PVOID)0xABC);
+      CHECK_EQ(F.term_calls, 1); CHECK_EQ(F.term_status, 5); CHECK((intptr_t)F.term_handle == -2);
+      for (k = before; k < ncalls; k++) { if (calls[k].reason == 2) attach++; if (calls[k].reason == 3) detach++; }
+      CHECK_EQ(attach, 2); CHECK_EQ(detach, 2); }
 
     /* failures */
     us_init(&us, W("nothere.dll")); CHECK_EQ(LdrLoadDll(NULL, NULL, &us, &h2), STATUS_DLL_NOT_FOUND);

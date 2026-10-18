@@ -33,3 +33,17 @@ file) it mounts, lists `/` and reads `/hello.txt` byte-exact.
   docs/BTRFS.md (mirror verification/fallback is not done).
 - Check `READDIR` uses DIR_INDEX (type 96) ordering or document that listing order
   is by hash; GNU-style readdir stability matters for the shell.
+
+---
+# Round 2 - APPROVED (read path, task 14)
+
+All three blockers are fixed in `src/fs/btrfs/btrfs.c`. Independent verification (not the author's tests):
+`tests/review/btrfs_tree_compare.c` builds a real filesystem with `mkfs.btrfs --rootdir` from a 312-file tree
+(5 MiB file, 70 KB file, sparse file with a 3 MiB hole, files of exactly 4096/16384/16385 bytes, a 255-byte
+file name, non-ASCII names, a 300-entry directory, empty file, nested directories), mounts with checksum
+verification on, and compares every directory listing and 12 random (offset, length) reads per file against
+the host copy, under ASan+UBSan: **6 directories, 312 files, 0 failures**.
+
+Remaining notes (non-blocking): symlinks are not exercised or exposed; compressed/encrypted extents are
+rejected (documented); mirrored (DUP/RAID1) chunks read the first stripe only.
+Run: `clang -fsanitize=address,undefined -Isrc/fs/btrfs tests/review/btrfs_tree_compare.c src/fs/btrfs/btrfs.c -o btc && btc image.img source-dir`

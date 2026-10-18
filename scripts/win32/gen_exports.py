@@ -48,7 +48,9 @@ if __name__ == '__main__':
         for s in srcs:
             if s.endswith('.tbl'):
                 extra += [n for n, _ in read_tbl(s)]
-        srcs = [s for s in srcs if not s.endswith('.tbl')]
+            elif s.endswith('.txt'):
+                extra += [l.strip() for l in open(s) if l.strip() and not l.startswith('#')]
+        srcs = [s for s in srcs if not s.endswith('.tbl') and not s.endswith('.txt')]
         names = sorted(set(exports_from(srcs)) | set(extra))
         os.makedirs(outdir, exist_ok=True)
         with open(os.path.join(outdir, dll + '.def'), 'w') as f:
@@ -63,5 +65,17 @@ if __name__ == '__main__':
             f.write('/* x64 syscall convention: r10 = rcx, eax = number, syscall. */\n')
             for name, num in rows:
                 f.write(f'__asm__(".text\\n.globl {name}\\n{name}:\\n\\tmovq %rcx, %r10\\n\\tmovl ${num}, %eax\\n\\tsyscall\\n\\tret\\n");\n')
+    elif mode in ('check-syscalls', 'sync-syscalls'):
+        tbl, hdr = sys.argv[2], sys.argv[3]
+        have = {n for n, _ in read_tbl(tbl)}
+        want = re.findall(r'NTSTATUS NTAPI (Nt\w+)\(', open(hdr).read())
+        missing = [n for n in want if n not in have]
+        if mode == 'check-syscalls':
+            if missing: sys.exit('syscalls.tbl is missing: ' + ', '.join(missing) + '\n  run: gen_exports.py sync-syscalls ' + tbl + ' ' + hdr)
+        else:
+            top = max([n for _, n in read_tbl(tbl)] + [-1])
+            with open(tbl, 'a') as f:
+                for i, n in enumerate(missing): f.write(f'{n} {top + 1 + i}\n')
+            print(f'appended {len(missing)} syscall(s)')
     elif mode == 'syscall-names':
         for n, _ in read_tbl(sys.argv[2]): print(n)

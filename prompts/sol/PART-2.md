@@ -1,4 +1,4 @@
-# Luna — PART 2 of 3 · context and workspace
+# Sol — PART 2 of 3 · context and workspace
 
 **LoOS** is a local-only, privacy-first OS that runs unmodified Windows
 applications (Windows 7/10/11 PE binaries, plus rebranded host apps). It is
@@ -24,10 +24,11 @@ Full detail: `docs/AGENT-WORKSPACE.md`.
 | what/why | `docs/OVERVIEW.md`, `docs/ARCHITECTURE.md` |
 | layout | `docs/LAYOUT.md` |
 | build/run | `docs/BUILD.md`, `docs/TOOLS.md` |
-| your filesystem work | `docs/BTRFS.md` |
-| backend modules | `prompts/BACKEND-SPEC.md` |
+| Win32 / API sets | `prompts/BACKEND-SPEC.md` |
 | UI contract | `prompts/UI-SPEC.md` |
+| Linux compat | `docs/LINUX-COMPAT.md` |
 | can I use this code? | `docs/SOURCE-POLICY.md` |
+| routing / who does what | `docs/AGENTS.md` §Routing |
 | cost/budget | `docs/BUDGET.md` |
 
 Your deep specs live in `prompts/spec/` (prose interface facts). `docs/` is the
@@ -37,7 +38,7 @@ source of truth; if a spec disagrees with the code, fix both and say so.
 
 ```bash
 ./loos status            # roots, tools, sanity
-./loos build             # compile (Wine/host driver; see docs/BUILD.md)
+./loos build             # compile all implemented LoOS targets on Linux
 ./loos qemu              # boot the result
 ```
 

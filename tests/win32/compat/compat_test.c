@@ -23,6 +23,16 @@ static void test_versions(void)
     CHECK(compat_era_parse("win-11", &e) && e == COMPAT_ERA_WIN11);
     CHECK(compat_era_parse("10", &e) && e == COMPAT_ERA_WIN10);
     CHECK(!compat_era_parse("vista", &e)); CHECK(!compat_era_parse("", &e)); CHECK(!compat_era_parse(NULL, &e));
+
+    CHECK(compat_shim_has(COMPAT_ERA_WIN7, COMPAT_SHIM_VERSION_REPORT));
+    CHECK(compat_shim_has(COMPAT_ERA_WIN7, COMPAT_SHIM_DPI_AWARE));
+    CHECK(!compat_shim_has(COMPAT_ERA_WIN7, COMPAT_SHIM_PER_MONITOR_DPI_V1));
+    CHECK(compat_shim_has(COMPAT_ERA_WIN81, COMPAT_SHIM_PER_MONITOR_DPI_V1));
+    CHECK(!compat_shim_has(COMPAT_ERA_WIN81, COMPAT_SHIM_PER_MONITOR_DPI_V2));
+    CHECK(compat_shim_has(COMPAT_ERA_WIN10, COMPAT_SHIM_PER_MONITOR_DPI_V2));
+    CHECK(compat_shim_has(COMPAT_ERA_WIN10, COMPAT_SHIM_LONG_PATH_AWARE));
+    CHECK(compat_shim_has((compat_era)99, COMPAT_SHIM_LONG_PATH_AWARE));
+    CHECK(!compat_shim_has(COMPAT_ERA_WIN11, (enum compat_shim_feature)0));
 }
 
 static void test_manifest(void)

@@ -165,6 +165,7 @@ static ldr_status load_module(ldr_context *c, const char *name, int is_exe, int 
     int had_path = 0, idx, i;
     ldr_status st;
     ldr_module *m;
+    char path_scratch[260];
     const void *data = NULL;
     size_t fsize = 0;
     void *cookie = NULL;
@@ -186,6 +187,12 @@ static ldr_status load_module(ldr_context *c, const char *name, int is_exe, int 
         return LDR_ERR_DLL_NOT_FOUND;
     }
 
+    {   /* remember where it came from, before the file view goes away */
+        const char *mp = c->be.module_path ? c->be.module_path(c->be.ctx, cookie) : NULL;
+        size_t pl = mp ? strlen(mp) : 0;
+        if (pl >= sizeof c->mod[0].path) pl = 0;
+        memcpy(path_scratch, mp ? mp : "", pl); path_scratch[pl] = 0;
+    }
     /* pe_open never writes in file layout, so dropping const here is safe. */
     ps = pe_open(&file, (void *)data, fsize, PE_LAYOUT_FILE);
     if (ps) { set_err(err, LDR_ERR_BAD_IMAGE, host, NULL); if (err) err->pe = ps; c->be.release_file(c->be.ctx, cookie); return LDR_ERR_BAD_IMAGE; }
@@ -204,6 +211,7 @@ static ldr_status load_module(ldr_context *c, const char *name, int is_exe, int 
     memset(m, 0, sizeof *m);
     m->mem = mem; m->addr = addr; m->size = file.size_of_image;
     strcpy(m->name, host);
+    strcpy(m->path, path_scratch);
     m->is_exe = is_exe;
 
     ps = pe_map(&file, mem, m->size, &m->img);

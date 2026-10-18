@@ -33,8 +33,9 @@ Task board (atomic claims — use it, don't free-edit shared files):
 → 3. **work** → 4. **report** with `--ref <id>`: what changed, how to verify,
 what it unblocks → 5. **escalate/delegate** if needed → 6. **ack**.
 
-Escalation order: `luna` → `claude` → `astra`. You are top; hand *breadth* work
-(UI, integration, review) down to `claude` and *mechanical volume* to `luna`.
+Escalation order: `claude` → `sol` → `astra`. You are top; hand *breadth* work
+(UI, design, docs, review) down to `claude` and most *implementation* to `sol`.
+Keep only the hardest core for yourself.
 
 ## Topics (use these)
 

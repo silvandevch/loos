@@ -2,26 +2,13 @@
 #define LOOS_K32_INTERNAL_H
 #include "../include/loos_win.h"
 
-/* ---- thread/process block access ----
- * Real builds read the TEB through gs (x64: ClientId at 0x40/0x48, PEB at
- * 0x60, LastErrorValue at 0x68, PEB->ImageBaseAddress at +0x10). Host tests
- * (LOOS_HOST_TEST) use plain thread-local state so kernel32 logic can run
- * under a normal Linux process. */
-#ifdef LOOS_HOST_TEST
-extern _Thread_local DWORD k32_host_last_error;
-extern DWORD k32_host_pid, k32_host_tid;
-extern void *k32_host_image_base;
-static inline DWORD *k32_last_error_ptr(void) { return &k32_host_last_error; }
-static inline DWORD k32_pid(void) { return k32_host_pid; }
-static inline DWORD k32_tid(void) { return k32_host_tid; }
-static inline void *k32_image_base(void) { return k32_host_image_base; }
-#else
-static inline uint64_t k32_gs_q(unsigned off) { uint64_t v; __asm__ volatile("movq %%gs:%1, %0" : "=r"(v) : "m"(*(const uint64_t *)(uintptr_t)off)); return v; }
-static inline DWORD *k32_last_error_ptr(void) { return (DWORD *)(k32_gs_q(0x30) + 0x68); }
-static inline DWORD k32_pid(void) { return (DWORD)k32_gs_q(0x40); }
-static inline DWORD k32_tid(void) { return (DWORD)k32_gs_q(0x48); }
-static inline void *k32_image_base(void) { return *(void **)(k32_gs_q(0x60) + 0x10); }
-#endif
+#include "../include/loos_teb.h"
+
+/* Unicode simple case mapping lives in ntdll (Latin-1, Latin Extended-A, Greek, Cyrillic; not the full tables). */
+static inline WCHAR k32_towupper(WCHAR c) { return RtlUpcaseUnicodeChar(c); }
+static inline WCHAR k32_towlower(WCHAR c) { return RtlDowncaseUnicodeChar(c); }
+
+void k32_fls_thread_exit(void);                   /* tls.c: run FLS destructors for the exiting thread */
 
 /* Set last error from an NTSTATUS and return FALSE-ish convenience. */
 static inline void k32_set_nt_error(NTSTATUS st) { *k32_last_error_ptr() = RtlNtStatusToDosError(st); }

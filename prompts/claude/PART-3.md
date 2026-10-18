@@ -33,10 +33,11 @@ Task board (atomic claims — use it, don't free-edit shared files):
 → 3. **work** → 4. **report** with `--ref <id>`: what changed, how to verify,
 what it unblocks → 5. **escalate/delegate** if needed → 6. **ack**.
 
-Escalation order: `luna` → `claude` → `astra`. Take what Luna can't finish;
-push hard core (kernel/VM/syscalls/btrfs/crypto) up to `astra`. As reviewer,
-when you approve or reject a diff, post the verdict on topic `review` with
-`--ref` and be specific.
+Escalation order: `claude` → `sol` → `astra`. You're the base — keep the
+breadth/UI/design/docs work; hand hard implementation up to `sol`, and the
+hardest core (novel security, hardest kernel/RE, math) up to `astra`. As
+reviewer, when you approve or reject a diff, post the verdict on topic `review`
+with `--ref` and be specific.
 
 ## Topics (use these)
 
@@ -56,6 +57,7 @@ when you approve or reject a diff, post the verdict on topic `review` with
 ## Your first tasks
 
 1. `./loos bus inbox --for claude --unread` — see what's waiting.
-2. `./loos bus task ls` — pick the top item; unblock `luna` if they're stuck.
+2. `./loos bus task ls --owner claude` — your portfolio; start with a `high`
+   UI or docs item, or unblock `sol`/`astra` if they're stuck.
 3. Claim it, do it, report it. Post your first status within one work session so
    the others know you're live.

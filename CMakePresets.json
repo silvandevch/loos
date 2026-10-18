@@ -30,14 +30,14 @@
     },
     {
       "name": "windows-msvc",
-      "displayName": "Windows user mode (clang-cl + MSVC ABI)",
+      "displayName": "Windows subsystem (clang-cl + MSVC ABI; apps need the Windows SDK)",
       "generator": "Ninja",
       "binaryDir": "$env{OUT_ROOT}/cmake/${presetName}",
       "cacheVariables": {
         "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake/toolchains/windows-msvc-x64.cmake",
         "BUILD_TESTING": "OFF",
         "LOOS_BUILD_WIN32": "ON",
-        "LOOS_BUILD_APPS": "ON"
+        "LOOS_BUILD_APPS": "OFF"
       }
     },
     {

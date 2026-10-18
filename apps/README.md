@@ -2,6 +2,7 @@
 
 | App | Source | Target | Status |
 |---|---|---|---|
+| LoCalculator | [`calc/`](calc/) | x86-64 PE GUI | Linux MinGW-w64 target |
 | LoCmd | [`loos-cmd/`](loos-cmd/) | x86-64 PE console | Linux MinGW-w64 target and CI build |
 | LoNotepad | [`loos-notepad/`](loos-notepad/) | x86-64 PE GUI | Linux MinGW-w64 target and CI build |
 | LoTaskMgr | [`loos-taskmgr/`](loos-taskmgr/) | x86-64 PE GUI | Linux MinGW-w64 target and CI build |

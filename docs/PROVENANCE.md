@@ -12,6 +12,8 @@ Borrowed open-source projects go in `THIRD-PARTY.md` instead.
 | 2026-10-18 | `src/win32/compat/compat.c` | `<supportedOS>` GUIDs and Windows 7/8/8.1/10/11 version+build numbers | public documented facts | public docs |
 | 2026-10-18 | `src/win32/ntdll/version.c` | VerifyVersionInfo comparison cascade (major, minor, service pack) | behaviour learned from `base/ntos/rtl/version.c` in the study tree; re-implemented (explicit lexicographic walk, numeric minor compare, strict-condition fix) | n/a, not copied |
 | 2026-10-18 | `src/win32/crt/chkstk.S` | `__chkstk` stack probe loop | the standard x64 probe algorithm, written fresh | n/a |
+| 2026-10-18 | `apps/loos-notepad/notepad.rc` | Microsoft Windows 11 install.wim image 1, Notepad dialog/menu resources | retained template/control resource IDs consumed by the port; labels and behavior are LoOS-rebranded | Microsoft proprietary resource data; no redistribution license asserted |
+| 2026-10-18 | `apps/loos-notepad/notepad.c` | Microsoft Windows 11 `notepad.exe.mui`, string table and accelerator IDs | retained resource IDs and translated user-facing strings used by the port | Microsoft proprietary resource data; no redistribution license asserted |
 | | | | | |
 
 Prefer a link/reference to a public spec over a copy. If you copy, name the exact

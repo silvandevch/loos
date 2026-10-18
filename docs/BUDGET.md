@@ -8,12 +8,13 @@ is designed to be cheap. Cost ≈ tokens × iterations; both are controllable.
 
 | Tier | Agent | Use for | Why |
 |---|---|---|---|
-| cheap/fast | `luna` | mechanical volume, app porting, tables, tests, docs | you burn it on bulk where a wrong answer is cheap to spot |
-| mid | `claude` | breadth: Win32, API sets, UI, integration, review | good first-pass implementer |
-| expensive | `astra` | only hard/perf-critical/easy-to-wrong core | you pay for correctness where mistakes cost days |
+| cheap/fast | `claude` | breadth: UI, design, docs, review, mechanical tables, CI | fastest to iterate; a wrong pass is cheap to spot |
+| workhorse | `sol` | most implementation: Win32, API sets, compat, backend, graphics bridge, Lin, toolchain, tests | near-Astra at ~⅕ the cost; matches Astra on complex coding |
+| expensive | `astra` | only the hardest: core kernel, novel security, hardest reverse-engineering, math | you pay for correctness where mistakes cost days |
 
-Never spend Astra on bulk work. Never let Luna guess at core work (a wrong
-kernel patch costs more later than handing it up).
+Never spend Astra on bulk work. Never let Sol or Claude guess at novel security
+or the hardest kernel work (a wrong kernel patch costs more later than handing
+it up).
 
 ## 2. Keep context small
 

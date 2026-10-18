@@ -29,21 +29,22 @@ crt=( "$(obj "$src/crt/string.c" crt_string)" )
 "${CC[@]}" -x assembler-with-cpp "$src/crt/chkstk.S" -c -o "$out/obj/chkstk.obj"; crt+=( "$out/obj/chkstk.obj" )
 
 # ---- ntdll ----
+python3 "$here/scripts/win32/gen_exports.py" check-syscalls "$src/ntdll/syscalls.tbl" "$src/include/loos_nt.h"
 python3 "$here/scripts/win32/gen_exports.py" syscalls "$src/ntdll/syscalls.tbl" "$out/syscalls.c"
 nt=( "${crt[@]}" "$(obj "$out/syscalls.c" nt_syscalls)" )
-for f in errmap version ldr_api process; do nt+=( "$(obj "$src/ntdll/$f.c" nt_$f)" ); done
+for f in errmap version heap sync procparams rtl delayload crt_exports printf ldr_api process; do nt+=( "$(obj "$src/ntdll/$f.c" nt_$f)" ); done
 for f in compat/compat ldr/ldr pe/pe apisets/apiset apisets/apiset_table; do
     b="nt_$(basename "$f")"
     nt+=( "$(obj "$src/$f.c" "$b")" )
 done
-python3 "$here/scripts/win32/gen_exports.py" def ntdll "$out" "$src"/ntdll/errmap.c "$src"/ntdll/version.c "$src"/ntdll/ldr_api.c "$src"/ntdll/process.c "$src/ntdll/syscalls.tbl"
+python3 "$here/scripts/win32/gen_exports.py" def ntdll "$out" "$src"/ntdll/errmap.c "$src"/ntdll/version.c "$src"/ntdll/heap.c "$src"/ntdll/sync.c "$src"/ntdll/procparams.c "$src"/ntdll/rtl.c "$src"/ntdll/delayload.c "$src"/ntdll/printf.c "$src"/ntdll/ldr_api.c "$src"/ntdll/process.c "$src/ntdll/syscalls.tbl" "$src/ntdll/extra_exports.txt"
 $LINK /dll /nodefaultlib /noentry /machine:x64 /base:0x180000000 /def:"$out/ntdll.def" /implib:"$out/ntdll.lib" /out:"$out/ntdll.dll" "${nt[@]}"
 
 # ---- kernelbase (the implementation; API sets resolve here) and kernel32 (forwarders, as on Windows 10) ----
 kb=( "${crt[@]}" )
-for f in file mem path proc sync version; do kb+=( "$(obj "$src/kernel32/$f.c" kb_$f)" ); done
+for f in ansi console createproc env file files2 heap locks mapping mem message misc path paths proc strings sync thread tls version; do kb+=( "$(obj "$src/kernel32/$f.c" kb_$f)" ); done
 python3 "$here/scripts/win32/gen_exports.py" def kernelbase "$out" "$src"/kernel32/*.c
-$LINK /dll /nodefaultlib /noentry /machine:x64 /base:0x180100000 /def:"$out/kernelbase.def" /implib:"$out/kernelbase.lib" /out:"$out/kernelbase.dll" "$out/ntdll.lib" "${kb[@]}"
+$LINK /dll /nodefaultlib /entry:KernelBaseDllMain /machine:x64 /base:0x180100000 /def:"$out/kernelbase.def" /implib:"$out/kernelbase.lib" /out:"$out/kernelbase.dll" "$out/ntdll.lib" "${kb[@]}"
 
 python3 "$here/scripts/win32/gen_exports.py" def --forward-to=KERNELBASE kernel32 "$out" "$src"/kernel32/*.c
 echo 'const char loos_kernel32_forwarders_only = 0;' > "$out/k32_empty.c"

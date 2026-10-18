@@ -19,4 +19,4 @@ RUN cmake --preset host-clang \
     && cmake --preset windows-mingw \
     && cmake --build --preset windows-mingw --target locmd lonotepad lotaskmgr
 
-CMD ["cmake", "--build", "--preset", "host-clang"]
+CMD ["./loos", "build"]

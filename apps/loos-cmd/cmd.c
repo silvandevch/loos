@@ -39,6 +39,7 @@
 #include <winsock2.h> /* address structures only; no sockets or network clients */
 #include <ws2tcpip.h>
 #include <windows.h>
+#include "brand.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,7 +68,7 @@
 #define CMD_FUNC_MAX      32
 
 #define CMD_DEFAULT_PROMPT L"$P$G"
-#define LOOS_VERSION       L"1.0.0"
+#define LOOS_VERSION       LOOS_BRAND_VERSION_W
 
 /* --------------------------------------------------------------------------
  *  Global State
@@ -963,7 +964,7 @@ static int cmd_builtin_ver(wchar_t **argv, int argc){ (void)argv;(void)argc;
     GetVersionExW((OSVERSIONINFOW*)&vi);
 #pragma warning(pop)
     wprintf(L"\nLoOS [Version %s]\n", LOOS_VERSION);
-    wprintf(L"(c) LoOS Team and Microsoft Corporation. All rights reserved.\n");
+    wprintf(L"(c) %s. All rights reserved.\n", LOOS_BRAND_COMPANY_W);
     wprintf(L"  Windows NT build %lu.%lu.%lu\n", vi.dwMajorVersion, vi.dwMinorVersion, vi.dwBuildNumber);
     return 0;
 }
@@ -4395,7 +4396,7 @@ static void cmd_init(int showBanner)
         GetConsoleMode(g_state.hStdOut, &outMode);
         SetConsoleMode(g_state.hStdOut, outMode | 0x0004); // ENABLE_VIRTUAL_TERMINAL_PROCESSING
         wprintf(L"LoOS [Version %s] (build %S %S)\n", LOOS_VERSION, __DATE__, __TIME__);
-        wprintf(L"(c) LoOS Team and Microsoft Corporation. All rights reserved.\n");
+        wprintf(L"(c) %s. All rights reserved.\n", LOOS_BRAND_COMPANY_W);
         wprintf(L"\n");
         wprintf(L"Tip: TAB completes commands/files; click on a tab to switch.\n");
         wprintf(L"\n");

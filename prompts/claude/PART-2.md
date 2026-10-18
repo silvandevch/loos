@@ -37,7 +37,7 @@ source of truth; if a spec disagrees with the code, fix both and say so.
 
 ```bash
 ./loos status            # roots, tools, sanity
-./loos build             # compile (Wine/host driver; see docs/BUILD.md)
+./loos build             # compile all implemented LoOS targets on Linux
 ./loos qemu              # boot the result
 ```
 

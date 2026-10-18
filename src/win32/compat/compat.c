@@ -1,18 +1,37 @@
 #include "compat.h"
 #include <string.h>
 
-/* ---------- version table ---------- */
-static const compat_version versions[COMPAT_ERA_COUNT] = {
-    { COMPAT_ERA_WIN7,  "win7",  6,  1, 7601,  1, 0, 0x0100, 1, 2, "Service Pack 1" },
-    { COMPAT_ERA_WIN8,  "win8",  6,  2, 9200,  0, 0, 0x0100, 1, 2, "" },
-    { COMPAT_ERA_WIN81, "win8.1",6,  3, 9600,  0, 0, 0x0100, 1, 2, "" },
-    { COMPAT_ERA_WIN10, "win10", 10, 0, 19045, 0, 0, 0x0100, 1, 2, "" },
-    { COMPAT_ERA_WIN11, "win11", 10, 0, 22631, 0, 0, 0x0100, 1, 2, "" },
+/* The table is shared by the version-reporting shim and feature gates. */
+static const compat_shim_profile era_shims[COMPAT_ERA_COUNT] = {
+#define COMPAT_ERA_SHIM(era, name, major, minor, build, spmaj, spmin, suite, ptype, platform, csd, features) \
+    [era] = { { era, name, major, minor, build, spmaj, spmin, suite, ptype, platform, csd }, features },
+#include "era_shims.tab"
+#undef COMPAT_ERA_SHIM
 };
+
+const compat_shim_profile *compat_shim_profile_of(compat_era e)
+{
+    return (unsigned)e < COMPAT_ERA_COUNT ? &era_shims[e]
+                                          : &era_shims[COMPAT_NATIVE_ERA];
+}
+
+int compat_shim_has(compat_era e, enum compat_shim_feature feature)
+{
+    const uint32_t known = COMPAT_SHIM_VERSION_REPORT |
+                           COMPAT_SHIM_DPI_AWARE |
+                           COMPAT_SHIM_PER_MONITOR_DPI_V1 |
+                           COMPAT_SHIM_PER_MONITOR_DPI_V2 |
+                           COMPAT_SHIM_LONG_PATH_AWARE;
+    if ((uint32_t)feature == 0 || ((uint32_t)feature & known) == 0 ||
+        ((uint32_t)feature & ((uint32_t)feature - 1U)) != 0) {
+        return 0;
+    }
+    return (compat_shim_profile_of(e)->features & (uint32_t)feature) != 0;
+}
 
 const compat_version *compat_version_of(compat_era e)
 {
-    return (unsigned)e < COMPAT_ERA_COUNT ? &versions[e] : &versions[COMPAT_NATIVE_ERA];
+    return &compat_shim_profile_of(e)->version;
 }
 
 static char lc(char c) { return (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c; }
@@ -198,9 +217,9 @@ size_t compat_db_dump(const compat_db *db, char *out, size_t cap)
     sink s = { out, cap, 0 };
     unsigned i;
     put(&s, "# LoOS compatibility profiles (local store)\n");
-    put(&s, "default "); put(&s, versions[db->default_era].name); put(&s, "\n");
+    put(&s, "default "); put(&s, compat_version_of(db->default_era)->name); put(&s, "\n");
     for (i = 0; i < db->napps; i++) {
-        put(&s, "app "); put_name(&s, db->apps[i].name); put(&s, " "); put(&s, versions[db->apps[i].era].name); put(&s, "\n");
+        put(&s, "app "); put_name(&s, db->apps[i].name); put(&s, " "); put(&s, compat_version_of(db->apps[i].era)->name); put(&s, "\n");
     }
     for (i = 0; i < db->nredirects; i++) {
         const compat_redirect *r = &db->redirects[i];
@@ -276,10 +295,10 @@ void compat_resolve(const compat_db *db, const char *exe_path, const char *manif
         set_reason(out, "user profile for ", a->name);
     } else if (manifest && compat_manifest_era(manifest, mlen, &e)) {
         out->era = e; out->source = COMPAT_SRC_MANIFEST;
-        set_reason(out, "highest supportedOS in manifest: ", versions[e].name);
+        set_reason(out, "highest supportedOS in manifest: ", compat_version_of(e)->name);
     } else {
         out->era = db->default_era; out->source = COMPAT_SRC_DEFAULT;
-        set_reason(out, "no profile or manifest; default ", versions[db->default_era].name);
+        set_reason(out, "no profile or manifest; default ", compat_version_of(db->default_era)->name);
     }
 }
 

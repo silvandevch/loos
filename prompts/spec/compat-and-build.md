@@ -14,11 +14,20 @@ decides alone; strict GREATER/LESS on equal values is false (the NT 5.2 code ret
 success there); minor compares numerically. Legacy (pre-2000) condition masks are
 not supported, only `VerSetConditionMask` style.
 
+## Per-era compatibility shims
+`src/win32/compat/era_shims.tab` is the X-macro table of version profiles and
+feature bits. `compat_shim_profile_of` exposes each era's version and declared
+shim features; `compat_shim_has` tests a feature. Current rows cover version
+reporting, DPI awareness by era, and long-path awareness for Windows 10/11.
+Keep this declarative table and its host tests in sync when adding compatibility
+behavior. A feature bit records the selected profile capability; it does not
+claim that an unimplemented Win32 API exists.
+
 ## Import redirects
 `redirect <app|*> <dll>[!<sym>] <dll>[!<sym>]` rules, consulted by the loader for
 every import via `ldr_backend.redirect_import`. Symbol rule: both sides name a symbol.
-DLL rule: both sides bare, the symbol (or ordinal) is kept. There are no built-in shims
-yet; only rules the user/profile adds.
+DLL rule: both sides bare, the symbol (or ordinal) is kept. These rules are
+additional to the per-era feature table above and can be supplied by the user/profile.
 
 ## ntdll (src/win32/ntdll)
 `syscalls.tbl` (provisional numbers; astra owns the real ABI, task #12) generates the
@@ -32,7 +41,10 @@ explicit DOS path, else `C:\Windows\System32\`. Images map as RWX by copy (no W^
 (freestanding, own `crt/string.c` + `chkstk.S`) and links with LLD in link mode
 (`lld-link`, or the local Rust toolchain's `rust-lld -flavor link`). Exports are
 generated from definitions marked WINAPI/NTAPI, so only implemented functions export.
-Outputs `ntdll.dll`, `kernel32.dll` (+ import libs). `tests/win32/run.sh` builds them,
+Outputs `ntdll.dll`, `kernelbase.dll`, and the `kernel32.dll` forwarding image
+(plus import libraries). Kernel32 ANSI entry points in `kernel32/ansi.c` convert
+CP_ACP strings and delegate to W implementations; host coverage lives in
+`win32.ansi_adapter_test`. `tests/win32/run.sh` builds the PE images,
 loads them with the LoOS loader at a forced non-preferred address (relocation), checks
 kernel32's imports are all satisfied by ntdll, and calls pure ntdll code
 (RtlGetVersion, RtlVerifyVersionInfo, VerSetConditionMask, RtlNtStatusToDosError)

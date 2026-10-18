@@ -14,17 +14,22 @@ rem both.  CFG_CROSS=1 forces the cross ("win64 amd64") form.
 setlocal
 if "%NT_SRC%"==""    set "NT_SRC=%~dp0..\srv03rtm"
 if "%LOOS_ROOT%"=="" set "LOOS_ROOT=%~dp0.."
+if "%NT_OUT%"==""   set "NT_OUT=%NT_SRC%\..\out"
 
-if not exist "%NT_SRC%\tools\razzle.cmd" echo [FAIL] missing razzle.cmd & exit /b 3
+if not exist "%NT_SRC%\tools\razzle.cmd" (
+    echo [FAIL] missing razzle.cmd
+    exit /b 3
+)
 cd /d "%NT_SRC%"
 
 if "%CFG_CROSS%"=="1" (
-    set "RAZZLE_ARGS=free offline no_certcheck win64 amd64"
+    set "RAZZLE_ARGS=free offline no_certcheck Binaries_dir %NT_OUT%\binaries win64 amd64"
 ) else (
-    set "RAZZLE_ARGS=free offline no_certcheck"
+    set "RAZZLE_ARGS=free offline no_certcheck Binaries_dir %NT_OUT%\binaries"
 )
 
 echo [build-amd64] SDXROOT=%NT_SRC%
+echo [build-amd64] output =%NT_OUT%\binaries
 echo [build-amd64] args   =%RAZZLE_ARGS%
 call "%NT_SRC%\tools\razzle.cmd" %RAZZLE_ARGS% exec "%LOOS_ROOT%\scripts\_build-pass.cmd"
 set RC=%errorlevel%

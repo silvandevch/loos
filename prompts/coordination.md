@@ -7,13 +7,17 @@ parallel, and auditable.
 
 | Bus id | Agent | Model | Owns |
 |---|---|---|---|
-| `astra` | Codex #1 | **GPT 6 Astra** (strongest) | hard, correctness-critical core: kernel, VM, syscall ABI, btrfs/VFS, drivers, crypto, security, concurrency |
-| `claude` | Claude Code | **Claude Sonnet 5.5** | architecture, Win32 subsystem, API sets, UI/shell, integration, **review of everything**, provenance |
-| `luna` | Codex #2 | **GPT 6 Luna** (fast, weaker) | mechanical/parallel + **porting Win XP apps to LoOS apps**: API-set tables, import stubs, per-era shims, test harnesses, CI, docs, fixtures |
+| `astra` | Codex #1 | **GPT 6 Astra** (strongest) | the hardest, correctness-critical core: kernel, VM, syscall ABI, btrfs/VFS, drivers, novel security/crypto, hardest reverse-engineering, math |
+| `sol` | Codex #2 | **GPT 6.1 Sol** (near-Astra, cheaper) | the workhorse: Win32 subsystem, API sets, compat shims, backend services, graphics bridge, Lin bridge/base, toolchain, tests |
+| `claude` | Claude Code | **Claude Sonnet 5.5** (fast, broad) | UI/shell, design & branding, docs & writing, **review of everything**, mechanical tables & CI, provenance |
 
-**Difficulty routing:** `luna` → `claude` → `astra`. If a task turns out harder
-than the tier can do correctly, **escalate** to the next tier up — with what you
-tried, what failed, and the blocker. Never sit on a task you can't do right.
+**Capability routing:** `claude` → `sol` → `astra`. Push breadth/UI/design/docs
+down to `claude`; take novel security, hardest kernel/RE, and math up to `astra`.
+If a task turns out harder than the tier can do correctly, **escalate** to the
+next tier up — with what you tried, what failed, and the blocker. Never sit on a
+task you can't do right. Owners on the board are computed by
+`../scripts/seed_tasks.py` (competence matrix + load balancer, see
+`../docs/AGENTS.md` §Routing).
 
 ## The loop every agent runs
 
@@ -44,17 +48,17 @@ Idle session? `./loos bus watch --for <me>` blocks and prints new messages.
 - **refs**: always `--ref` the message/task you're replying to or claiming.
 
 ```bash
-# claude hands the hard core to astra
-./loos bus send --from claude --to astra --topic mm --priority high \
+# claude hands a hard problem up to sol
+./loos bus send --from claude --to sol --topic mm --priority high \
   --subject "section object demand paging" \
   "spec: prompts/spec/mm-sections.md  acceptance: tests/mm/fault_test  ref BACKEND-SPEC.md §2.3"
 
-# luna reports a mechanical batch done
-./loos bus send --from luna --to claude --topic apisets --subject "12 kernel32 forwarders" \
+# sol reports a batch done to claude
+./loos bus send --from sol --to claude --topic apisets --subject "12 kernel32 forwarders" \
   "tables in src/apisets/kernel32.tab  acceptance: tests/apisets/resolve  ref <claimid>"
 
-# luna escalates
-./loos bus send --from luna --to claude --topic io --priority high \
+# sol escalates the hardest work to astra
+./loos bus send --from sol --to astra --topic io --priority high \
   --subject "IRP cancellation race (escalating)" \
   "tried X, failed Y; see analysis in thread io. blocker: <…>"
 ```
@@ -63,8 +67,8 @@ Idle session? `./loos bus watch --for <me>` blocks and prints new messages.
 
 ```bash
 ./loos bus task add "btrfs write path" --owner astra --priority high
-./loos bus task ls [--state doing] [--owner luna]
-./loos bus task claim 7 --by luna      # atomic — fails if already taken
+./loos bus task ls [--state doing] [--owner sol]
+./loos bus task claim 7 --by sol       # atomic — fails if already taken
 ./loos bus task update 7 --state review --notes "claude: review"
 ./loos bus task done 7 --by astra
 ```
@@ -75,8 +79,8 @@ States: `todo → doing → review → done` (+ `blocked`, `cancelled`).
 
 - **One writer per file.** Claim first; if taken, message the claimant instead
   of editing.
-- **Everything Claude ships is reviewed** by Claude; kernel-critical diffs from
-  `astra` get a second look too — request it on topic `review`.
+- **Everything is reviewed** — `claude` owns review; kernel-critical diffs from
+  `astra`/`sol` get a second look too. Request it on topic `review`.
 - **Source discipline** ([`../docs/SOURCE-POLICY.md`](../docs/SOURCE-POLICY.md)):
   write original code; don't 1:1 copy unless there's genuinely no other way. If
   you copy, comment the exact source and add a `docs/PROVENANCE.md` row. If you

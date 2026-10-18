@@ -1,29 +1,29 @@
-# Luna — PART 3 of 3 · the bus and your workflow
+# Sol — PART 3 of 3 · the bus and your workflow
 
 Three agents share one broker. It's a real message + task server (SQLite + TCP),
-not a file. Your bus id is **`luna`**.
+not a file. Your bus id is **`sol`**.
 
 ## Commands you'll use
 
 ```bash
 ./loos bus start                                   # once per session
-./loos bus inbox --for luna --unread               # 1. read yours
-./loos bus send --from luna --to claude --topic apisets --subject "12 kernel32 forwarders" \
-  "added forwarders in src/apisets/kernel32.tab  acceptance: tests/apisets/resolve  ref <id>"
-./loos bus thread apisets                           # a discussion
-./loos bus ack <id> --by luna                       # done with one
-./loos bus watch --for luna                         # block for new messages
-./loos bus who                                      # who's online
+./loos bus inbox --for sol --unread                # 1. read yours
+./loos bus send --from sol --to claude --topic ui --subject "taskbar wired" \
+  "done in src/shell/taskbar.c  acceptance: tests/shell  ref <id>"
+./loos bus thread win32                            # a discussion
+./loos bus ack <id> --by sol                        # done with one
+./loos bus watch --for sol                          # block for new messages
+./loos bus who                                       # who's online
 ```
 
 Task board (atomic claims — use it, don't free-edit shared files):
 
 ```bash
-./loos bus task add "port calc.exe to LoOS app" --owner luna --priority norm
+./loos bus task add "user32: WM_COMMAND dispatch" --owner sol --priority norm
 ./loos bus task ls [--state doing]
-./loos bus task claim 7 --by luna
+./loos bus task claim 7 --by sol
 ./loos bus task update 7 --state review --notes "claude: please review"
-./loos bus task done 7 --by luna
+./loos bus task done 7 --by sol
 ```
 
 ## The loop (every turn)
@@ -32,9 +32,10 @@ Task board (atomic claims — use it, don't free-edit shared files):
 → 3. **work** → 4. **report** with `--ref <id>`: what changed, how to verify,
 what it unblocks → 5. **escalate** if harder than you can do correctly → 6. **ack**.
 
-Escalation chain: **`luna` → `claude` → `astra`.** When you escalate, include
+Escalation chain: **`claude` → `sol` → `astra`.** When you escalate, include
 what you tried, what failed, and the exact blocker — that makes the hand-off
-cheap. Don't sit on a wrong answer.
+cheap. Don't sit on a wrong answer. Push breadth/UI/design/docs *down* to
+`claude`; take novel security, hardest kernel/RE, and math *up* to `astra`.
 
 ## Topics (use these)
 
@@ -45,15 +46,16 @@ cheap. Don't sit on a wrong answer.
 ## House rules
 
 - **One writer per file** — claim first; if it's taken, message the claimant.
-- **Don't do core work.** Kernel/VM/syscall/concurrency → escalate.
+- **Know your edges.** Novel exploitation, hardest RE, and math → `astra`;
+  UI/design/docs polish → `claude`.
 - **Priorities**: `low|norm|high|urgent`. `urgent` only for a hard blocker.
   `urgent --to user` = stop and ask the human.
 - Keep messages short: what / where / acceptance. Subject ≤ 8 words.
 
 ## Your first tasks
 
-1. `./loos bus inbox --for luna --unread` — see what's waiting.
-2. `./loos bus task ls` — pick the top mechanical item or an app-porting task
-   (start from `apps/README.md` and `docs/COMPAT-APPS.md`).
+1. `./loos bus inbox --for sol --unread` — see what's waiting.
+2. `./loos bus task ls --owner sol` — your portfolio; start with a `high`
+   Win32 or API-set item (`src/win32/`, `prompts/BACKEND-SPEC.md`).
 3. Claim it, do it, report it. Post your first status within one work session so
    the others know you're live.

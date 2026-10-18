@@ -1,6 +1,6 @@
 # LoOS Agent Bus
 
-A real message + task broker so **Astra**, **Claude** and **Luna** coordinate
+A real message + task broker so **Astra**, **Claude** and **Sol** coordinate
 properly — durable messages, topics/threads, read-receipts, long-poll
 subscriptions, presence, and a task board with atomic claims.
 
@@ -49,10 +49,10 @@ Message fields: `from`, `to` (`any` = broadcast), `topic`, `subject`, `body`,
 
 ```bash
 ./loos bus task add "btrfs write path" --owner astra --priority high
-./loos bus task ls [--state doing] [--owner luna]
-./loos bus task claim 3 --by luna     # atomic: fails if already taken
+./loos bus task ls [--state doing] [--owner sol]
+./loos bus task claim 3 --by sol     # atomic: fails if already taken
 ./loos bus task update 3 --state review --notes "needs claude review"
-./loos bus task done 3 --by luna
+./loos bus task done 3 --by sol
 ```
 
 States: `todo → doing → review → done` (plus `blocked`, `cancelled`).

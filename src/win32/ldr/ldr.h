@@ -78,6 +78,9 @@ typedef struct {
      * before any DLL initialiser runs (so e.g. the compatibility layer can read the
      * manifest and fix the reported OS version first). */
     void (*exe_mapped)(void *ctx, struct ldr_module *exe);
+    /* Optional: full path of the file just opened by open_module (valid until release_file), recorded
+     * in ldr_module.path for GetModuleFileName. */
+    const char *(*module_path)(void *ctx, void *cookie);
 } ldr_backend;
 
 typedef enum { LDR_FREE = 0, LDR_MAPPED, LDR_BOUND, LDR_INITIALIZING, LDR_READY } ldr_state;
@@ -95,6 +98,7 @@ struct ldr_module {
     unsigned short deps[LDR_MAX_DEPS];
     uint32_t  tls_index;
     int       has_tls;
+    char      path[260];                /* full path of the file it was loaded from, "" if unknown */
 };
 typedef struct ldr_module ldr_module;
 

@@ -8,5 +8,5 @@
   "support_url": "https://example.invalid/loos",
   "accent_color": "#3B82F6",
   "telemetry": "none",
-  "notes": "Edit these to define the LoOS identity once; app rebrands and build tooling read this file."
+  "notes": "Canonical identity record; keep branding/brand.h and branding/brand.rcinc synchronized with these values."
 }

@@ -13,9 +13,10 @@ This registry tracks the application ports and their LoOS runtime status.
 
 | App | Origin (era) | Source in repo | Rebrand only? | Runs on LoOS | Notes |
 |---|---|---|---|---|---|
-| LoCmd | NT command processor, extended for LoOS | `apps/loos-cmd/` | no | ☐ | CMake target and Windows CI build; network clients/probes removed |
-| LoNotepad | Windows 11 | `apps/loos-notepad/` | no | ☐ | CMake target and Windows CI build; rebranded |
-| LoTaskMgr | Windows 7 / early 10 | `apps/loos-taskmgr/` | no | ☐ | CMake target and Windows CI build; online lookups and unsupported shell/firewall actions removed |
+| LoOS Calculator | LoOS native app | `apps/calc/` | no | ☐ | `LoCalc.exe` cross-builds on Linux; arithmetic is local-only |
+| LoCmd | NT command processor, extended for LoOS | `apps/loos-cmd/` | no | ☐ | Linux MinGW-w64 build; network clients/probes removed |
+| LoNotepad | Windows 11 | `apps/loos-notepad/` | no | ☐ | Linux MinGW-w64 build; title, About UI, and metadata use LoOS branding |
+| LoTaskMgr | Windows 7 / early 10 | `apps/loos-taskmgr/` | no | ☐ | Linux MinGW-w64 build; online lookups and unsupported shell/firewall actions removed |
 
 Columns:
 - **Origin (era):** which Windows version the app came from (drives the

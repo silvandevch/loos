@@ -24,6 +24,7 @@
 
 #include <windows.h>
 #include <commdlg.h>
+#include "brand.rcinc"
 
 LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 
@@ -168,11 +169,40 @@ END
 /* ---- 16: About (ours, themed; icon 2 = the LoOS logo) ------------------- */
 16 DIALOGEX 0, 0, 260, 118
 STYLE DS_SETFONT | DS_MODALFRAME | DS_3DLOOK | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "About LoNotepad"
+CAPTION "About LoOS Notepad"
 FONT 8, "MS Shell Dlg"
 BEGIN
     CONTROL         2, 65535, "Static", SS_ICON | WS_CHILD | WS_VISIBLE,
                     12, 12, 32, 32
     LTEXT           "", 101, 52, 10, 196, 72
     DEFPUSHBUTTON   "OK", 1, 105, 92, 50, 14
+END
+
+1 VERSIONINFO
+FILEVERSION LOOS_FILE_VERSION
+PRODUCTVERSION LOOS_FILE_VERSION
+FILEFLAGSMASK 0x3fL
+FILEFLAGS 0x0L
+FILEOS 0x40004L
+FILETYPE 0x1L
+FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", LOOS_COMPANY_TEXT
+            VALUE "FileDescription", LOOS_APP_NOTEPAD_TEXT
+            VALUE "FileVersion", LOOS_FILE_VERSION_TEXT
+            VALUE "InternalName", "LoNotepad"
+            VALUE "OriginalFilename", "LoNotepad.exe"
+            VALUE "ProductName", LOOS_APP_NOTEPAD_TEXT
+            VALUE "ProductVersion", LOOS_FILE_VERSION_TEXT
+            VALUE "Comments", LOOS_TAGLINE_TEXT
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
 END

@@ -1,15 +1,15 @@
 # LoOS — build workspace + OS project
 
-**LoOS** = **Lo**cal **O**nly OS. A privacy-first operating system that runs
-Windows apps, with **btrfs** as its native filesystem and **zero telemetry**.
+**LoOS** = **Lo**cal **O**nly OS. A **Rust-first** privacy operating system
+that runs Windows apps, with **btrfs** as its native filesystem, **native
+package managers (winget + apt)**, and **zero telemetry**.
 
 This repo holds two things:
 
-1. **A build workspace** for the NT 5.2 (Server 2003 RTM) source you're studying:
-   prep (OOBE, certs, media tags, missing binaries), a Wine/RAZZLE build, a
-   remote Windows-VM build, ISO creation, and QEMU boot. It runs from `./loos`.
+1. **A build workspace** for the NT 5.2 (Server 2003 RTM) study tree, kept
+   separate from LoOS development.
 2. **The LoOS OS project** — the original code you publish, its docs, and the
-   prompts for the three AI agents (Astra / Claude / Luna) who build it.
+   prompts for the three AI agents (Astra / Claude / Sol) who build it.
 
 > **Start with [`docs/README.md`](docs/README.md).** Code-use policy (read the
 > original source freely; write your own; don't 1:1 copy unless unavoidable;
@@ -18,7 +18,7 @@ This repo holds two things:
 ## One command
 
 ```bash
-./loos help        # everything: setup, prep, build, iso, qemu, vm-build, docs, status
+./loos help        # build LoOS, inspect docs/status, optional study-tree tools
 ./loos status      # where things are + disk + tools
 ```
 
@@ -30,10 +30,10 @@ outputs (ISOs, VM disks) go to the external **DATA** drive. Paths are set in
 
 ```
 LoOS/                         (this repo, on DATA)
-  loos                        the one CLI: setup/prep/build/iso/qemu/vm/docs
+  loos                        the one CLI: build LoOS, docs/status, study tools
   env.sh                      paths (SRC_ROOT, OUT_ROOT, DATA)
   docs/                       START HERE — everything documented
-  scripts/                    prep + Wine build steps
+  scripts/                    LoOS and optional study-tree build steps
   remote/                     VM build + ISO + QEMU
   prompts/                    agent prompts (multi-part) + specs
   agents/                     the agent message bus (broker + CLI)
@@ -49,71 +49,29 @@ $OUT_ROOT/  (default /run/media/silvan/DATA/loos/out, external DATA)
   binaries.*/  loos.iso  loos.qcow2
 ```
 
-## Quick start
+## Quick start: build LoOS on Linux
 
 ```bash
-scripts/00-fetch.sh          # clone/update repos
-scripts/run-all.sh           # overlay + oobe + certs + tags + stubs
-scripts/10-verify-env.sh     # pre-flight
-scripts/fix-wine-assoc.sh    # stop Wine opening .cmd in notepad
-remote/build-wine.sh         # build + ISO on this host under Wine
-#   or, on a Windows VM:
-cp remote/config.example.env remote/config.env   # edit host/user
-python3 remote/loos-build.py all                 # sync->build->iso->fetch->qemu
+./loos build                 # native modules/tests + all LoOS desktop apps
 ```
 
-## Build flow
+Requires CMake, Ninja, Clang, and MinGW-w64. `./loos build` does not build the
+NT study tree. The LoOS kernel/loader are not implemented yet, so this builds
+all current LoOS targets rather than producing a bootable OS image.
 
-RAZZLE selects the target from `%PROCESSOR_ARCHITECTURE%`. Wine reports `AMD64`,
-so razzle takes its **Native Support** path and builds x64 directly — a single
-pass, no x86 bootstrap:
+## Optional NT 5.2 study-tree tools
+
+The NT study tree can be prepared and built separately when needed:
 
 ```
-tools\razzle.cmd free offline no_certcheck exec <workspace>\scripts\_build-pass.cmd
+./loos setup
+./loos prep
+bash scripts/09-build-all.sh
+./loos iso
 ```
 
-`_build-pass.cmd` runs `tools\prebuild.cmd` (generates makefiles + build tools),
-then `build -bcZP -M 4` (threads capped at 4 — the leaked tree is unstable above
-that). `09-build-all.sh` runs it under Wine, using `winepath` to translate the
-NVMe paths, and tees output to `logs/`.
-
-**x86-host / cross variant:** in a 32-bit (`WINEARCH=win32`) prefix razzle builds
-x86 natively; there, amd64 is cross-built by passing `win64 amd64` (razzle gates
-AMD64 behind `Win64` and then selects `tools\win64\x86\amd64`). Set `CFG_CROSS=1`
-to force this form. Note `x86` is *not* a valid razzle argument, and `Win32`
-exists only to build x86 *on an AMD64 host* (unsupported by MS).
-
-### Verified under Wine
-
-`tools\razzle.cmd free offline no_certcheck exec <cmd>` initialises the full
-environment under wine-staging 11.0 (reports `_BuildArch=AMD64`, no errors; only
-cosmetic `ALIAS`/`on REM` noise) and `exec` correctly hands off to a script at an
-absolute `Z:\` path.
-
-## Notes and deviations from the original brief
-
-- **OOBE path**: there is no `enduser/oobe`. OOBE is `base/ntsetup/oobe`; that is
-  what `03-patch-oobe.sh` patches. `enduser/oobe` does not exist in this tree.
-- **What the OOBE fix actually is**: patchkit's `msobmain.h` disables
-  `#include "licdll.h"` and a non-existent `setup.h`, and `idl/sources` drops
-  the unavailable `licdlli.c`. There is no architecture-specific string/ASM
-  crash in OOBE; the tree already carries correct `{amd64}` dir gating.
-- **Overlay policy**: the source tree is already "PrePatched_v10". Overlaying
-  all of patchkit would clobber 321 of anika's validated files, so the overlay
-  is additive (adds 1575 x64 sources/tools, skips conflicts). Use
-  `02-overlay-patchkit.sh --force` to take patchkit's versions (backed up).
-- **Missing binaries** cannot be synthesised — activation/crypto and third-party
-  code were stripped from the leak. `06-stubs.sh` parses `tools/missing.cmd` and
-  either materialises from a retail ISO / binaries pack (`RETAIL_SRC` or
-  `RETAIL_ISO`), or emits clearly-marked placeholders for `winlogon.exe`,
-  `pidgen.dll`, `l3codeca.acm`, `l3codecx.ax`, `ovcodec2.dll`, `wstcodec.sys`.
-  (`msgina.dll` is built from source, not a missing binary.)
-- **Certs**: `certutil/generate.sh` works on Linux via openssl. Two upstream
-  defects are fixed at run time: CRLF endings, and a missing space between two
-  `-i` paths on line 103 that silently skipped `vercert.cpp`.
-- **Building from Linux is unsupported upstream.** RAZZLE is Windows batch + PE
-  tooling; this project runs it under Wine. It is plausible but not a tested
-  configuration — a Windows host remains the reliable path.
+These commands operate on the separate NT study tree. The Wine build uses a
+writable overlay under `OUT_ROOT` so generated files do not alter `NT_SRC`.
 
 ## The LoOS OS project
 
@@ -125,30 +83,26 @@ Documented in [`docs/`](docs/README.md). The short version:
   Linux implementation).
 - [`docs/BRANDING.md`](docs/BRANDING.md) + [`docs/COMPAT-APPS.md`](docs/COMPAT-APPS.md)
   — LoOS identity and the workflow for your decompiled, rebranded apps.
+- [`docs/LANGUAGE.md`](docs/LANGUAGE.md) — **Rust-first** policy (C only where justified).
+- [`docs/API.md`](docs/API.md) — the **LoOS API** (the native `loos.h` SDK).
+- [`docs/API-STYLE.md`](docs/API-STYLE.md) — API style + full-documentation standard.
+- [`docs/TOOLCHAINS.md`](docs/TOOLCHAINS.md) — gcc/g++/clang/rust targets + LoOS libc.
+- [`docs/PYTHON.md`](docs/PYTHON.md) — **native Python** on LoOS.
+- [`docs/DRIVERS.md`](docs/DRIVERS.md) — driver model, default drivers, AMD/NVIDIA GPU.
+- [`docs/PACKAGING.md`](docs/PACKAGING.md) — native package managers: winget + apt.
+- [`docs/INSTALL.md`](docs/INSTALL.md) — installer, recovery, and OTA updates.
 - [`docs/SOURCE-POLICY.md`](docs/SOURCE-POLICY.md) — code-use rules.
 - [`docs/AGENTS.md`](docs/AGENTS.md) + [`prompts/`](prompts/README.md) — how the
-  three agents (Astra / Claude / Luna) work and talk (`.agentbus/`).
+  three agents (Astra / Claude / Sol) work and talk (`.agentbus/`).
 
-### Native source build (current increment)
-
-The first source module is the read-only btrfs path under `src/fs/btrfs/`.
-It is independent of the study tree and has no third-party runtime
-dependencies.
+### Linux source and app builds
 
 ```bash
-make test                         # offline fixture + unit/integration test
-docker build -t loos-native .     # reproducible Linux build image
-docker run --rm loos-native       # rerun the same test command in the image
+./loos build                        # all implemented LoOS targets
+./loos source-build host-clang      # native modules and host tests only
+./loos source-build windows-mingw   # LoOS apps for the PE runtime only
+docker build -t loos-linux .        # reproducible Linux + MinGW build image
 ```
 
-When `mkfs.btrfs`/`btrfs-progs` is installed, `make test` also creates a
-temporary real btrfs image with `--rootdir` and runs the same reader against it;
-the test is explicitly skipped when that optional host tool is absent. The
-Dockerfile installs it so the container path exercises both the deterministic
-format fixture and a genuine image.
-
-The exact pinned build inputs are recorded in `toolchain.lock`; `.python-version`
-pins the fixture generator's Python runtime. The current deploy target for this
-increment is the reproducible test container. The bootable LoOS image remains a
-later milestone and is built with `./loos build && ./loos iso` once the loader
-and kernel targets exist.
+There is no bootable LoOS image yet; the loader and kernel targets are future
+work. `./loos iso` is for the separate NT study tree.

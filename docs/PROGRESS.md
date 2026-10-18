@@ -90,3 +90,38 @@ usage. The right model on this host is one native-AMD64 pass — see §9.
   OOBE; the real OOBE issues are missing `licdll.h`/`setup.h` and `licdlli.c`.
 - Native Linux cross-compilation is **not** supported upstream; RAZZLE is
   Windows PE tooling, run here under Wine as a best-effort path.
+
+## OS repo status (audited)
+
+The agents started the original LoOS OS repo (`src/`, `apps/`, `tests/`, CMake).
+Audited by actually building and testing (not by reading claims):
+
+- **Host build works**: `cmake --preset host-clang` configures and builds; it
+  links PE32+ `ntdll.dll` (174 exports) + `kernel32.dll` (278 exports).
+- **Tests: 15/16 pass** (`ctest --preset host-clang`, ~6.5 s).
+- **Two real defects** (now on the bus):
+  - `security.crypto_block_test` **fails** ("constant-time length boundary") →
+    task `security: fix constant-time length boundary`.
+  - `make test` (the legacy btrfs Makefile harness) failed to compile under
+    `-Werror` (`-Wtype-limits` at `src/fs/btrfs/btrfs.c:1661`) — **fixed** (the
+    dead overflow guard now computes `needed` as `size_t`); `make test` is green.
+- **All four presets build**: `host-clang`, `kernel-clang`, `windows-msvc`,
+  `windows-mingw`. `kernel-clang` uses `-nostdinc` + `cmake/freestanding/include`;
+  `windows-msvc` uses `clang-cl` with the LLVM COFF tools (`llvm-lib`, `llvm-rc`,
+  `lld-link`) and builds the Win32 subsystem (apps need the Windows SDK, so they
+  stay on `windows-mingw`). Warning flags are centralized in
+  `cmake/LoosWarnings.cmake` so the MSVC-simulated driver is not fed `-pedantic`.
+- Only remaining red test is the crypto one above.
+- Present: `src/{kernel,fs/btrfs,io,security,win32/{apisets,compat,crt,kernel32,ldr,ntdll}}`,
+  `apps/{calc,loos-cmd,loos-notepad,loos-taskmgr}`, `tests/{boot,kernel,fs,win32,compat,privacy,review}`,
+  `cmake/toolchains/`, `.github/workflows/ci.yml`, `CMakePresets.json`.
+
+Task board: 100 tasks (see `./loos bus task ls`).
+
+## Roster
+
+The third agent is **GPT 6.1 Sol** (`sol`) — near-Astra at ~⅕ the cost; it
+replaced GPT 6 Luna. Capability order is **astra > sol > claude**, with
+category-aware routing: owners are computed by `scripts/seed_tasks.py` from a
+competence matrix + load balancer (astra capped so it stays on the hard core).
+Board split: **astra 32 · sol 39 · claude 29**. See `docs/AGENTS.md` §Routing.

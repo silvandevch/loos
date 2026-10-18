@@ -46,6 +46,23 @@ const compat_version *compat_version_of(compat_era e);
 /* "win7", "7", "windows 7", "8.1", "win10", "11" ... (case-insensitive). 1 on success. */
 int compat_era_parse(const char *s, compat_era *out);
 
+enum compat_shim_feature {
+    COMPAT_SHIM_VERSION_REPORT       = 1u << 0,
+    COMPAT_SHIM_DPI_AWARE            = 1u << 1,
+    COMPAT_SHIM_PER_MONITOR_DPI_V1   = 1u << 2,
+    COMPAT_SHIM_PER_MONITOR_DPI_V2   = 1u << 3,
+    COMPAT_SHIM_LONG_PATH_AWARE      = 1u << 4,
+};
+
+typedef struct {
+    compat_version version;
+    uint32_t features;
+} compat_shim_profile;
+
+/* Era table consumed by version reporting and available to launch/UI policy. */
+const compat_shim_profile *compat_shim_profile_of(compat_era e);
+int compat_shim_has(compat_era e, enum compat_shim_feature feature);
+
 typedef enum { COMPAT_SRC_DEFAULT = 0, COMPAT_SRC_MANIFEST, COMPAT_SRC_PROFILE } compat_source;
 
 typedef struct {

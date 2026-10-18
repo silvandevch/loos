@@ -16,6 +16,12 @@ Windows applications, built to be private by construction.
 - **Branded**: a custom desktop shell, and a set of modern Windows apps that
   have been decompiled, rebranded for LoOS, and rebuilt (see
   [COMPAT-APPS.md](COMPAT-APPS.md)).
+- **Package-managed**: the OS ships **native package managers — a
+  winget-compatible one and a native apt/dpkg one** — so Windows *and*
+  Debian/Ubuntu software install through one service and one CLI (see
+  [PACKAGING.md](PACKAGING.md)).
+- **Installable and self-updating**: a real installer, recovery environment, and
+  signed, atomic over-the-air updates (see [INSTALL.md](INSTALL.md)).
 
 ## What it is not
 

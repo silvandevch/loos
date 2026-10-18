@@ -61,6 +61,7 @@
 #endif
 #include <winsock2.h> /* address structures only; no sockets or DNS lookups */
 #include <windows.h>
+#include "brand.h"
 #include <windowsx.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -245,7 +246,7 @@ typedef enum {
 /* --------------------------------------------------------------------------
  * Transcribed UI strings (classic en-US Task Manager wording).
  * -------------------------------------------------------------------------- */
-static const wchar_t S_APP[]            = L"LoOS Task Manager";
+static const wchar_t S_APP[]            = LOOS_BRAND_TASKMGR_W;
 static const wchar_t S_CLASS[]          = L"LoOSTaskManager";
 static const wchar_t S_FMT_CPU[]        = L"CPU: %u%%";
 static const wchar_t S_FMT_MEM[]        = L"Memory: %s";
@@ -257,7 +258,7 @@ static const wchar_t S_RUN_CAP[]        = L"Create New Task";
 static const wchar_t S_ABOUT[]          =
     L"LoOS Task Manager\nNative Win32 task manager for LoOS.\n"
     L"No ETW telemetry. No XAML. Offline help only.";
-static const wchar_t S_TRAY_TIP_FMT[]   = L"Task Manager\nCPU %u%%  Mem %u%%";
+static const wchar_t S_TRAY_TIP_FMT[]   = L"LoOS Task Manager\nCPU %u%%  Mem %u%%";
 
 /* --------------------------------------------------------------------------
  * Row types
@@ -1389,7 +1390,7 @@ static void tm_perf_draw(HWND hwnd, HDC hdc, int isMem)
     mem = CreateCompatibleDC(hdc);
     bmp = CreateCompatibleBitmap(hdc, rc.right, rc.bottom);
     old = (HBITMAP)SelectObject(mem, bmp);
-    bg = CreateSolidBrush(g_dark ? RGB(16, 16, 16) : RGB(255, 255, 255));
+    bg = CreateSolidBrush(g_dark ? RGB(LOOS_BRAND_SURFACE_R, LOOS_BRAND_SURFACE_G, LOOS_BRAND_SURFACE_B) : RGB(255, 255, 255));
     FillRect(mem, &rc, bg);
     DeleteObject(bg);
     grid = CreateSolidBrush(g_dark ? RGB(48, 48, 48) : RGB(220, 220, 220));
@@ -2596,7 +2597,7 @@ static HMENU tm_build_menu(void)
     DestroyMenu(prio);
     {
         HMENU help = CreatePopupMenu();
-        AppendMenuW(help, MF_STRING, IDM_HELP_ABOUT, L"About Task Manager");
+        AppendMenuW(help, MF_STRING, IDM_HELP_ABOUT, L"About LoOS Task Manager");
         AppendMenuW(bar, MF_POPUP, (UINT_PTR)help, L"&Help");
     }
     g_menu = bar;
@@ -4211,7 +4212,7 @@ static INT_PTR CALLBACK tm_thr_proc(HWND dlg, UINT msg, WPARAM w, LPARAM l)
             if (s_ctx.hist[i] > max)
                 max = s_ctx.hist[i];
         if (s_ctx.n > 1) {
-            HPEN pen = CreatePen(PS_SOLID, 2, RGB(0, 200, 255));
+            HPEN pen = CreatePen(PS_SOLID, 2, RGB(LOOS_BRAND_ACCENT_R, LOOS_BRAND_ACCENT_G, LOOS_BRAND_ACCENT_B));
             HPEN old = (HPEN)SelectObject(hdc, pen);
             for (i = 0; i < s_ctx.n; i++) {
                 int x = gr.left + (i * (gr.right - gr.left)) / 119;

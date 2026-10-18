@@ -3,7 +3,7 @@
 busd.py — LoOS Agent Bus broker.
 
 A tiny, dependency-free message + task broker so the LoOS agents
-(Astra / Claude / Luna) can coordinate properly: durable messages, topics,
+(Astra / Claude / Sol) can coordinate properly: durable messages, topics,
 threads, read-receipts, long-poll subscriptions, a task board with atomic
 claims, and presence.
 

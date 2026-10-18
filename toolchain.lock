@@ -1,5 +1,5 @@
-# LoOS native read-path build inputs.  No third-party packages are required.
+# Linux host and x86-64 Windows PE app build inputs.
 base_image=debian:12.6-slim
-compiler=gcc
+compiler=clang,gcc-mingw-w64-x86-64
 python=3.11.2
-dependencies=btrfs-progs,gcc,make,python3
+dependencies=clang,cmake,ninja-build,python3,gcc-mingw-w64-x86-64,binutils-mingw-w64-x86-64

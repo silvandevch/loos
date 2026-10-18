@@ -8,9 +8,9 @@ One command does most things: **`./loos`**. Everything else is below it.
 ./loos status            where things live, disk, tool check
 ./loos setup             fetch srv03rtm + patchkit, verify layout
 ./loos prep              run the whole prep pipeline (see scripts/)
-./loos verify            pre-flight: tools, wine prefix, paths
-./loos build             build under Wine (hours)
-./loos source-build      configure, compile, and test CMake modules
+./loos verify            pre-flight: Linux + MinGW build tools and paths
+./loos build             build all implemented LoOS targets on Linux
+./loos source-build      build a selected CMake preset
 ./loos iso               (re)make the bootable ISO
 ./loos qemu              boot the ISO
 ./loos fixwine           fix Wine .cmd/.bat association
@@ -36,14 +36,14 @@ cmake --build --preset host-clang
 ctest --preset host-clang
 ```
 
-`./loos source-build kernel-clang` configures the freestanding target; it does
-not compile until kernel sources are added. `./loos source-build windows-msvc`
-compiles Windows modules when the Windows SDK and companion tools are installed.
-`./loos source-build windows-mingw` cross-compiles all three LoOS PE apps on
-Linux with MinGW-w64. Neither cross target runs the host CTest suites.
+`./loos source-build kernel-clang` compiles the freestanding kernel libraries
+(no host libc; headers come from `cmake/freestanding/include`).
+`./loos source-build windows-msvc` builds the Win32 subsystem with `clang-cl`
+and the LLVM COFF tools; it needs a Windows SDK to build the desktop apps, so
+apps use `./loos source-build windows-mingw`, which cross-compiles all LoOS PE
+apps on Linux with MinGW-w64. Neither cross target runs the host CTest suites.
 
-See [BUILD.md](BUILD.md#c-build-the-loos-source-modules-cmake) for the
-cross-target requirements and current test status.
+See [BUILD.md](BUILD.md) for the build requirements and current target status.
 
 The compatibility runner is `tests/compat/run.py`; validate/list registered
 cases with `python3 tests/compat/run.py --list`. Runtime runs require a LoOS
@@ -70,7 +70,7 @@ default.
 | `05-mediatags.sh` | write `WIN51`/`WIN51IA`/`WIN51IS` | `bash scripts/05-mediatags.sh` |
 | `06-stubs.sh` | materialise/stub missing binaries from `tools/missing.cmd` | `RETAIL_ISO=… scripts/06-stubs.sh` |
 | `run-all.sh` | the whole prep pipeline in order | `./loos prep` |
-| `09-build-all.sh` | Wine build (razzle init + `_build-pass.cmd`) | `./loos build` |
+| `09-build-all.sh` | optional NT study-tree Wine build | `bash scripts/09-build-all.sh` |
 | `10-verify-env.sh` | pre-flight checks | `./loos verify` |
 | `fix-wine-assoc.sh` | stop Wine opening `.cmd` in notepad | `./loos fixwine` |
 | `_iso-run.sh` | make ISO under Wine (uses `_iso.cmd`) | `./loos iso` |
@@ -118,6 +118,7 @@ See [../agents/README.md](../agents/README.md) and [AGENTS.md](AGENTS.md).
 | `SRC_ROOT` | NVMe `~/LoOS-build` | source + patchkit |
 | `OUT_ROOT` | `$DATA/loos/out` | outputs, ISOs, disks |
 | `NT_SRC` | `$SRC_ROOT/srv03rtm` | the source tree |
+| `NT_BUILD_SRC` | `$OUT_ROOT/nt-source-overlay/srv03rtm` | writable Wine build view |
 | `VARIANT` | `srv` | SKU for `oscdimg` |
 | `ISO_OUT` | `$OUT_ROOT/loos.iso` | ISO destination |
 | `RETAIL_ISO`/`RETAIL_SRC` | — | missing-binary source |

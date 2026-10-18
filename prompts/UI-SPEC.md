@@ -12,8 +12,9 @@ decision to lock in; everything else is a sensible default to implement now.
 - Privacy-first, quiet, fast. No ads, no web views loading remote content, no
   telemetry, no account prompts.
 - Local, legible, keyboard-driven. A power-user desktop, not a tablet toy.
-- Visually distinct from Windows: **[you]** pick a name and palette. Default
-  concept: dark, high-contrast, accent-color-driven, generous spacing, soft
+- Visually distinct from Windows: product name **LoOS**, tagline **Local only.**
+  Shared palette: accent `#3B82F6`, surface `#121824`, text `#F3F4F6` from
+  `branding/brand.h`. Default concept: dark, high-contrast, accent-color-driven, generous spacing, soft
   rounded panels, one accent hue, monochrome iconography.
 
 ## 2. Surfaces to build

@@ -88,7 +88,7 @@ static void world_reset(void)
 static ldr_context CTX;
 static void start(int is64)
 {
-    ldr_backend be = { NULL, be_open, be_release, be_alloc, be_free, be_call, NULL, NULL };
+    ldr_backend be = { NULL, be_open, be_release, be_alloc, be_free, be_call, NULL, NULL, NULL };
     ldr_init(&CTX, &be, is64);
 }
 

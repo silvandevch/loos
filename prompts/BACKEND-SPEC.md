@@ -169,10 +169,13 @@ regression gates. Add them as CI fixtures.
 
 ## 7. Module → agent split (see prompts/)
 
-- **Astra**: M1–M4 (kernel/VMM/syscalls/VFS) — the hard, correctness-
-  critical core.
-- **Claude Code**: M5–M8 (subsystem/API/compositor/UI) + all architecture/review.
-- **Luna**: mechanical work — API-set forwarder tables, import stubs,
-  test harnesses, docs, CI, compat-corpus fixtures, per-era shims.
+- **Astra**: M1–M4 (kernel/VMM/syscalls/VFS) — the hardest, correctness-
+  critical core, plus novel security and hardest RE.
+- **Sol**: M5–M8 (PE/Win32 subsystem/API sets/compositor) — the bulk of
+  implementation: compat shims, backend services, graphics bridge, Lin bridge,
+  toolchain, tests.
+- **Claude**: the UI/shell (U0–U5), design & branding, docs & writing, review,
+  and mechanical tables/CI.
 
-Division is a default; the bus (`./loos bus …`) lets them hand work back and forth.
+Division is a default; it is computed per task by `scripts/seed_tasks.py` and the
+bus (`./loos bus …`) lets them hand work back and forth.

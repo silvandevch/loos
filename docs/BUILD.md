@@ -1,72 +1,64 @@
 # LoOS — building
 
-Linux and Wine are the supported build environment. A Windows VM is not
-required. CMake builds native modules and cross-compiles the LoOS PE apps; Wine
-drives the legacy NT source build and ISO tools.
-
-One command checks readiness first:
+LoOS builds on Linux with CMake and Ninja. The top-level command builds the
+implemented native modules, runs their host tests, and cross-compiles the LoOS
+desktop apps. It does not build the separate NT 5.2 study tree.
 
 ```bash
-./loos verify      # tools + paths + wine prefix
-./loos status      # where things live + disk
+./loos verify  # confirm required Linux and MinGW tools are installed
+./loos build   # build all implemented LoOS targets
 ```
 
----
+Install CMake, Ninja, Clang, MinGW-w64 GCC, and MinGW-w64 binutils. Fedora
+package names are `cmake ninja-build clang mingw64-gcc mingw64-binutils`;
+Debian/Ubuntu use `cmake ninja-build clang gcc-mingw-w64-x86-64
+binutils-mingw-w64-x86-64`.
 
-## A. Build under Wine (no VM)
-
-```bash
-./loos setup       # once: fetch source + patchkit, verify layout
-./loos prep        # once: overlay patches, OOBE fix, certs, tags, missing bins
-./loos build       # prebuild + build (long — hours)
-./loos iso         # make the bootable ISO with the tree's oscdimg
-./loos qemu        # boot it
-```
-
-Or the original scripts directly:
-`remote/build-wine.sh` (build+ISO in one), `scripts/09-build-all.sh` (build only).
-
-## C. Build the LoOS source modules (CMake)
-
-The CMake/Ninja build compiles the implemented API-set, PE, and image-loader
-libraries with their host test programs. Artifacts go under `OUT_ROOT`, outside
-the source checkout:
-
-```bash
-./loos source-build                 # configure, compile, and run host tests
-./loos source-build kernel-clang    # configure the empty kernel target
-./loos source-build windows-mingw   # cross-compile LoCmd, LoNotepad, LoTaskMgr
-```
-
-The equivalent explicit host commands are `source ./env.sh`, then
-`cmake --preset host-clang`, `cmake --build --preset host-clang`, and
-`ctest --preset host-clang`. `host-clang` builds `loos_apiset`, `loos_pe`, and `loos_ldr`; CTest runs the
-API-set, loader, PE, and (when Python is available) compatibility-runner suites.
+`./loos build` builds `host-clang` (native filesystem, kernel, and Win32 modules
+plus CTest), `kernel-clang` (freestanding kernel libraries), and `windows-mingw`
+(LoCalc, LoCmd, LoNotepad, and LoTaskMgr PE apps). When Clang and LLD are
+available, the host build also links the LoOS
+`ntdll.dll`, `kernelbase.dll`, and `kernel32.dll` PE images through the
+`win32_pe_images` target. A failing host test is reported and
+the independent app build still runs; the command returns failure if either
+build or the host tests fail. Artifacts are written under `OUT_ROOT/cmake/`.
+To build one part separately, use
+`./loos source-build host-clang` or `./loos source-build windows-mingw`.
+`host-clang` builds the filesystem, kernel core, and Win32 host libraries;
+CTest includes `kernel.core_test`, `kernel.mm_test`, block/crypto checks, the
+Btrfs fixture/reader checks, API-set, loader, PE, kernel32, and ANSI adapter
+suites, plus the compatibility runner when Python is available.
 When standard Wine DLL paths are present, the PE test also checks those real
 binaries.
 
-The `windows-mingw` preset cross-compiles the desktop apps to x86-64 PE files
-from Linux. Install CMake, Ninja, MinGW-w64 GCC, and MinGW-w64 binutils, then
-run `./loos source-build windows-mingw`. Fedora package names are `cmake
-ninja-build mingw64-gcc mingw64-binutils`; Debian/Ubuntu use `cmake
-ninja-build gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64`.
+The `kernel-clang` preset compiles the current freestanding kernel libraries;
+it does not produce a bootable image yet. It compiles with `-nostdinc` against
+the freestanding headers in `cmake/freestanding/include` (plus Clang's builtin
+`stdint.h`/`stddef.h`), so it never pulls in host glibc headers.
+The optional `windows-msvc` preset builds the Win32 subsystem libraries with
+`clang-cl` + the LLVM COFF tools (`llvm-lib`, `llvm-rc`, `lld-link`) and the
+MSVC ABI. It needs an MSVC-compatible Windows SDK to build the desktop apps, so
+apps stay on the Linux `windows-mingw` preset, which is the normal LoOS
+desktop-app build.
 
-Three cross-target toolchains are defined:
+## Optional: build the NT 5.2 study tree under Wine
+
+These commands are separate from `./loos build`:
 
 ```bash
-source ./env.sh
-cmake --preset kernel-clang       # Clang x86-64 freestanding target
-cmake --preset windows-msvc       # clang-cl, MSVC ABI, Windows SDK required
-cmake --preset windows-mingw      # MinGW-w64 app build from Linux
-cmake --build --preset windows-mingw --target locmd lonotepad lotaskmgr
+./loos setup
+./loos prep
+bash scripts/09-build-all.sh
+./loos iso
 ```
 
-The kernel preset is configure-only until `src/kernel/` has buildable sources;
-`./loos source-build kernel-clang` reports this clearly.
-The optional MSVC-ABI preset needs `clang-cl`, a COFF librarian, the Windows
-resource compiler, and an MSVC-compatible Windows SDK. The Linux
-`windows-mingw` preset is the normal app build path. The legacy RAZZLE build
-above remains the build path for the NT 5.2 study tree and runs under Wine.
+`NT_SRC` remains the read-only study tree. The Wine workflow uses a writable
+`fuse-overlayfs` view at `$OUT_ROOT/nt-source-overlay/srv03rtm`; generated files
+go into its upper layer. If `fuse-overlayfs` is unavailable, the script makes a
+writable copy. Set `NT_BUILD_SRC` to choose a different path. Wine reports
+`PROCESSOR_ARCHITECTURE=AMD64`, so RAZZLE builds x64 natively in one pass.
+`_build-pass.cmd` runs `prebuild.cmd` and `build -bcZP -M 4`; the concurrency is
+limited because the legacy tree is unstable above four workers.
 
 For app compatibility corpus checks, see [COMPAT-APPS.md](COMPAT-APPS.md) and
 `tests/compat/README.md`. The manifest can point to private stock binaries;
@@ -89,12 +81,7 @@ and serial marker; it runs on a self-hosted runner with QEMU installed and
 uploads the serial log even if an assertion fails. This job remains opt-in
 until the M0 boot image and serial marker exist.
 
-**What happens:** razzle starts, `prebuild.cmd` generates makefiles, then
-`build -bcZP -M 4` compiles. Wine reports `PROCESSOR_ARCHITECTURE=AMD64`, so
-razzle builds **x64 natively** (single pass). Threads are capped at 4 because the
-tree is unstable above that. A full build is hours.
-
-**First-time Wine setup** (if `./loos verify` complains):
+**First-time Wine setup** (for the optional NT study-tree workflow):
 ```bash
 ./loos fixwine      # make .cmd/.bat run via cmd.exe, not notepad
 ```

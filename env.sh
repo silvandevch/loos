@@ -38,6 +38,7 @@ export OUT_ROOT="${OUT_ROOT:-$LOOS_DATA/loos/out}"
 export NT_SRC="${NT_SRC:-$SRC_ROOT/srv03rtm}"        # SDXROOT source tree
 export PATCHKIT="${PATCHKIT:-$SRC_ROOT/patchkit}"    # openxp/patchkit (amd64 branch)
 export NT_OUT="${NT_OUT:-$OUT_ROOT}"                 # build/binaries/ISO output
+export NT_BUILD_SRC="${NT_BUILD_SRC:-$OUT_ROOT/nt-source-overlay/srv03rtm}" # writable Wine build view
 
 # Back-compat alias (older scripts/tools may reference BUILD_ROOT).
 export BUILD_ROOT="$SRC_ROOT"

@@ -54,6 +54,15 @@ subvolume selection, compressed extents, and full multi-stripe mapping are
 separate increments; callers can still refuse a filesystem with an unsupported
 metadata checksum type by leaving verification enabled.
 
+The B1 transaction primitive accepts a caller-owned allocator and write/flush
+callbacks. It writes a replacement metadata block at a fresh aligned address,
+updates its bytenr and CRC32C, flushes that block, then stages and flushes a
+eligible superblock mirrors, then the primary-superblock root pointer. A failed
+or aborted transaction never publishes the root. It deliberately does not claim
+full file-write support yet:
+directory/file-item mutation, extent accounting, mirrored superblocks, and free
+space-tree updates remain required before general writes are enabled.
+
 Facts were checked against the public Linux/btrfs-progs on-disk structure
 definitions, especially `include/uapi/linux/btrfs_tree.h`; no upstream code is
 copied into LoOS.
