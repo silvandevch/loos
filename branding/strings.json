@@ -1,0 +1,12 @@
+{
+  "product_name": "LoOS",
+  "product_full": "LoOS (Local Only OS)",
+  "company": "LoOS Project",
+  "tagline": "Local only.",
+  "version": "0.1.0",
+  "copyright": "LoOS Project",
+  "support_url": "https://example.invalid/loos",
+  "accent_color": "#3B82F6",
+  "telemetry": "none",
+  "notes": "Edit these to define the LoOS identity once; app rebrands and build tooling read this file."
+}

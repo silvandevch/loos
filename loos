@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# loos — one simple command for everything. Run `./loos help`.
+#
+#   ./loos status            where things live + disk + tool check
+#   ./loos setup             fetch source + patchkit, verify layout
+#   ./loos prep              overlay + oobe + certs + media tags + missing bins
+#   ./loos build             build the OS (under Wine, no VM)
+#   ./loos iso               (re)make the bootable ISO
+#   ./loos qemu              boot the ISO in QEMU
+#   ./loos vm-build          build on the Windows VM over SSH (all steps)
+#   ./loos vm <sync|build|iso|fetch|qemu|all>
+#   ./loos bus <status|start|stop|send|inbox|task|watch|...>   agent message bus
+#   ./loos docs [topic]      read the docs (build, tools, architecture, ...)
+#   ./loos relocate SRC OUT  change where source / output live (writes .loosrc)
+#   ./loos help
+set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+. "$HERE/env.sh"
+
+hr() { printf '────────────────────────────────────────────────────────\n'; }
+
+cmd_status() {
+    hr; echo "LoOS status"; hr
+    printf '  repo        : %s (%s)\n' "$LOOS_ROOT" "$(stat -f -c %T "$LOOS_ROOT" 2>/dev/null)"
+    printf '  SRC_ROOT    : %s\n' "$SRC_ROOT"
+    printf '  OUT_ROOT    : %s\n' "$OUT_ROOT"
+    printf '  source tree : %s\n' "$([ -d "$NT_SRC" ] && echo "present ($(find "$NT_SRC" -path "$NT_SRC/.git" -prune -o -type f -print 2>/dev/null | wc -l) files)" || echo MISSING)"
+    printf '  patchkit    : %s\n' "$([ -d "$PATCHKIT" ] && echo present || echo MISSING)"
+    hr
+    printf '  disk DATA   : %s\n' "$(disk_of "$LOOS_DATA")"
+    printf '  disk SRC    : %s\n' "$(disk_of "$SRC_ROOT")"
+    hr
+    printf '  tools       : '
+    for t in git rsync openssl python3 7z mkisofs qemu-system-x86_64 wine; do
+        printf '%s%s ' "$([ "$(command -v $t 2>/dev/null)" ] && echo '' || echo 'MISSING:')" "$t"
+    done; echo
+    printf '  ISO         : %s\n' "$([ -f "$NT_OUT/loos.iso" ] && du -h "$NT_OUT/loos.iso" | cut -f1 || echo 'not built')"
+    hr
+}
+
+cmd_docs() {
+    local d="$LOOS_ROOT/docs"
+    if [ $# -eq 0 ]; then ls "$d"; return; fi
+    local f; f="$(ls "$d" 2>/dev/null | grep -i "$1" | head -1)"
+    [ -n "$f" ] || { echo "no doc matching '$1'; available:"; ls "$d"; return; }
+    ${PAGER:-cat} "$d/$f"
+}
+
+cmd_relocate() {
+    local src="${1:-}" out="${2:-}"
+    [ -n "$src" ] || die "usage: loos relocate <SRC_ROOT> [OUT_ROOT]"
+    : > "$LOOS_ROOT/.loosrc"
+    echo "SRC_ROOT=$src" >> "$LOOS_ROOT/.loosrc"
+    [ -n "$out" ] && echo "OUT_ROOT=$out" >> "$LOOS_ROOT/.loosrc"
+    log "wrote $LOOS_ROOT/.loosrc"; cat "$LOOS_ROOT/.loosrc"
+    warn "existing data is NOT moved automatically; move it with rsync if needed"
+}
+
+case "${1:-help}" in
+    status)   shift; cmd_status "$@" ;;
+    setup)    shift; bash "$SCRIPTS_DIR/00-fetch.sh" && bash "$SCRIPTS_DIR/01-structure.sh" ;;
+    prep)     shift; bash "$SCRIPTS_DIR/run-all.sh" ;;
+    build)    shift; bash "$SCRIPTS_DIR/09-build-all.sh" ;;
+    iso)      shift; bash "$SCRIPTS_DIR/_iso-run.sh" ;;
+    qemu)     shift; bash "$HERE/remote/run-qemu.sh" "$NT_OUT/loos.iso" ;;
+    vm-build) shift; python3 "$HERE/remote/loos-build.py" all ;;
+    vm)       shift; python3 "$HERE/remote/loos-build.py" "$@" ;;
+    verify)   shift; bash "$SCRIPTS_DIR/10-verify-env.sh" ;;
+    fixwine)  shift; bash "$SCRIPTS_DIR/fix-wine-assoc.sh" ;;
+    bus)      shift; python3 "$HERE/agents/agentbus" "${@:-status}" ;;
+    agents)   shift; python3 "$HERE/agents/agentbus" "${@:-status}" ;;
+    docs)     shift; cmd_docs "$@" ;;
+    relocate) shift; cmd_relocate "$@" ;;
+    help|--help|-h|"") awk 'NR==1{next} /^#/{sub(/^# ?/,"");print;next} {exit}' "$HERE/loos" ;;
+    *) die "unknown command '$1' — run: ./loos help" ;;
+esac

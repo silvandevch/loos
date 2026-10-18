@@ -1,0 +1,17 @@
+# LoOS workspace ignores
+__pycache__/
+*.pyc
+.loosrc
+.agentbus/
+
+# build outputs (they live on OUT_ROOT/data, but ignore any strays)
+build/
+*.iso
+*.qcow2
+
+# never commit vendor-owned material
+apps/*/vendor/
+*.orig
+
+# backups are large and regenerable
+backups/

@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""
+agentbus — CLI for the LoOS Agent Bus.
+
+    agentbus serve            start the broker (background)
+    agentbus stop             stop it
+    agentbus status           is it up? who's online?
+    agentbus send   --from astra --to claude --topic kernel "body"
+    agentbus inbox  --for claude [--unread] [--limit N]
+    agentbus read   <id>
+    agentbus ack    <id> --by claude
+    agentbus watch  --for claude [--timeout N]
+    agentbus thread <topic>
+    agentbus who
+    agentbus task add  "title" [--owner] [--priority] [--deps 1,2]
+    agentbus task ls   [--state] [--owner]
+    agentbus task claim <id> --by astra
+    agentbus task update <id> [--state] [--owner] [--notes]
+    agentbus task done <id> --by astra
+"""
+from __future__ import annotations
+import argparse, os, signal, subprocess, sys, time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parent
+sys.path.insert(0, str(HERE))
+from client import Bus, BusError  # noqa: E402
+
+HOST = os.environ.get("AGENTBUS_HOST", "127.0.0.1")
+PORT = int(os.environ.get("AGENTBUS_PORT", "47700"))
+PIDF = REPO / ".agentbus" / "busd.pid"
+LOG = REPO / ".agentbus" / "busd.log"
+
+
+def bus(identity="cli"):
+    return Bus(identity, HOST, PORT, auto_start=True)
+
+
+def print_msgs(msgs):
+    if not msgs:
+        print("(no messages)"); return
+    for m in msgs:
+        print(f"{m['id']:>5}  [{m.get('priority','norm'):4}] {m.get('topic','') or '-':12} "
+              f"{m.get('sender','?'):8}->{m.get('recipient','?'):8} {m.get('status',''):6} "
+              f"{m.get('subject','')}")
+
+
+# -- server lifecycle --------------------------------------------------------
+def cmd_serve(a):
+    if _up():
+        print("bus already running"); return
+    (REPO / ".agentbus").mkdir(exist_ok=True)
+    logf = open(LOG, "a")
+    p = subprocess.Popen([sys.executable, str(HERE / "busd.py"),
+                          "--host", HOST, "--port", str(PORT)],
+                         stdout=logf, stderr=logf, start_new_session=True)
+    for _ in range(50):
+        time.sleep(0.1)
+        if _up():
+            PIDF.write_text(str(p.pid))
+            print(f"bus running (pid {p.pid}) on {HOST}:{PORT}")
+            return
+    print(f"failed to start; see {LOG}", file=sys.stderr); sys.exit(1)
+
+
+def cmd_stop(a):
+    if PIDF.exists():
+        try:
+            os.kill(int(PIDF.read_text().strip()), signal.SIGTERM)
+            print("bus stopped")
+        except (ProcessLookupError, ValueError):
+            print("bus not running (stale pid)")
+        PIDF.unlink(missing_ok=True)
+    else:
+        print("no pid file; bus may not be running")
+
+
+def _up():
+    import socket
+    try:
+        with socket.create_connection((HOST, PORT), timeout=0.3):
+            return True
+    except OSError:
+        return False
+
+
+def cmd_status(a):
+    if not _up():
+        print(f"bus DOWN at {HOST}:{PORT}  (start: ./loos bus start)"); return
+    try:
+        b = bus("cli")
+        who = b.who()
+        tasks = b.task_list()
+    except BusError as e:
+        print(f"bus at {HOST}:{PORT} is not answering properly: {e}")
+        print("  try: ./loos bus stop && ./loos bus start")
+        return
+    doing = [t for t in tasks if t["state"] in ("doing", "blocked")]
+    print(f"bus UP at {HOST}:{PORT}")
+    print("online :", ", ".join(who) or "(nobody)")
+    print(f"tasks  : {len(tasks)} total, {len(doing)} active")
+    for t in tasks[:15]:
+        print(f"  #{t['id']:<3} {t['state']:9} {t['owner'] or '-':8} {t['title']}")
+
+
+# -- commands ----------------------------------------------------------------
+def cmd_send(a):
+    b = bus(a.frm)
+    mid = b.send(to=a.to, body=a.body, topic=a.topic or "", subject=a.subject or "",
+                 priority=a.priority, refs=a.ref or [], thread=a.thread)
+    print(mid)
+
+
+def cmd_inbox(a):
+    b = bus(a.to)
+    print_msgs(b.inbox(unread_only=a.unread, limit=a.limit or 100))
+
+
+def cmd_read(a):
+    m = bus().get(a.id)
+    if not m:
+        sys.exit("no such message")
+    print(m["sender"], "->", m["recipient"], "|", m.get("topic"), "|", m.get("status"))
+    print("subject:", m.get("subject"))
+    print("-" * 60); print(m.get("body"))
+
+
+def cmd_ack(a):
+    bus(a.by).ack(a.id); print("acked", a.id)
+
+
+def cmd_watch(a):
+    b = bus(a.to)
+    print(f"watching for {a.to} (Ctrl-C to stop)…")
+    while True:
+        msgs = b.subscribe(timeout=a.timeout)
+        for m in msgs:
+            print(f"\n#{m['id']} {m['sender']}->{m['recipient']} [{m['topic']}] "
+                  f"{m.get('subject','')}\n{m.get('body','')}")
+            b.ack(m["id"])
+        if not msgs:
+            print(".", end="", flush=True)
+
+
+def cmd_thread(a):
+    print_msgs(bus().thread(a.topic))
+
+
+def cmd_who(a):
+    print("\n".join(bus().who()) or "(nobody online)")
+
+
+def cmd_task(a):
+    b = bus(a.by or "cli")
+    if a.action == "add":
+        title = a.title or a.id
+        if not title:
+            sys.exit("usage: agentbus task add \"title\" [--owner X] [--priority P]")
+        print(b.task_add(title, owner=a.owner or "", priority=a.priority,
+                         deps=a.deps.split(",") if a.deps else []))
+    elif a.action == "ls":
+        for t in b.task_list(state=a.state, owner=a.owner):
+            print(f"#{t['id']:<3} {t['state']:9} {t['owner'] or '-':8} [{t['priority']:4}] {t['title']}")
+    elif a.action == "claim":
+        b.task_claim(a.id); print("claimed", a.id)
+    elif a.action == "update":
+        b.task_update(a.id, state=a.state, owner=a.owner, notes=a.notes); print("updated", a.id)
+    elif a.action in ("done", "cancel"):
+        b.task_update(a.id, state="done" if a.action == "done" else "cancelled")
+        print("closed", a.id)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("serve").set_defaults(fn=cmd_serve)
+    sub.add_parser("start").set_defaults(fn=cmd_serve)
+    sub.add_parser("stop").set_defaults(fn=cmd_stop)
+    sub.add_parser("status").set_defaults(fn=cmd_status)
+
+    p = sub.add_parser("send"); p.add_argument("body")
+    p.add_argument("--from", dest="frm", required=True); p.add_argument("--to", required=True)
+    p.add_argument("--topic"); p.add_argument("--subject"); p.add_argument("--thread")
+    p.add_argument("--priority", choices=["low", "norm", "high", "urgent"], default="norm")
+    p.add_argument("--ref", action="append"); p.set_defaults(fn=cmd_send)
+
+    p = sub.add_parser("inbox"); p.add_argument("--for", dest="to", required=True)
+    p.add_argument("--unread", action="store_true"); p.add_argument("--limit", type=int)
+    p.set_defaults(fn=cmd_inbox)
+
+    p = sub.add_parser("read"); p.add_argument("id"); p.set_defaults(fn=cmd_read)
+    p = sub.add_parser("ack"); p.add_argument("id"); p.add_argument("--by", required=True)
+    p.set_defaults(fn=cmd_ack)
+    p = sub.add_parser("watch"); p.add_argument("--for", dest="to", required=True)
+    p.add_argument("--timeout", type=float, default=120); p.set_defaults(fn=cmd_watch)
+    p = sub.add_parser("thread"); p.add_argument("topic"); p.set_defaults(fn=cmd_thread)
+    p = sub.add_parser("who").set_defaults(fn=cmd_who)
+
+    p = sub.add_parser("task")
+    p.add_argument("action", choices=["add", "ls", "claim", "update", "done", "cancel"])
+    p.add_argument("id", nargs="?"); p.add_argument("title", nargs="?")
+    p.add_argument("--owner"); p.add_argument("--by"); p.add_argument("--state")
+    p.add_argument("--notes"); p.add_argument("--deps")
+    p.add_argument("--priority", choices=["low", "norm", "high", "urgent"], default="norm")
+    p.set_defaults(fn=cmd_task)
+
+    a = ap.parse_args(argv)
+    try:
+        a.fn(a)
+    except BusError as e:
+        sys.exit(str(e))
+
+
+if __name__ == "__main__":
+    main()

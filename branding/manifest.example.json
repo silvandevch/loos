@@ -1,0 +1,33 @@
+{
+  "app_id": "notepad",
+  "display_name": "LoOS Notepad",
+  "source_era": "win10",
+  "origin": "decompiled + rewritten, presentation rebrand only",
+  "replace_strings": {
+    "Microsoft": "LoOS Project",
+    "Windows Notepad": "LoOS Notepad",
+    "Notepad": "LoOS Notepad"
+  },
+  "replace_metadata": {
+    "CompanyName": "LoOS Project",
+    "ProductName": "LoOS Notepad",
+    "FileDescription": "LoOS Notepad",
+    "LegalCopyright": "LoOS Project",
+    "ProductVersion": "0.1.0",
+    "OriginalFilename": "notepad.exe"
+  },
+  "replace_assets": {
+    "app.ico": "branding/assets/notepad.ico",
+    "splash.bmp": "branding/assets/splash.bmp"
+  },
+  "remove_calls": [
+    "telemetry/*",
+    "update/check*",
+    "*.report*"
+  ],
+  "do_not_change": [
+    "file formats",
+    "compatibility behavior",
+    "Win32 API usage"
+  ]
+}
