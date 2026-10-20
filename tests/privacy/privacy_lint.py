@@ -35,7 +35,9 @@ DYNAMIC_NETWORK_LOAD = re.compile(
     r"\b(ws2_32|wininet|winhttp|urlmon)(?:\.dll)?\b",
     re.IGNORECASE,
 )
-COMMENT = re.compile(r"/\*.*?\*/|//[^\n]*", re.DOTALL)
+# Any literal web address with a host is a potential egress point. Placeholders in UI hints and loopback are allowed.
+EXTERNAL_URL = re.compile(r"""[\"'](?:L)?[\"']?\s*(?:https?|ftp|wss?)://([A-Za-z0-9][A-Za-z0-9.\-]*)""", re.IGNORECASE)
+URL_ALLOWED_HOSTS = ("mirror.example", "example.com", "example.org", "localhost", "127.0.0.1")
 
 
 def source_files(root: Path):
@@ -47,10 +49,45 @@ def source_files(root: Path):
                 yield path
 
 
+def split_code(text: str):
+    """Return (code_with_strings, code_without_string_contents), comments blanked in both. A '//' inside a string
+    (every URL) is not a comment, so this walks the text instead of using a regex."""
+    keep, blank = [], []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "/" and i + 1 < n and text[i + 1] == "*":
+            j = text.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            seg = "\n" * text.count("\n", i, j)
+            keep.append(seg); blank.append(seg); i = j
+        elif c == "/" and i + 1 < n and text[i + 1] == "/":
+            j = text.find("\n", i)
+            j = n if j < 0 else j
+            i = j
+        elif c in "\"'":
+            j = i + 1
+            while j < n and text[j] != c and text[j] != "\n":
+                j += 2 if text[j] == "\\" else 1
+            j = min(j + 1, n)
+            keep.append(text[i:j])
+            blank.append(c + " " * max(0, j - i - 2) + (c if j - i >= 2 else ""))
+            i = j
+        else:
+            keep.append(c); blank.append(c); i += 1
+    return "".join(keep), "".join(blank)
+
+
 def inspect(path: Path):
     text = path.read_text(encoding="utf-8", errors="replace")
-    code = COMMENT.sub(lambda match: "\n" * match.group(0).count("\n"), text)
+    with_strings, code = split_code(text)
     findings = []
+    for match in re.finditer(r"(?:https?|ftp|wss?)://([A-Za-z0-9][A-Za-z0-9.\-]*)", with_strings, re.IGNORECASE):
+        host = match.group(1).lower()
+        if host.endswith(URL_ALLOWED_HOSTS):
+            continue
+        line = with_strings.count("\n", 0, match.start()) + 1
+        findings.append((line, "external URL " + match.group(0)))
     for pattern in (NETWORK_CALL, NETWORK_LIBRARY_LINK, DYNAMIC_NETWORK_LOAD):
         for match in pattern.finditer(code):
             line = code.count("\n", 0, match.start()) + 1

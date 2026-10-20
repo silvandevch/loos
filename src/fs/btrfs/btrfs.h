@@ -264,6 +264,25 @@ int loos_btrfs_write_transaction_commit(
 void loos_btrfs_write_transaction_abort(
     struct loos_btrfs_write_transaction *transaction);
 
+/* ---- formatting ----
+ * Creates an empty single-device btrfs (single profile, 4 KiB sectors, 16 KiB tree blocks, crc32c, skinny metadata,
+ * no free-space tree) on a device of device_bytes bytes: system, metadata and data block groups, all trees `btrfs check`
+ * expects, primary and mirror superblocks. `write` receives byte offsets inside the device. Needs >= 128 MiB.
+ * The caller supplies unique ids (fsid, device uuid, chunk-tree uuid) and the creation time in unix seconds. */
+#define LOOS_BTRFS_MIN_DEVICE_BYTES (128ull << 20)
+
+struct loos_btrfs_mkfs_params {
+    uint64_t device_bytes;
+    const char *label;                  /* up to 255 bytes, may be NULL */
+    uint8_t fsid[16], dev_uuid[16], chunk_tree_uuid[16], subvol_uuid[16];
+    uint64_t unix_time;
+};
+
+typedef int (*loos_btrfs_write_fn)(void *opaque, uint64_t offset, const void *data, size_t length);
+
+/* 0 on success, negative errno-style value on bad parameters or a failing write. */
+int loos_btrfs_mkfs(const struct loos_btrfs_mkfs_params *params, loos_btrfs_write_fn write, void *opaque);
+
 #ifdef __cplusplus
 }
 #endif

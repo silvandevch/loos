@@ -14,6 +14,9 @@ Borrowed open-source projects go in `THIRD-PARTY.md` instead.
 | 2026-10-18 | `src/win32/crt/chkstk.S` | `__chkstk` stack probe loop | the standard x64 probe algorithm, written fresh | n/a |
 | 2026-10-18 | `apps/loos-notepad/notepad.rc` | Microsoft Windows 11 install.wim image 1, Notepad dialog/menu resources | retained template/control resource IDs consumed by the port; labels and behavior are LoOS-rebranded | Microsoft proprietary resource data; no redistribution license asserted |
 | 2026-10-18 | `apps/loos-notepad/notepad.c` | Microsoft Windows 11 `notepad.exe.mui`, string table and accelerator IDs | retained resource IDs and translated user-facing strings used by the port | Microsoft proprietary resource data; no redistribution license asserted |
+| 2026-10-19 | `src/libc/src/time.c` (days_from_civil) | Howard Hinnant, chrono-Compatible Low-Level Date Algorithms | re-implemented, not copied; credited for the algorithm | public domain |
+| 2026-10-19 | `src/libc/src/math.c` (fmod loop) | musl `src/math/fmod.c` (algorithm only) | re-implemented in own code; credited | MIT |
+| 2026-10-20 | `boot/uefi/efi.h` | UEFI 2.x specification: table layouts, protocol GUIDs, function order | spec-defined binary interface; written from the spec, not copied from gnu-efi/EDK II | public spec |
 | | | | | |
 
 Prefer a link/reference to a public spec over a copy. If you copy, name the exact

@@ -187,7 +187,7 @@ static DWM_SET_WINDOW_ATTRIBUTE_FN g_dwmSetAttr = NULL;
 
 #define NP_CLASS_MAIN     L"Notepad"
 #define NP_REG_KEY        L"Software\\Microsoft\\Notepad"
-#define NP_HELP_URL       L"https://go.microsoft.com/fwlink/?LinkId=834783"
+#define NP_HELP_URL       L"loos-help://notepad"   /* handled locally by the shell; never a web address */
 #define NP_VERSION        LOOS_BRAND_VERSION_W
 
 /* Exact command IDs from the genuine menu resource (menu 1). The top-level

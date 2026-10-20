@@ -55,3 +55,13 @@ if command -v x86_64-w64-mingw32-gcc >/dev/null; then
 else
     echo "pe_exec: SKIPPED (no MinGW; see tests/win32/exec/build-demo.sh)"
 fi
+
+# ---- run a real, unmodified Win32 app on the LoOS compat layer (needs MinGW) ----
+if command -v x86_64-w64-mingw32-gcc >/dev/null; then
+    "$here/app/build-app.sh" "$out/app" >/dev/null
+    $cc ${flags/c99/c11} -pthread -Wno-array-bounds -DLOOS_HOST_TEST -I"$src/include" -I"$here/kernel32" \
+        "$here/app/app_compat.c" "$here/kernel32/nt_fake.c" "${k32[@]}" "$src/ldr/ldr.c" "$src/pe/pe.c" "${apis[@]}" -o "$out/app_compat"
+    "$out/app_compat" "$out/app"
+else
+    echo "app_compat: SKIPPED (no MinGW; see tests/win32/app/build-app.sh)"
+fi

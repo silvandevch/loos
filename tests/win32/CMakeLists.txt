@@ -70,3 +70,18 @@ if(LOOS_MINGW_CC)
     loos_win32_test(pe_exec SOURCES exec/pe_exec.c LIBS loos_ldr loos_compat ARGS ${EXEC_OUT})
     add_dependencies(pe_exec win32_exec_demo)
 endif()
+
+# Run a *real, unmodified* Win32 app (GetStdHandle/WriteFile from kernel32.dll)
+# on the LoOS compat layer: LoOS loader binds it to the LoOS kernel32 + Nt* path.
+if(LOOS_MINGW_CC AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+    set(APP_OUT ${CMAKE_CURRENT_BINARY_DIR}/app)
+    add_custom_target(win32_app_demo
+        COMMAND ${CMAKE_COMMAND} -E env MINGW_CC=${LOOS_MINGW_CC}
+                bash ${CMAKE_CURRENT_SOURCE_DIR}/app/build-app.sh ${APP_OUT}
+        COMMENT "Building Win32 app-compat proof (compat-hello.exe, k32shim.dll)" VERBATIM)
+    loos_win32_test(app_compat SOURCES app/app_compat.c kernel32/nt_fake.c ${K32_SRC}
+                    LIBS loos_ldr loos_pe loos_apiset loos_compat DEFS LOOS_HOST_TEST
+                    INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/kernel32 ${W32}/include ${W32}/ldr ${W32}/pe ${W32}/apisets
+                    ARGS ${APP_OUT})
+    add_dependencies(app_compat win32_app_demo)
+endif()

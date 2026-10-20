@@ -8,6 +8,8 @@ here="$(cd "$(dirname "$0")/../.." && pwd)"
 out="${1:-${OUT_ROOT:-$here/../loos/out}/win32}"
 src="$here/src/win32"
 mkdir -p "$out/obj"
+# Serialize concurrent builds (several agents/ctest runs share one output dir; interleaved link steps corrupt the DLLs).
+if command -v flock >/dev/null 2>&1; then exec 9>"$out/.build.lock"; flock 9; fi
 
 find_lld() {
     if [ -n "${LLD:-}" ]; then echo "$LLD"; return; fi
