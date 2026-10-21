@@ -16,3 +16,7 @@ apps/*/vendor/
 # backups are large and regenerable
 backups/
 crates/target/
+out/
+
+# Generated build output
+/out/
