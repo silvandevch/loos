@@ -1,0 +1,10 @@
+[package]
+name = "loos-kmem"
+description = "LoOS kernel memory: buddy physical page allocator and size-class slab heap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

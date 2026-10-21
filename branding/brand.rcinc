@@ -1,0 +1,7 @@
+/* Keep these resource values synchronized with branding/strings.json. */
+#define LOOS_FILE_VERSION 0,1,0,0
+#define LOOS_FILE_VERSION_TEXT "0.1.0"
+#define LOOS_COMPANY_TEXT "LoOS Project"
+#define LOOS_TAGLINE_TEXT "Local only."
+#define LOOS_APP_NOTEPAD_TEXT "LoOS Notepad"
+#define LOOS_APP_TASKMGR_TEXT "LoOS Task Manager"

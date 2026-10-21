@@ -1,0 +1,10 @@
+[package]
+name = "loos-khal"
+description = "LoOS x86-64 hardware abstraction: GDT/TSS, IDT, MSRs, local APIC, IPIs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
