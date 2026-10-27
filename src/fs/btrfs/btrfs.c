@@ -70,13 +70,16 @@
 
 #define BTRFS_ROOT_ITEM_ROOT_DIRID 168U
 #define BTRFS_ROOT_ITEM_BYTENR 176U
+#define BTRFS_ROOT_ITEM_FLAGS 208U
 #define BTRFS_ROOT_ITEM_LEVEL 238U
+#define BTRFS_ROOT_SUBVOL_RDONLY UINT64_C(1)
 
 #define BTRFS_INODE_SIZE 16U
 #define BTRFS_INODE_NLINK 40U
 #define BTRFS_INODE_UID 44U
 #define BTRFS_INODE_GID 48U
 #define BTRFS_INODE_FLAGS 64U
+#define BTRFS_INODE_NODATASUM UINT64_C(1)
 #define BTRFS_INODE_MODE 52U
 #define BTRFS_INODE_ITEM_MIN_SIZE 160U
 
@@ -199,6 +202,11 @@ static int read_physical(struct loos_btrfs_mount *mount,
     if (mount->io.read_at == NULL) {
         return LOOS_BTRFS_EINVAL;
     }
+    if (mount->total_bytes != 0 &&
+        (physical > mount->total_bytes ||
+         (uint64_t)length > mount->total_bytes - physical)) {
+        return LOOS_BTRFS_EOVERFLOW;
+    }
     return mount->io.read_at(mount->io.opaque, physical, buffer, length) == 0
                ? LOOS_BTRFS_OK
                : LOOS_BTRFS_EIO;
@@ -214,6 +222,10 @@ static int write_physical(struct loos_btrfs_mount *mount,
     }
     if (mount->io.write_at == NULL) {
         return LOOS_BTRFS_EINVAL;
+    }
+    if (physical > mount->total_bytes ||
+        (uint64_t)length > mount->total_bytes - physical) {
+        return LOOS_BTRFS_EOVERFLOW;
     }
     return mount->io.write_at(mount->io.opaque, physical, buffer, length) == 0
                ? LOOS_BTRFS_OK
@@ -242,7 +254,8 @@ static int write_superblock_mirrors(struct loos_btrfs_mount *mount,
          ++i) {
         const uint64_t mirror = mirror_offsets[i];
         if (mirror == LOOS_BTRFS_SUPERBLOCK_OFFSET ||
-            mirror >= mount->total_bytes) {
+            mirror > mount->total_bytes ||
+            LOOS_BTRFS_SUPERBLOCK_SIZE > mount->total_bytes - mirror) {
             continue;
         }
         write_le64(superblock + BTRFS_SUPER_BYTENR, mirror);
@@ -345,6 +358,11 @@ static int add_chunk(struct loos_btrfs_mount *mount,
     }
     if ((type & unsupported_profiles) != 0) {
         return LOOS_BTRFS_ENOTSUP;
+    }
+    if (mount->total_bytes != 0 &&
+        (physical > mount->total_bytes ||
+         length > mount->total_bytes - physical)) {
+        return LOOS_BTRFS_ECORRUPT;
     }
 
     for (size_t i = 0; i < mount->chunk_count; ++i) {
@@ -585,7 +603,10 @@ static int scan_tree_range(struct loos_btrfs_mount *mount,
                 .data = block + BTRFS_HEADER_SIZE + data_offset,
                 .size = data_size,
             };
+            const uint8_t previous_scan_depth = mount->scan_depth;
+            mount->scan_depth = (uint8_t)depth;
             status = callback(mount, &view, opaque);
+            mount->scan_depth = previous_scan_depth;
             if (status != LOOS_BTRFS_OK) {
                 return status;
             }
@@ -703,6 +724,7 @@ struct root_item_result {
     bool found;
     uint64_t bytenr;
     uint64_t root_dirid;
+    uint64_t flags;
     uint8_t level;
 };
 
@@ -722,6 +744,9 @@ static int collect_root_item(struct loos_btrfs_mount *mount,
     result->found = true;
     result->bytenr = read_le64(item->data + BTRFS_ROOT_ITEM_BYTENR);
     result->root_dirid = read_le64(item->data + BTRFS_ROOT_ITEM_ROOT_DIRID);
+    if (item->size >= BTRFS_ROOT_ITEM_FLAGS + 8U) {
+        result->flags = read_le64(item->data + BTRFS_ROOT_ITEM_FLAGS);
+    }
     result->level = item->data[BTRFS_ROOT_ITEM_LEVEL];
     return LOOS_BTRFS_STOP;
 }
@@ -755,11 +780,12 @@ static int find_root_item(struct loos_btrfs_mount *mount,
     return status;
 }
 
-int loos_btrfs_mount(struct loos_btrfs_mount *mount,
-                     const struct loos_btrfs_io *io,
-                     void *node_storage,
-                     size_t node_storage_size,
-                     bool verify_checksums)
+static int mount_subvolume_internal(struct loos_btrfs_mount *mount,
+                                    const struct loos_btrfs_io *io,
+                                    void *node_storage,
+                                    size_t node_storage_size,
+                                    bool verify_checksums,
+                                    uint64_t subvolume_id)
 {
     uint8_t superblock[LOOS_BTRFS_SUPERBLOCK_SIZE];
     if (mount == NULL || io == NULL || io->read_at == NULL ||
@@ -847,14 +873,19 @@ int loos_btrfs_mount(struct loos_btrfs_mount *mount,
         return LOOS_BTRFS_EBADFS;
     }
 
+    if (subvolume_id == 0) {
+        return LOOS_BTRFS_EINVAL;
+    }
     struct root_item_result fs_root;
-    status = find_root_item(mount, BTRFS_FS_TREE_OBJECTID, &fs_root);
+    status = find_root_item(mount, subvolume_id, &fs_root);
     if (status != LOOS_BTRFS_OK) {
         return status;
     }
     mount->fs_tree = fs_root.bytenr;
     mount->fs_tree_level = fs_root.level;
     mount->fs_root_dirid = fs_root.root_dirid;
+    mount->subvolume_id = subvolume_id;
+    mount->subvolume_flags = fs_root.flags;
     if (mount->fs_root_dirid == 0) {
         return LOOS_BTRFS_ECORRUPT;
     }
@@ -871,6 +902,29 @@ int loos_btrfs_mount(struct loos_btrfs_mount *mount,
 
     mount->mounted = true;
     return LOOS_BTRFS_OK;
+}
+
+int loos_btrfs_mount(struct loos_btrfs_mount *mount,
+                     const struct loos_btrfs_io *io,
+                     void *node_storage,
+                     size_t node_storage_size,
+                     bool verify_checksums)
+{
+    return mount_subvolume_internal(mount, io, node_storage,
+                                    node_storage_size, verify_checksums,
+                                    BTRFS_FS_TREE_OBJECTID);
+}
+
+int loos_btrfs_mount_subvolume(struct loos_btrfs_mount *mount,
+                               const struct loos_btrfs_io *io,
+                               void *node_storage,
+                               size_t node_storage_size,
+                               bool verify_checksums,
+                               uint64_t subvolume_id)
+{
+    return mount_subvolume_internal(mount, io, node_storage,
+                                    node_storage_size, verify_checksums,
+                                    subvolume_id);
 }
 
 void loos_btrfs_unmount(struct loos_btrfs_mount *mount)
@@ -925,7 +979,7 @@ static int find_inode(struct loos_btrfs_mount *mount,
         .offset = 0,
     };
     int status = scan_tree_range(mount, mount->fs_tree, mount->fs_tree_level,
-                                 BTRFS_FS_TREE_OBJECTID, &key, &key, 0,
+                                  mount->subvolume_id, &key, &key, 0,
                                  collect_inode_item, result);
     if (status == LOOS_BTRFS_STOP) {
         status = LOOS_BTRFS_OK;
@@ -1008,7 +1062,7 @@ static int parse_dir_items(const struct btrfs_item_view *item,
             }
         }
         if (context != NULL && context->readdir != NULL) {
-            const uint64_t cookie = context->readdir_cookie++;
+            const uint64_t cookie = context->readdir_cookie;
             if (cookie >= context->readdir_start) {
                 const int callback_status = context->readdir(
                     context->callback_opaque, cookie, &dirent);
@@ -1016,6 +1070,10 @@ static int parse_dir_items(const struct btrfs_item_view *item,
                     return callback_status;
                 }
             }
+            if (context->readdir_cookie == UINT64_MAX) {
+                return LOOS_BTRFS_EOVERFLOW;
+            }
+            ++context->readdir_cookie;
         }
         cursor += entry_size;
     }
@@ -1056,7 +1114,7 @@ static int find_dirent_in_range(struct loos_btrfs_mount *mount,
                                 struct dir_lookup_context *context)
 {
     int status = scan_tree_range(mount, mount->fs_tree, mount->fs_tree_level,
-                                 BTRFS_FS_TREE_OBJECTID, lower, upper, 0,
+                                  mount->subvolume_id, lower, upper, 0,
                                  collect_dir_item, context);
     if (status == LOOS_BTRFS_STOP) {
         return LOOS_BTRFS_OK;
@@ -1226,7 +1284,7 @@ int loos_btrfs_list_dir(struct loos_btrfs_mount *mount,
         .callback_opaque = opaque,
     };
     status = scan_tree_range(mount, mount->fs_tree, mount->fs_tree_level,
-                             BTRFS_FS_TREE_OBJECTID, &lower, &upper, 0,
+                              mount->subvolume_id, &lower, &upper, 0,
                              collect_dirent, &context);
     return status == LOOS_BTRFS_STOP ? LOOS_BTRFS_OK : status;
 }
@@ -1235,8 +1293,159 @@ struct file_read_context {
     struct loos_btrfs_mount *mount;
     uint64_t request_start;
     uint64_t request_end;
+    uint64_t inode_flags;
     uint8_t *destination;
 };
+
+struct data_checksum_context {
+    uint64_t next_sector;
+    uint64_t end_sector;
+    uint64_t request_start;
+    uint64_t request_end;
+    uint8_t *destination;
+};
+
+static int verify_data_checksum_item(struct loos_btrfs_mount *mount,
+                                     const struct btrfs_item_view *item,
+                                     void *opaque)
+{
+    if (item->key.objectid != BTRFS_EXTENT_CSUM_OBJECTID ||
+        item->key.type != BTRFS_EXTENT_CSUM_KEY) {
+        return LOOS_BTRFS_OK;
+    }
+    if (item->size == 0 || item->size % sizeof(uint32_t) != 0 ||
+        mount->sectorsize == 0) {
+        return LOOS_BTRFS_ECORRUPT;
+    }
+    const uint64_t checksum_count = item->size / sizeof(uint32_t);
+    uint64_t item_end;
+    if (checksum_count > UINT64_MAX / mount->sectorsize ||
+        !checked_add_u64(item->key.offset,
+                         checksum_count * mount->sectorsize, &item_end)) {
+        return LOOS_BTRFS_ECORRUPT;
+    }
+    struct data_checksum_context *context = opaque;
+    if (item_end <= context->next_sector ||
+        item->key.offset >= context->end_sector) {
+        return LOOS_BTRFS_OK;
+    }
+    if (item->key.offset > context->next_sector) {
+        return LOOS_BTRFS_ECORRUPT;
+    }
+
+    uint64_t sector = context->next_sector > item->key.offset
+                          ? context->next_sector
+                          : item->key.offset;
+    if (sector < item->key.offset ||
+        (sector - item->key.offset) % mount->sectorsize != 0) {
+        return LOOS_BTRFS_ECORRUPT;
+    }
+    uint8_t sector_buffer[512];
+    while (sector < context->end_sector && sector < item_end) {
+        const uint64_t index = (sector - item->key.offset) /
+                               mount->sectorsize;
+        uint64_t sector_end;
+        if (index >= checksum_count ||
+            !checked_add_u64(sector, mount->sectorsize, &sector_end) ||
+            !fits_size_t(sector_end)) {
+            return LOOS_BTRFS_EOVERFLOW;
+        }
+        uint32_t raw_crc = ~UINT32_C(0);
+        uint64_t cursor = sector;
+        uint32_t remaining = mount->sectorsize;
+        while (remaining != 0) {
+            const size_t step = remaining < sizeof(sector_buffer)
+                                    ? remaining
+                                    : sizeof(sector_buffer);
+            int status = read_logical(mount, cursor, sector_buffer, step);
+            if (status != LOOS_BTRFS_OK) {
+                return status;
+            }
+            raw_crc = crc32c_raw(raw_crc, sector_buffer, step);
+            const uint64_t chunk_end = cursor + step;
+            const uint64_t copy_start = cursor > context->request_start
+                                            ? cursor
+                                            : context->request_start;
+            const uint64_t copy_end = chunk_end < context->request_end
+                                          ? chunk_end
+                                          : context->request_end;
+            if (copy_start < copy_end) {
+                memcpy(context->destination +
+                           (size_t)(copy_start - context->request_start),
+                       sector_buffer + (size_t)(copy_start - cursor),
+                       (size_t)(copy_end - copy_start));
+            }
+            cursor = chunk_end;
+            remaining -= (uint32_t)step;
+        }
+        const uint32_t expected = read_le32(item->data + index * 4U);
+        const uint32_t actual = ~raw_crc;
+        if (expected != actual) {
+            return LOOS_BTRFS_ECORRUPT;
+        }
+        sector = sector_end;
+        context->next_sector = sector;
+    }
+    return LOOS_BTRFS_OK;
+}
+
+static int verify_data_range(struct loos_btrfs_mount *mount,
+                             uint64_t logical,
+                             uint64_t length,
+                             uint8_t *destination)
+{
+    if (!mount->verify_checksums || length == 0) {
+        return LOOS_BTRFS_OK;
+    }
+    if (!mount->has_csum_tree) {
+        return LOOS_BTRFS_ECORRUPT;
+    }
+    if (mount->csum_type != BTRFS_CSUM_TYPE_CRC32 || mount->sectorsize == 0) {
+        return LOOS_BTRFS_ENOTSUP;
+    }
+    const uint64_t sector_size = mount->sectorsize;
+    const uint64_t start = logical - logical % sector_size;
+    uint64_t end;
+    if (!checked_add_u64(logical, length, &end)) {
+        return LOOS_BTRFS_EOVERFLOW;
+    }
+    const uint64_t remainder = end % sector_size;
+    if (remainder != 0 && !checked_add_u64(end, sector_size - remainder, &end)) {
+        return LOOS_BTRFS_EOVERFLOW;
+    }
+    struct data_checksum_context context = {
+        .next_sector = start,
+        .end_sector = end,
+        .request_start = logical,
+        .request_end = logical + length,
+        .destination = destination,
+    };
+    const struct btrfs_key lower = {
+        .objectid = BTRFS_EXTENT_CSUM_OBJECTID,
+        .type = BTRFS_EXTENT_CSUM_KEY,
+        .offset = 0,
+    };
+    const struct btrfs_key upper = {
+        .objectid = BTRFS_EXTENT_CSUM_OBJECTID,
+        .type = BTRFS_EXTENT_CSUM_KEY,
+        .offset = UINT64_MAX,
+    };
+    const unsigned scratch_depth = (unsigned)mount->scan_depth + 1U;
+    if (scratch_depth > LOOS_BTRFS_MAX_TREE_LEVEL ||
+        scratch_depth + mount->csum_tree_level > LOOS_BTRFS_MAX_TREE_LEVEL) {
+        return LOOS_BTRFS_ENOTSUP;
+    }
+    int status = scan_tree_range(mount, mount->csum_tree,
+                                 mount->csum_tree_level,
+                                 BTRFS_CSUM_TREE_OBJECTID, &lower, &upper,
+                                 scratch_depth,
+                                 verify_data_checksum_item, &context);
+    if (status != LOOS_BTRFS_OK) {
+        return status;
+    }
+    return context.next_sector == context.end_sector ? LOOS_BTRFS_OK
+                                                      : LOOS_BTRFS_ECORRUPT;
+}
 
 static int collect_file_extent(struct loos_btrfs_mount *mount,
                                const struct btrfs_item_view *item,
@@ -1337,7 +1546,7 @@ int loos_btrfs_readdir(struct loos_btrfs_mount *mount,
         .readdir_start = *cookie,
     };
     status = scan_tree_range(mount, mount->fs_tree, mount->fs_tree_level,
-                             BTRFS_FS_TREE_OBJECTID, &lower, &upper, 0,
+                              mount->subvolume_id, &lower, &upper, 0,
                              collect_readdir, &context);
     *cookie = context.readdir_cookie;
     if (status == LOOS_BTRFS_STOP) {
@@ -1405,11 +1614,12 @@ int loos_btrfs_read_inode(struct loos_btrfs_file *file,
         .mount = file->mount,
         .request_start = offset,
         .request_end = end,
+        .inode_flags = file->stat.flags,
         .destination = buffer,
     };
     int status = scan_tree_range(file->mount, file->mount->fs_tree,
                                  file->mount->fs_tree_level,
-                                 BTRFS_FS_TREE_OBJECTID, &lower, &upper, 0,
+                                  file->mount->subvolume_id, &lower, &upper, 0,
                                  collect_file_extent, &context);
     if (status != LOOS_BTRFS_OK) {
         return status;
@@ -1551,6 +1761,11 @@ static int copy_file_extent(struct file_read_context *context,
         !checked_add_u64(disk_offset, extent_relative, &disk_offset)) {
         return LOOS_BTRFS_EOVERFLOW;
     }
+    if ((context->inode_flags & BTRFS_INODE_NODATASUM) == 0 &&
+        context->mount->verify_checksums) {
+        return verify_data_range(context->mount, disk_offset, copy_length_u64,
+                                 context->destination + output_relative_size);
+    }
     return read_logical(context->mount, disk_offset,
                         context->destination + output_relative_size,
                         copy_length);
@@ -1621,10 +1836,11 @@ int loos_btrfs_read_file(struct loos_btrfs_mount *mount,
         .mount = mount,
         .request_start = offset,
         .request_end = request_end,
+        .inode_flags = inode_result.flags,
         .destination = buffer,
     };
     status = scan_tree_range(mount, mount->fs_tree, mount->fs_tree_level,
-                             BTRFS_FS_TREE_OBJECTID, &lower, &upper, 0,
+                              mount->subvolume_id, &lower, &upper, 0,
                              collect_file_extent, &context);
     if (status != LOOS_BTRFS_OK) {
         return status;
@@ -1633,16 +1849,52 @@ int loos_btrfs_read_file(struct loos_btrfs_mount *mount,
     return LOOS_BTRFS_OK;
 }
 
-static bool transaction_has_block(
+static bool transaction_has_range(
     const struct loos_btrfs_write_transaction *transaction,
-    uint64_t logical)
+    uint64_t logical,
+    uint64_t length)
 {
+    uint64_t end;
+    if (length == 0 || !checked_add_u64(logical, length, &end)) {
+        return true;
+    }
     for (size_t i = 0; i < transaction->new_block_count; ++i) {
-        if (transaction->new_blocks[i] == logical) {
+        uint64_t existing_end;
+        if (!checked_add_u64(transaction->new_blocks[i],
+                             transaction->new_block_lengths[i],
+                             &existing_end)) {
+            return true;
+        }
+        if (logical < existing_end && transaction->new_blocks[i] < end) {
             return true;
         }
     }
     return false;
+}
+
+static int transaction_check_base(
+    const struct loos_btrfs_write_transaction *transaction)
+{
+    uint8_t superblock[LOOS_BTRFS_SUPERBLOCK_SIZE];
+    struct loos_btrfs_mount *mount = transaction->mount;
+    int status = read_physical(mount, LOOS_BTRFS_SUPERBLOCK_OFFSET,
+                               superblock, sizeof(superblock));
+    if (status != LOOS_BTRFS_OK) {
+        return status;
+    }
+    if (read_le64(superblock + BTRFS_SUPER_MAGIC) != BTRFS_MAGIC ||
+        read_le64(superblock + BTRFS_SUPER_BYTENR) !=
+            LOOS_BTRFS_SUPERBLOCK_OFFSET) {
+        return LOOS_BTRFS_EBADFS;
+    }
+    return read_le64(superblock + BTRFS_SUPER_GENERATION) ==
+                   transaction->base_generation &&
+               read_le64(superblock + BTRFS_SUPER_ROOT) ==
+                   transaction->base_root &&
+               superblock[BTRFS_SUPER_ROOT_LEVEL] ==
+                   transaction->base_root_level
+           ? LOOS_BTRFS_OK
+           : LOOS_BTRFS_EINVAL;
 }
 
 int loos_btrfs_write_transaction_begin(
@@ -1652,7 +1904,14 @@ int loos_btrfs_write_transaction_begin(
     void *storage,
     size_t storage_size)
 {
-    if (transaction == NULL || mount == NULL || !mount->mounted ||
+    if (transaction == NULL) {
+        return LOOS_BTRFS_EINVAL;
+    }
+    if (mount != NULL &&
+        (mount->subvolume_flags & LOOS_BTRFS_SUBVOLUME_READONLY) != 0) {
+        return LOOS_BTRFS_EROFS;
+    }
+    if (mount == NULL || !mount->mounted ||
         allocator == NULL || allocator->allocate == NULL || storage == NULL ||
         mount->io.write_at == NULL || mount->io.flush == NULL ||
         mount->csum_type != BTRFS_CSUM_TYPE_CRC32) {
@@ -1667,6 +1926,25 @@ int loos_btrfs_write_transaction_begin(
     transaction->allocator = *allocator;
     transaction->storage = storage;
     transaction->storage_size = storage_size;
+    int status = read_physical(mount, LOOS_BTRFS_SUPERBLOCK_OFFSET,
+                               transaction->staged_superblock,
+                               LOOS_BTRFS_SUPERBLOCK_SIZE);
+    if (status != LOOS_BTRFS_OK ||
+        read_le64(transaction->staged_superblock + BTRFS_SUPER_MAGIC) !=
+            BTRFS_MAGIC ||
+        read_le64(transaction->staged_superblock + BTRFS_SUPER_BYTENR) !=
+            LOOS_BTRFS_SUPERBLOCK_OFFSET) {
+        return status != LOOS_BTRFS_OK ? status : LOOS_BTRFS_EBADFS;
+    }
+    transaction->base_generation =
+        read_le64(transaction->staged_superblock + BTRFS_SUPER_GENERATION);
+    transaction->base_root =
+        read_le64(transaction->staged_superblock + BTRFS_SUPER_ROOT);
+    transaction->base_root_level =
+        transaction->staged_superblock[BTRFS_SUPER_ROOT_LEVEL];
+    if (transaction->base_generation == UINT64_MAX) {
+        return LOOS_BTRFS_EOVERFLOW;
+    }
     transaction->active = true;
     return LOOS_BTRFS_OK;
 }
@@ -1682,10 +1960,14 @@ int loos_btrfs_write_transaction_cow_tree(
         return LOOS_BTRFS_EINVAL;
     }
     struct loos_btrfs_mount *mount = transaction->mount;
+    int status = transaction_check_base(transaction);
+    if (status != LOOS_BTRFS_OK) {
+        return status;
+    }
     uint64_t old_physical;
     size_t old_available;
-    int status = map_logical(mount, old_logical, mount->nodesize,
-                             &old_physical, &old_available);
+    status = map_logical(mount, old_logical, mount->nodesize,
+                         &old_physical, &old_available);
     if (status != LOOS_BTRFS_OK) {
         return status;
     }
@@ -1710,6 +1992,8 @@ int loos_btrfs_write_transaction_cow_tree(
         return LOOS_BTRFS_ECORRUPT;
     }
 
+    const uint64_t generation = transaction->base_generation;
+
     uint64_t logical;
     uint64_t physical;
     if (transaction->allocator.allocate(transaction->allocator.opaque,
@@ -1717,12 +2001,22 @@ int loos_btrfs_write_transaction_cow_tree(
                                         &physical) != 0 ||
         logical == old_logical || logical % mount->nodesize != 0 ||
         physical % mount->sectorsize != 0 ||
-        transaction_has_block(transaction, logical)) {
+        transaction_has_range(transaction, logical, mount->nodesize)) {
+        return LOOS_BTRFS_EINVAL;
+    }
+    uint64_t mapped_physical;
+    size_t mapped_available;
+    status = map_logical(mount, logical, mount->nodesize,
+                         &mapped_physical, &mapped_available);
+    if (status != LOOS_BTRFS_OK || mapped_physical != physical ||
+        mapped_available < mount->nodesize) {
         return LOOS_BTRFS_EINVAL;
     }
 
     memcpy(transaction->storage, replacement, mount->nodesize);
     write_le64(transaction->storage + BTRFS_HEADER_BYTENR, logical);
+    write_le64(transaction->storage + BTRFS_HEADER_GENERATION,
+               generation + 1U);
     memset(transaction->storage, 0, BTRFS_CSUM_SIZE);
     write_le32(transaction->storage,
                crc32c(0, transaction->storage + BTRFS_CSUM_SIZE,
@@ -1736,7 +2030,62 @@ int loos_btrfs_write_transaction_cow_tree(
     if (status != LOOS_BTRFS_OK) {
         return status;
     }
-    transaction->new_blocks[transaction->new_block_count++] = logical;
+    transaction->new_blocks[transaction->new_block_count] = logical;
+    transaction->new_block_lengths[transaction->new_block_count++] =
+        mount->nodesize;
+    *new_logical = logical;
+    return LOOS_BTRFS_OK;
+}
+
+int loos_btrfs_write_transaction_cow_data(
+    struct loos_btrfs_write_transaction *transaction,
+    const void *data,
+    size_t length,
+    uint64_t *new_logical)
+{
+    if (transaction == NULL || !transaction->active || data == NULL ||
+        length == 0 || new_logical == NULL) {
+        return LOOS_BTRFS_EINVAL;
+    }
+    struct loos_btrfs_mount *mount = transaction->mount;
+    if (mount->sectorsize == 0 || length % mount->sectorsize != 0) {
+        return LOOS_BTRFS_EINVAL;
+    }
+    if (transaction->new_block_count == LOOS_BTRFS_MAX_TX_BLOCKS) {
+        return LOOS_BTRFS_ELIMIT;
+    }
+    int status = transaction_check_base(transaction);
+    if (status != LOOS_BTRFS_OK) {
+        return status;
+    }
+
+    uint64_t logical;
+    uint64_t physical;
+    if (transaction->allocator.allocate(transaction->allocator.opaque,
+                                        (uint64_t)length, &logical,
+                                        &physical) != 0 ||
+        logical % mount->sectorsize != 0 ||
+        physical % mount->sectorsize != 0 ||
+        transaction_has_range(transaction, logical, (uint64_t)length)) {
+        return LOOS_BTRFS_EINVAL;
+    }
+    size_t available;
+    uint64_t mapped_physical;
+    status = map_logical(mount, logical, length, &mapped_physical, &available);
+    if (status != LOOS_BTRFS_OK || mapped_physical != physical ||
+        available < length) {
+        return LOOS_BTRFS_EINVAL;
+    }
+    status = write_physical(mount, physical, data, length);
+    if (status != LOOS_BTRFS_OK) {
+        return status;
+    }
+    status = flush_device(mount);
+    if (status != LOOS_BTRFS_OK) {
+        return status;
+    }
+    transaction->new_blocks[transaction->new_block_count] = logical;
+    transaction->new_block_lengths[transaction->new_block_count++] = length;
     *new_logical = logical;
     return LOOS_BTRFS_OK;
 }
@@ -1746,36 +2095,53 @@ int loos_btrfs_write_transaction_publish_root(
     uint64_t new_root,
     uint8_t root_level)
 {
+    struct loos_btrfs_mount *mount =
+        transaction == NULL ? NULL : transaction->mount;
     if (transaction == NULL || !transaction->active ||
         root_level > LOOS_BTRFS_MAX_TREE_LEVEL ||
-        !transaction_has_block(transaction, new_root)) {
+        mount == NULL ||
+        !transaction_has_range(transaction, new_root, mount->nodesize)) {
         return LOOS_BTRFS_EINVAL;
     }
-    struct loos_btrfs_mount *mount = transaction->mount;
-    uint8_t *superblock = transaction->storage + mount->nodesize;
+    uint8_t current_superblock[LOOS_BTRFS_SUPERBLOCK_SIZE];
     int status = read_physical(mount, LOOS_BTRFS_SUPERBLOCK_OFFSET,
-                               superblock, LOOS_BTRFS_SUPERBLOCK_SIZE);
+                               current_superblock,
+                               LOOS_BTRFS_SUPERBLOCK_SIZE);
     if (status != LOOS_BTRFS_OK) {
         return status;
     }
-    if (read_le64(superblock + BTRFS_SUPER_MAGIC) != BTRFS_MAGIC ||
-        read_le64(superblock + BTRFS_SUPER_BYTENR) !=
+    if (read_le64(current_superblock + BTRFS_SUPER_MAGIC) != BTRFS_MAGIC ||
+        read_le64(current_superblock + BTRFS_SUPER_BYTENR) !=
             LOOS_BTRFS_SUPERBLOCK_OFFSET) {
         return LOOS_BTRFS_EBADFS;
     }
-    const uint64_t generation = read_le64(superblock + BTRFS_SUPER_GENERATION);
-    if (generation == UINT64_MAX) {
-        return LOOS_BTRFS_EOVERFLOW;
+    if (read_le64(current_superblock + BTRFS_SUPER_GENERATION) !=
+            transaction->base_generation ||
+        read_le64(current_superblock + BTRFS_SUPER_ROOT) !=
+            transaction->base_root ||
+        current_superblock[BTRFS_SUPER_ROOT_LEVEL] !=
+            transaction->base_root_level) {
+        return LOOS_BTRFS_EINVAL;
     }
-    write_le64(superblock + BTRFS_SUPER_GENERATION, generation + 1U);
-    write_le64(superblock + BTRFS_SUPER_ROOT, new_root);
-    superblock[BTRFS_SUPER_ROOT_LEVEL] = root_level;
-    memset(superblock, 0, BTRFS_CSUM_SIZE);
-    write_le32(superblock,
-               crc32c(0, superblock + BTRFS_CSUM_SIZE,
+    uint8_t *root_block;
+    uint8_t actual_level;
+    uint32_t item_count;
+    status = read_tree_block(mount, new_root, 0, root_level,
+                             BTRFS_ROOT_TREE_OBJECTID, &root_block,
+                             &actual_level, &item_count);
+    if (status != LOOS_BTRFS_OK || actual_level != root_level) {
+        return status == LOOS_BTRFS_OK ? LOOS_BTRFS_ECORRUPT : status;
+    }
+    write_le64(transaction->staged_superblock + BTRFS_SUPER_GENERATION,
+               transaction->base_generation + 1U);
+    write_le64(transaction->staged_superblock + BTRFS_SUPER_ROOT, new_root);
+    transaction->staged_superblock[BTRFS_SUPER_ROOT_LEVEL] = root_level;
+    memset(transaction->staged_superblock, 0, BTRFS_CSUM_SIZE);
+    write_le32(transaction->staged_superblock,
+               crc32c(0, transaction->staged_superblock + BTRFS_CSUM_SIZE,
                       LOOS_BTRFS_SUPERBLOCK_SIZE - BTRFS_CSUM_SIZE));
     transaction->published_root = new_root;
-    transaction->published_generation = generation + 1U;
+    transaction->published_generation = transaction->base_generation + 1U;
     transaction->published_level = root_level;
     transaction->root_published = true;
     return LOOS_BTRFS_OK;
@@ -1789,13 +2155,28 @@ int loos_btrfs_write_transaction_commit(
         return LOOS_BTRFS_EINVAL;
     }
     struct loos_btrfs_mount *mount = transaction->mount;
-    uint8_t *superblock = transaction->storage + mount->nodesize;
-    int status = write_superblock_mirrors(mount, superblock);
+    uint8_t current_superblock[LOOS_BTRFS_SUPERBLOCK_SIZE];
+    int status = read_physical(mount, LOOS_BTRFS_SUPERBLOCK_OFFSET,
+                               current_superblock,
+                               LOOS_BTRFS_SUPERBLOCK_SIZE);
+    if (status != LOOS_BTRFS_OK) {
+        return status;
+    }
+    if (read_le64(current_superblock + BTRFS_SUPER_GENERATION) !=
+            transaction->base_generation ||
+        read_le64(current_superblock + BTRFS_SUPER_ROOT) !=
+            transaction->base_root ||
+        current_superblock[BTRFS_SUPER_ROOT_LEVEL] !=
+            transaction->base_root_level) {
+        return LOOS_BTRFS_EINVAL;
+    }
+    status = write_superblock_mirrors(mount, transaction->staged_superblock);
     if (status != LOOS_BTRFS_OK) {
         return status;
     }
     status = write_physical(mount, LOOS_BTRFS_SUPERBLOCK_OFFSET,
-                            superblock, LOOS_BTRFS_SUPERBLOCK_SIZE);
+                            transaction->staged_superblock,
+                            LOOS_BTRFS_SUPERBLOCK_SIZE);
     if (status != LOOS_BTRFS_OK) {
         return status;
     }

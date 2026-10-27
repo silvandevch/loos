@@ -53,7 +53,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64" AND (LOOS_LLD OR LOOS_RUST_LLD 
     set(PE_OUT ${CMAKE_CURRENT_BINARY_DIR}/pe)
     add_custom_target(win32_pe_images
         COMMAND ${CMAKE_SOURCE_DIR}/scripts/win32/build-pe.sh ${PE_OUT}
-        COMMENT "Building ntdll.dll and kernel32.dll (PE32+)" VERBATIM)
+        COMMENT "Building ntdll.dll, kernel32.dll, and ucrtbase.dll (PE32+)" VERBATIM)
     loos_win32_test(artifacts_test SOURCES pe/artifacts_test.c LIBS loos_ldr ARGS ${PE_OUT})
     add_dependencies(artifacts_test win32_pe_images)
 endif()
@@ -76,12 +76,20 @@ endif()
 if(LOOS_MINGW_CC AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     set(APP_OUT ${CMAKE_CURRENT_BINARY_DIR}/app)
     add_custom_target(win32_app_demo
-        COMMAND ${CMAKE_COMMAND} -E env MINGW_CC=${LOOS_MINGW_CC}
+        COMMAND ${CMAKE_COMMAND} -E env MINGW_CC=${LOOS_MINGW_CC} LOOS_DLL_DIR=${PE_OUT}
                 bash ${CMAKE_CURRENT_SOURCE_DIR}/app/build-app.sh ${APP_OUT}
         COMMENT "Building Win32 app-compat proof (compat-hello.exe, k32shim.dll)" VERBATIM)
     loos_win32_test(app_compat SOURCES app/app_compat.c kernel32/nt_fake.c ${K32_SRC}
                     LIBS loos_ldr loos_pe loos_apiset loos_compat DEFS LOOS_HOST_TEST
-                    INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/kernel32 ${W32}/include ${W32}/ldr ${W32}/pe ${W32}/apisets
-                    ARGS ${APP_OUT})
+                     INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/kernel32 ${W32}/include ${W32}/ldr ${W32}/pe ${W32}/apisets
+                     ARGS ${APP_OUT})
     add_dependencies(app_compat win32_app_demo)
+    if(TARGET win32_pe_images)
+        add_dependencies(win32_app_demo win32_pe_images)
+        loos_win32_test(ucrt_app_compat SOURCES app/app_compat.c kernel32/nt_fake.c ${K32_SRC}
+                        LIBS loos_ldr loos_pe loos_apiset loos_compat DEFS LOOS_HOST_TEST
+                        INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/kernel32 ${W32}/include ${W32}/ldr ${W32}/pe ${W32}/apisets
+                        ARGS ${APP_OUT} ucrt-hello.exe)
+        add_dependencies(ucrt_app_compat win32_app_demo)
+    endif()
 endif()

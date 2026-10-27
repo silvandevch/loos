@@ -1,0 +1,13 @@
+[package]
+name = "loos-msix"
+description = "LoOS MSIX/APPX package model: safe ZIP reader, XML subset, AppxManifest, extraction plan"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
+
+[lints]
+workspace = true

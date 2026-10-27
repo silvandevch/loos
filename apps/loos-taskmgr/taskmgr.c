@@ -67,7 +67,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
-#include <strsafe.h>
 #include <commctrl.h>
 #include <tlhelp32.h>
 #include <psapi.h>
@@ -75,6 +74,7 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include <shlwapi.h>
+#include <strsafe.h>
 #include <commdlg.h>
 #include <iphlpapi.h>
 #include <netioapi.h>
@@ -4718,7 +4718,6 @@ static void tm_mini_toggle(void)
     if (g_miniGraph)
         SetTimer(g_miniGraph, 9, 1000, NULL);
 }
-
 
 
 

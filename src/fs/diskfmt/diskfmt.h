@@ -33,7 +33,8 @@ uint64_t gpt_first_usable_lba(void);
 uint64_t gpt_last_usable_lba(uint64_t disk_sectors);
 
 /* Writes protective MBR, primary header + entries, backup entries + header. Partitions must lie inside the usable range
- * without overlapping. `boot_code` (optional, 440 bytes) is placed in the MBR for legacy boot; pass NULL for UEFI-only. */
+ * without overlapping and must have non-zero, distinct GUIDs. `boot_code` (optional, 440 bytes) is placed in the MBR
+ * for legacy boot; pass NULL for UEFI-only. Invalid geometry, GUIDs, names, or arguments return -22. */
 int gpt_write(uint64_t disk_sectors, const uint8_t disk_guid[16], const struct gpt_part *parts, int nparts,
               const uint8_t *boot_code, diskfmt_write_fn write, void *opaque);
 
@@ -55,11 +56,13 @@ struct fat32 {
     struct fat32_dir dirs[FAT32_MAX_DIRS];
 };
 
-/* Number of FAT entries (4 bytes each) needed for a partition of `bytes` bytes. */
+/* Number of FAT entries (4 bytes each) needed for a partition of `bytes` bytes, or 0 when the size is not a valid
+ * FAT32 geometry (including a non-sector-aligned size or a volume too small for FAT32). */
 uint32_t fat32_fat_entries(uint64_t bytes);
 
 /* Formats the partition at byte offset `base` of size `bytes` (volume id and label are given by the caller) and
- * prepares `fs` for writing files; the FAT lives in `fat` (zero-filled by this call) until fat32_finish(). */
+ * prepares `fs` for writing files; the FAT lives in `fat` (zero-filled by this call) until fat32_finish(). The base
+ * and size must not overflow a 64-bit byte offset and the size must describe a valid FAT32 geometry. */
 int fat32_format(struct fat32 *fs, diskfmt_write_fn write, void *opaque, uint64_t base, uint64_t bytes, uint32_t volume_id,
                  const char *label, uint64_t unix_time, uint32_t *fat);
 /* Creates a directory (8.3 name, upper case) inside `parent` (2 = root); returns its first cluster or 0. */

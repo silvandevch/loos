@@ -86,13 +86,33 @@ applies.
 ## Current state (honest)
 
 Read-only: `src/fs/btrfs/` validates the primary superblock and metadata CRC32C,
-bootstraps chunk maps, resolves the root tree, and reads inline/regular
-uncompressed extents; the VFS adapter provides lookup/stat/readdir/open/read.
+bootstraps chunk maps, resolves the root tree, verifies CRC32C data extents,
+and reads inline/regular uncompressed extents; the VFS adapter provides
+lookup/stat/readdir/open/read. The Rust `loos-btrfs` parser now provides
+allocation-free Btrfs digest encodings for CRC32C, XXH64, SHA-256, and
+BLAKE2b-256, plus a bounded read-only image reader with checksum verification,
+SINGLE/DUP mapping, mirror fallback, sparse reads, and subvolume selection.
+The C mounted reader still rejects non-CRC32C volumes until that digest ABI is
+wired into the kernel reader.
 Write: the first B1 primitive (`loos_btrfs_write_transaction_*`) does
 allocate→COW→checksum→flush with a new root published last, but does **not** yet
-update dir/file items, extent accounting, or free-space metadata. Striped/parity
-chunks, compressed/encrypted extents, subvolumes, and data-csum verification are
-not done. Everything else in the table above is **planned**.
+update dir/file items, extent accounting, or free-space metadata. It is not a
+complete filesystem write path, and snapshot/clone publication is intentionally
+not exposed as a successful operation. Striped/parity chunks,
+compressed/encrypted extents, subvolumes, and non-CRC32C mounted checksum
+algorithms are not done. Everything else in the table above is **planned**.
+
+The host-only `loos_btrfs_tools` library provides a deliberately limited
+integrity slice: `loos_btrfs_integrity_check` validates CRC32C primary and
+standard mirror superblocks, the chunk mappings accepted by the reader, and the
+chunk/root/filesystem metadata paths that the reader can reach. Its rescue
+helper can restore only the primary superblock from a valid mirror. The Rust
+`loos-btrfs-ops` crate additionally has tested, read-only/planning slices for
+`check`, `restore`, `rescue`, scrub/parity recovery, ioctl codecs, xattrs/ACLs,
+trim, resize, dedupe, defrag, and swapfile mapping. These are not equivalent
+to a complete mounted Btrfs implementation: full COW mutation, snapshots,
+send/receive, compression integration, and multi-device write support remain
+open.
 
 ## Milestones
 
@@ -102,8 +122,8 @@ not done. Everything else in the table above is **planned**.
 - **B3** compression, xattr/ACL mapping, case-insensitive Win32 layer, ADS sidecar
 - **B4** RAID profiles + multi-device + balance + scrub
 - **B5** quotas, defrag, dedupe, reflink, prealloc, trim, swap, resize, ioctl
-- **B6** tools (`check`/`restore`/`rescue`) + boot-from-btrfs
-- **B7** optional read-only NTFS for legacy disks
+- **B6** tools (`check`/`restore`/`rescue`) + boot-from-btrfs — *tool slices done; boot open*
+- **B7** optional read-only NTFS for legacy disks — *done as compatibility reader*
 - **S** the stability program, gating every milestone above
 
 `astra` owns the on-disk core; `sol` takes tools and the Win32 mapping layer.
@@ -117,3 +137,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md).
 `btrfs-defrag`, `btrfs-dedupe`, `btrfs-reflink`, `btrfs-prealloc`,
 `btrfs-xattr`, `btrfs-trim`, `btrfs-swap`, `btrfs-resize`, `btrfs-ioctl`,
 `btrfs-check`, `btrfs-boot`, `btrfs-stab`, `ntfs` (read-only), `fatfs` (ESP).
+
+## Quota groups and balance planning (`loos-btrfs-ops`, task #127)
+- `qgroup` – reads the quota tree (status/info/limit/relation), `violations()` lists exceeded limits, `would_exceed(qgroup, extra)` checks a write against the group and all ancestors (cycle-safe). Subvolume/snapshot listing is `Fs::subvolumes()`.
+- `balance` – `read_usage()` reads block-group usage; `plan()` selects groups by type/usage%/device/profile-conversion, emptiest first, with `bytes_to_move`; `feasible()` checks unallocated space. Relocation itself belongs to the write path (not yet implemented). Test: `cargo +1.97.1 test -p loos-btrfs-ops --features std --test qgroup_balance`.

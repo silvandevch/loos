@@ -28,6 +28,14 @@ static int fails;
 
 static const char *dir;
 
+static int contains_bytes(const unsigned char *hay, size_t hn, const char *needle)
+{
+    size_t nn = strlen(needle), i;
+    if (!nn || nn > hn) return 0;
+    for (i = 0; i + nn <= hn; i++) if (!memcmp(hay + i, needle, nn)) return 1;
+    return 0;
+}
+
 static int be_open(void *c, const char *name, const char *path, const void **d, size_t *n, void **ck)
 {
     char p[512]; FILE *f; long l; void *b;
@@ -132,6 +140,10 @@ int main(int argc, char **argv)
             { "__loos_hook_GetFileSize",      (void *)&GetFileSize },
             { "__loos_hook_GetFileAttributesW", (void *)&GetFileAttributesW },
             { "__loos_hook_CreateDirectoryW", (void *)&CreateDirectoryW },
+            { "__loos_hook_GetProcessHeap",   (void *)&GetProcessHeap },
+            { "__loos_hook_HeapAlloc",         (void *)&HeapAlloc },
+            { "__loos_hook_HeapReAlloc",       (void *)&HeapReAlloc },
+            { "__loos_hook_HeapFree",          (void *)&HeapFree },
         };
         size_t i;
         for (i = 0; i < sizeof hooks / sizeof hooks[0]; i++) {
@@ -149,12 +161,17 @@ int main(int argc, char **argv)
         typedef int (__attribute__((ms_abi)) *app_fn)(void);
         printf("app_compat: running an unmodified Win32 app on the LoOS compat layer ...\n");
         rc = ((app_fn)(uintptr_t)entry)();
-        printf("app_compat: the app returned %d\n", rc);
+         printf("app_compat: the app returned %d\n", rc);
         printf("app_compat: ---- the app's console output, captured by NtWriteFile ----\n");
         fwrite(F.con.out, 1, F.con.nout, stdout);
         printf("app_compat: ---------------------------------------------------------------\n");
-        CHECK(F.con.nout > 0);
-        if (!strcmp(appname, "compat-hello.exe")) CHECK(rc == 7);
+         CHECK(F.con.nout > 0);
+         if (!strcmp(appname, "compat-hello.exe")) CHECK(rc == 7);
+         if (!strcmp(appname, "ucrt-hello.exe")) {
+             static const char marker[] = "ucrt-hello: ucrtbase";
+             CHECK(rc == 13);
+             CHECK(contains_bytes(F.con.out, F.con.nout, marker));
+         }
     } else {
         printf("  (mmap RWX unavailable: skipped execution)\n");
     }

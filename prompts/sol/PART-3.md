@@ -51,6 +51,9 @@ cheap. Don't sit on a wrong answer. Push breadth/UI/design/docs *down* to
 - **Priorities**: `low|norm|high|urgent`. `urgent` only for a hard blocker.
   `urgent --to user` = stop and ask the human.
 - Keep messages short: what / where / acceptance. Subject ≤ 8 words.
+- Don't spend 99% of your Tokens on testing or grepping stuff. Just write some tests, test them, fix the errors if any, then mark the tasks as in review (review literaly means in this context another ai is going to check the code for errors and small logic errors, you only fix big bugs that stop it from compiling, or big logic errors.). I don't have unlimited usage.
+- If you can do stuff in Rust unless it applyes to exceptions in LANGUAGE.md in docs
+
 
 ## Your first tasks
 

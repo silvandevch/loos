@@ -36,6 +36,8 @@ to run, so do the volume.
 5. **One writer per file.** Claim before you edit (see PART 3).
 6. **Behavior change → update the doc.** Docs are the source of truth.
 7. Unsure or blocked? Ask on the bus. Human = identity `user`.
+8. An user "all" doesn't exist. if you want to reach everyone message them individualy
+
 
 ## How you communicate
 

@@ -26,6 +26,9 @@ FSID = bytes(range(16))
 ROOT_TREE_OBJECTID = 1
 CHUNK_TREE_OBJECTID = 3
 FS_TREE_OBJECTID = 5
+INDEPENDENT_SUBVOLUME_OBJECTID = 256
+CSUM_TREE_OBJECTID = 7
+EXTENT_CSUM_OBJECTID = 0xFFFFFFFFFFFFFFF6
 INODE_ITEM_KEY = 1
 DIR_ITEM_KEY = 84
 EXTENT_DATA_KEY = 108
@@ -33,6 +36,7 @@ ROOT_ITEM_KEY = 132
 CHUNK_ITEM_KEY = 228
 FILE_EXTENT_INLINE = 0
 FILE_EXTENT_REG = 1
+INODE_NODATASUM = 1
 
 
 def put16(buffer: bytearray, offset: int, value: int) -> None:
@@ -115,19 +119,21 @@ def leaf(bytenr: int, owner: int, entries: list[tuple[bytes, bytes]]) -> bytearr
     return block
 
 
-def inode(size: int, mode: int) -> bytes:
+def inode(size: int, mode: int, flags: int = 0) -> bytes:
     data = bytearray(160)
     put64(data, 0, 1)
     put64(data, 8, 1)
     put64(data, 16, size)
     put32(data, 52, mode)
+    put64(data, 64, flags)
     return bytes(data)
 
 
-def root_item(fs_tree: int, root_dirid: int = 256) -> bytes:
+def root_item(fs_tree: int, root_dirid: int = 256, flags: int = 0) -> bytes:
     data = bytearray(439)
     put64(data, 168, root_dirid)
     put64(data, 176, fs_tree)
+    put64(data, 208, flags)
     data[238] = 0
     return bytes(data)
 
@@ -175,6 +181,9 @@ def make_image() -> bytearray:
 
     root_entries = [
         (disk_key(FS_TREE_OBJECTID, ROOT_ITEM_KEY, 0), root_item(FS_TREE)),
+        (disk_key(CSUM_TREE_OBJECTID, ROOT_ITEM_KEY, 0), root_item(0x15000)),
+        (disk_key(INDEPENDENT_SUBVOLUME_OBJECTID, ROOT_ITEM_KEY, 0),
+         root_item(0x16000, flags=1)),
     ]
     image[ROOT_TREE : ROOT_TREE + NODE_SIZE] = leaf(
         ROOT_TREE, ROOT_TREE_OBJECTID, root_entries
@@ -183,6 +192,16 @@ def make_image() -> bytearray:
     hello = b"hello from LoOS\n"
     nested = b"nested from LoOS\n"
     regular = bytes((index * 13 + 7) & 0xFF for index in range(0x2000))
+    csum_entries = [
+        (
+            disk_key(EXTENT_CSUM_OBJECTID, 128, DATA_LOGICAL),
+            struct.pack("<II", crc32c(0, regular[:4096]),
+                        crc32c(0, regular[4096:])),
+        )
+    ]
+    image[0x15000 : 0x15000 + NODE_SIZE] = leaf(
+        0x15000, CSUM_TREE_OBJECTID, csum_entries
+    )
     entries = [
         (disk_key(256, INODE_ITEM_KEY, 0), inode(0, 0o40755)),
         (
@@ -192,6 +211,10 @@ def make_image() -> bytearray:
         (
             disk_key(256, DIR_ITEM_KEY, name_hash(b"regular.bin")),
             dir_item(b"regular.bin", 258, 1),
+        ),
+        (
+            disk_key(256, DIR_ITEM_KEY, name_hash(b"nodatasum.bin")),
+            dir_item(b"nodatasum.bin", 261, 1),
         ),
         (
             disk_key(256, DIR_ITEM_KEY, name_hash(b"subdir")),
@@ -207,6 +230,10 @@ def make_image() -> bytearray:
             disk_key(258, EXTENT_DATA_KEY, 0),
             regular_extent(DATA_LOGICAL, len(regular)),
         ),
+        (disk_key(261, INODE_ITEM_KEY, 0),
+         inode(len(regular), 0o100644, INODE_NODATASUM)),
+        (disk_key(261, EXTENT_DATA_KEY, 0),
+         regular_extent(DATA_LOGICAL, len(regular))),
         (disk_key(259, INODE_ITEM_KEY, 0), inode(0, 0o40755)),
         (
             disk_key(259, DIR_ITEM_KEY, name_hash(b"nested.txt")),
@@ -217,6 +244,9 @@ def make_image() -> bytearray:
     ]
     entries.sort(key=lambda item: (struct.unpack_from("<Q", item[0])[0], item[0][8], struct.unpack_from("<Q", item[0], 9)[0]))
     image[FS_TREE : FS_TREE + NODE_SIZE] = leaf(FS_TREE, FS_TREE_OBJECTID, entries)
+    image[0x16000 : 0x16000 + NODE_SIZE] = leaf(
+        0x16000, INDEPENDENT_SUBVOLUME_OBJECTID, entries
+    )
     image[DATA_LOGICAL : DATA_LOGICAL + len(regular)] = regular
 
     superblock = bytearray(NODE_SIZE)

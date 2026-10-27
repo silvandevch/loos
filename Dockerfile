@@ -8,7 +8,7 @@ WORKDIR /workspace
 
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
-       clang cmake ninja-build python3 \
+       clang cmake ninja-build python3 cargo rustc \
        gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64 \
     && rm -rf /var/lib/apt/lists/*
 

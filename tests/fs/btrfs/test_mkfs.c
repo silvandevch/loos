@@ -1,4 +1,5 @@
 /* Formats an in-memory device with loos_btrfs_mkfs and mounts it with the checksum-verifying reader. */
+#define _GNU_SOURCE 1
 #include "btrfs.h"
 #include <stdio.h>
 #include <stdlib.h>

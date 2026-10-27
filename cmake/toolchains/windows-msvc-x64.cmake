@@ -7,10 +7,12 @@ set(CMAKE_SYSTEM_PROCESSOR AMD64)
 set(_loos_llvm_hints
   /usr/lib64/rocm/llvm/bin
   /usr/lib/llvm/bin
+  /usr/lib/llvm-14/bin
   /usr/lib64/llvm/bin
   /usr/local/opt/llvm/bin)
 
-find_program(LOOS_CLANG_CL clang-cl REQUIRED)
+find_program(LOOS_CLANG_CL clang-cl REQUIRED
+  HINTS "${CMAKE_CURRENT_LIST_DIR}/../../tools")
 find_program(LOOS_COFF_LIB NAMES llvm-lib lib.exe lib REQUIRED HINTS ${_loos_llvm_hints})
 find_program(LOOS_RC NAMES llvm-rc rc.exe rc REQUIRED HINTS ${_loos_llvm_hints})
 find_program(LOOS_LLD_LINK NAMES lld-link REQUIRED HINTS ${_loos_llvm_hints})

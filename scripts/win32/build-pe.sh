@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the LoOS user-mode system DLLs (ntdll.dll, kernel32.dll) as real PE32+ images.
+# Build the LoOS user-mode system DLLs as real PE32+ images.
 #   scripts/win32/build-pe.sh [outdir]
 # Needs: clang (any x86-64 build with the Windows target) and an LLD in link mode.
 # LLD is taken from $LLD, then PATH (lld-link / ld.lld), then the local Rust toolchain's rust-lld.
@@ -51,5 +51,10 @@ $LINK /dll /nodefaultlib /entry:KernelBaseDllMain /machine:x64 /base:0x180100000
 python3 "$here/scripts/win32/gen_exports.py" def --forward-to=KERNELBASE kernel32 "$out" "$src"/kernel32/*.c
 echo 'const char loos_kernel32_forwarders_only = 0;' > "$out/k32_empty.c"
 $LINK /dll /nodefaultlib /noentry /machine:x64 /base:0x180200000 /def:"$out/kernel32.def" /implib:"$out/kernel32.lib" /out:"$out/kernel32.dll" "$(obj "$out/k32_empty.c" k32_empty)" "$out/kernelbase.lib"
+
+# ---- ucrtbase (the app-facing C runtime; API-set CRT contracts resolve here) ----
+ucrt=( "$(obj "$src/ucrt/ucrtbase.c" ucrtbase)" )
+python3 "$here/scripts/win32/gen_exports.py" def ucrtbase "$out" "$src/ucrt/ucrtbase.c"
+$LINK /dll /nodefaultlib /noentry /machine:x64 /base:0x180300000 /def:"$out/ucrtbase.def" /implib:"$out/ucrtbase.lib" /out:"$out/ucrtbase.dll" "$out/kernel32.lib" "${ucrt[@]}"
 
 ls -l "$out"/*.dll

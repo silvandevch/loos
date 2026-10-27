@@ -9,33 +9,44 @@ static void p32(uint8_t *b, size_t o, uint32_t v) { for (int i = 0; i < 4; i++) 
 /* sectors per cluster by volume size, as in Microsoft's FAT32 table (4 KiB clusters up to 8 GiB) */
 static uint32_t spc_for(uint64_t sectors) { return sectors <= 16777216ull ? 8 : sectors <= 33554432ull ? 16 : 32; }
 
-static void geometry(uint64_t bytes, uint32_t *total, uint32_t *spc, uint32_t *reserved, uint32_t *fat_sectors, uint32_t *clusters)
+static int geometry(uint64_t bytes, uint32_t *total, uint32_t *spc, uint32_t *reserved, uint32_t *fat_sectors, uint32_t *clusters)
 {
+    if (bytes < FAT32_MIN_BYTES || (bytes % SECT) != 0) return -22;
     uint64_t sectors = bytes / SECT;
-    if (sectors > 0xffffffffull) sectors = 0xffffffffull;
+    if (sectors > 0xffffffffull) return -22;
     *total = (uint32_t)sectors; *spc = spc_for(sectors); *reserved = 32;
     /* FAT size: iterate to a fixed point (data clusters depend on the FAT size) */
     uint32_t fs = 1;
+    int converged = 0;
     for (int i = 0; i < 8; i++) {
+        if (sectors <= (uint64_t)*reserved + 2ull * fs) return -22;
         uint64_t data = sectors - *reserved - 2ull * fs;
         uint64_t cl = data / *spc;
         uint32_t need = (uint32_t)(((cl + 2) * 4 + SECT - 1) / SECT);
-        if (need == fs) break;
+        if (need == fs) { converged = 1; break; }
         fs = need;
     }
+    if (!converged || sectors <= (uint64_t)*reserved + 2ull * fs) return -22;
     *fat_sectors = fs;
     *clusters = (uint32_t)((sectors - *reserved - 2ull * fs) / *spc);
+    if (*clusters < 65525 || *clusters > 0x0ffffff5u) return -22;
+    return 0;
 }
 
 uint32_t fat32_fat_entries(uint64_t bytes)
 {
     uint32_t t, s, r, f, c;
-    geometry(bytes, &t, &s, &r, &f, &c);
+    if (geometry(bytes, &t, &s, &r, &f, &c)) return 0;
     return c + 2;
 }
 
 void fat32_dos_time(uint64_t t, uint16_t *date, uint16_t *time)
 {
+    const uint64_t min_time = 315532800ull;  /* 1980-01-01 00:00:00 UTC */
+    const uint64_t max_time = 4354819199ull; /* 2107-12-31 23:59:59 UTC */
+    if (!date || !time) return;
+    if (t < min_time) t = min_time;
+    if (t > max_time) t = max_time;
     uint64_t days = t / 86400, rem = t % 86400;
     int64_t z = (int64_t)days + 719468;                                /* civil from days (Hinnant) */
     int64_t era = (z >= 0 ? z : z - 146096) / 146097;
@@ -57,11 +68,10 @@ static uint64_t cluster_off(const struct fat32 *fs, uint32_t cl)
 int fat32_format(struct fat32 *fs, diskfmt_write_fn write, void *opaque, uint64_t base, uint64_t bytes, uint32_t volume_id, const char *label,
                  uint64_t unix_time, uint32_t *fat)
 {
-    if (!fs || !write || !fat || bytes < FAT32_MIN_BYTES) return -22;
+    if (!fs || !write || !fat || base > UINT64_MAX - bytes) return -22;
     memset(fs, 0, sizeof *fs);
     fs->write = write; fs->opaque = opaque; fs->base = base; fs->fat = fat;
-    geometry(bytes, &fs->sectors_total, &fs->sectors_per_cluster, &fs->reserved, &fs->fat_sectors, &fs->clusters);
-    if (fs->clusters < 65525) return -22;                                /* below this it would not be FAT32 */
+    if (geometry(bytes, &fs->sectors_total, &fs->sectors_per_cluster, &fs->reserved, &fs->fat_sectors, &fs->clusters)) return -22;
     fat32_dos_time(unix_time, &fs->dos_date, &fs->dos_time);
     memset(fat, 0, (size_t)(fs->clusters + 2) * 4);
     fs->ndirs = 1; fs->dirs[0].cluster = 2;                              /* the root directory is tracked like any other */
@@ -103,9 +113,17 @@ static uint32_t alloc_clusters(struct fat32 *fs, uint32_t n)
     return first;
 }
 
+static void release_clusters(struct fat32 *fs, uint32_t first, uint32_t n)
+{
+    if (!first || !n) return;
+    for (uint32_t i = 0; i < n; i++) fs->fat[first + i] = 0;
+    fs->next_free = first;
+}
+
 /* directories are kept in RAM until fat32_finish(): each is exactly one cluster */
 static struct fat32_dir *dir_of(struct fat32 *fs, uint32_t cluster)
 {
+    if (!fs) return 0;
     for (int i = 0; i < fs->ndirs; i++) if (fs->dirs[i].cluster == cluster) return &fs->dirs[i];
     return 0;
 }
@@ -126,8 +144,9 @@ static void put_name(uint8_t *e, const char *name83)
 
 static int add_entry(struct fat32 *fs, struct fat32_dir *d, const char *name83, uint8_t attr, uint32_t first, uint32_t size)
 {
+    if (!fs || !d || !name83) return -22;
     uint32_t cbytes = fs->sectors_per_cluster * SECT;
-    if (d->used + 32 > cbytes) return -28;                                 /* the directory cluster is full */
+    if (cbytes < 32 || d->used > cbytes - 32) return -28;                  /* the directory cluster is full */
     uint8_t *e = d->data + d->used;
     memset(e, 0, 32);
     put_name(e, name83);
@@ -140,11 +159,14 @@ static int add_entry(struct fat32 *fs, struct fat32_dir *d, const char *name83, 
 
 uint32_t fat32_mkdir(struct fat32 *fs, uint32_t parent, const char *name83)
 {
+    if (!fs || !fs->write || !fs->fat || fs->sectors_per_cluster == 0) return 0;
     struct fat32_dir *p = dir_of(fs, parent);
     if (!p || fs->ndirs >= FAT32_MAX_DIRS) return 0;
+    uint32_t cbytes = fs->sectors_per_cluster * SECT;
+    if (!name83 || p->used > cbytes - 32) return 0;
     uint32_t cl = alloc_clusters(fs, 1);
     if (!cl) return 0;
-    if (add_entry(fs, p, name83, 0x10, cl, 0)) return 0;
+    if (add_entry(fs, p, name83, 0x10, cl, 0)) { release_clusters(fs, cl, 1); return 0; }
     struct fat32_dir *d = &fs->dirs[fs->ndirs++];
     memset(d, 0, sizeof *d);
     d->cluster = cl;
@@ -153,34 +175,46 @@ uint32_t fat32_mkdir(struct fat32 *fs, uint32_t parent, const char *name83)
     return cl;
 }
 
-uint64_t fat32_cluster_offset(const struct fat32 *fs, uint32_t cluster) { return cluster_off(fs, cluster); }
+uint64_t fat32_cluster_offset(const struct fat32 *fs, uint32_t cluster)
+{
+    if (!fs || cluster < 2 || cluster >= fs->clusters + 2) return 0;
+    return cluster_off(fs, cluster);
+}
 
 int fat32_write_file(struct fat32 *fs, uint32_t dir, const char *name83, uint64_t size, fat32_read_fn read, void *rd, uint32_t *first_out)
 {
+    if (!fs || !fs->write || !fs->fat || fs->sectors_per_cluster == 0) return -22;
+    if (first_out) *first_out = 0;
     struct fat32_dir *d = dir_of(fs, dir);
-    if (!d || size > 0xffffffffull) return -22;
+    if (!d || !name83 || size > 0xffffffffull || (size && !read)) return -22;
     uint32_t cbytes = fs->sectors_per_cluster * SECT;
+    if (cbytes < 32 || d->used > cbytes - 32) return -28;
     uint32_t n = (uint32_t)((size + cbytes - 1) / cbytes), first = 0;
     if (n) { first = alloc_clusters(fs, n); if (!first) return -28; }
-    if (first_out) *first_out = first;
     static uint8_t buf[65536];
     uint64_t done = 0, total = (uint64_t)n * cbytes;
     while (done < total) {
         size_t chunk = total - done > sizeof buf ? sizeof buf : (size_t)(total - done);
         size_t have = done < size ? (size - done > chunk ? chunk : (size_t)(size - done)) : 0;
-        if (have && read(rd, done, buf, have)) return -5;
+        if (have && read(rd, done, buf, have)) { release_clusters(fs, first, n); return -5; }
         if (have < chunk) memset(buf + have, 0, chunk - have);
-        if (fs->write(fs->opaque, cluster_off(fs, first) + done, buf, chunk)) return -5;
+        if (fs->write(fs->opaque, cluster_off(fs, first) + done, buf, chunk)) { release_clusters(fs, first, n); return -5; }
         done += chunk;
     }
-    return add_entry(fs, d, name83, 0x20, first, (uint32_t)size);
+    int rc = add_entry(fs, d, name83, 0x20, first, (uint32_t)size);
+    if (rc) release_clusters(fs, first, n);
+    else if (first_out) *first_out = first;
+    return rc;
 }
 
 int fat32_finish(struct fat32 *fs)
 {
+    if (!fs || !fs->write || !fs->fat || fs->ndirs < 1 || fs->ndirs > FAT32_MAX_DIRS || fs->next_free > fs->clusters + 2) return -22;
     uint32_t cbytes = fs->sectors_per_cluster * SECT;
+    if (cbytes < 32 || cbytes > FAT32_MAX_CLUSTER_BYTES) return -22;
     for (int i = 0; i < fs->ndirs; i++) {                                  /* directory clusters (zero padded) */
         struct fat32_dir *d = &fs->dirs[i];
+        if (d->cluster < 2 || d->cluster >= fs->clusters + 2 || d->used > cbytes) return -22;
         memset(d->data + d->used, 0, cbytes - d->used);
         if (fs->write(fs->opaque, cluster_off(fs, d->cluster), d->data, cbytes)) return -5;
     }

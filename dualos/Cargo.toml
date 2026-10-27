@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = ["crates/kcommon", "crates/kernel32", "crates/kernel64"]
+
+[profile.dev]
+panic = "abort"
+[profile.release]
+panic = "abort"

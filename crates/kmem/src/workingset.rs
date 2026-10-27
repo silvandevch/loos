@@ -71,7 +71,10 @@ impl WorkingSet {
         while self.pages.len() > target {
             let hand = self.hand;
             let next = self.pages.range(hand..).chain(self.pages.range(..hand)).map(|(k, _)| *k).next();
-            let Some(p) = next else { break };
+            let p = match next {
+                Some(p) => p,
+                None => break,
+            };
             let r = self.pages.get_mut(&p);
             match r {
                 Some(bit) if *bit => {

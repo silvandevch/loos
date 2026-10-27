@@ -8,32 +8,46 @@ set(CMAKE_C_EXTENSIONS OFF)
 option(LOOS_BUILD_WIN32 "Build the Win32 subsystem libraries and their host tests" ON)
 option(LOOS_BUILD_APPS "Build the LoOS desktop applications (windows-msvc preset only)" OFF)
 
+# The kernel preset uses CMAKE_SYSTEM_NAME=Generic and has no hosted libc.  Keep
+# host-only modules, tests, boot harnesses, and snapshot tools out of that build;
+# otherwise CMake tries to compile their stdio/POSIX dependencies for the
+# bare-metal target.
+set(LOOS_FREESTANDING_BUILD OFF)
+if(CMAKE_SYSTEM_NAME STREQUAL "Generic")
+    set(LOOS_FREESTANDING_BUILD ON)
+endif()
+
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/LoosWarnings.cmake)
 
 include(CTest)
 
 # ---- filesystems ----
 add_subdirectory(src/libc)
-add_subdirectory(src/net)
-add_subdirectory(src/pkg)
 add_subdirectory(src/fs/btrfs)
-add_subdirectory(src/fs/diskfmt)
+add_subdirectory(src/fs/iso9660)
 add_subdirectory(src/kernel)
 add_subdirectory(src/io)
 add_subdirectory(src/security)
+if(NOT LOOS_FREESTANDING_BUILD AND NOT WIN32)
+    add_subdirectory(src/net)
+    add_subdirectory(src/pkg)
+    add_subdirectory(src/fs/diskfmt)
+endif()
 
 # ---- Win32 subsystem ----
-if(LOOS_BUILD_WIN32)
+if(LOOS_BUILD_WIN32 AND NOT LOOS_FREESTANDING_BUILD)
     add_subdirectory(src/win32/apisets)
     add_subdirectory(src/win32/pe)
     add_subdirectory(src/win32/compat)
     add_subdirectory(src/win32/ldr)
 endif()
 
-add_subdirectory(src/shell)     # after the Win32 block: the compat console links loos_compat when it exists
+if(NOT LOOS_FREESTANDING_BUILD AND NOT WIN32)
+    add_subdirectory(src/shell) # after Win32: compat console links loos_compat when it exists
+endif()
 
 # ---- tests ----
-if(BUILD_TESTING)
+if(BUILD_TESTING AND NOT LOOS_FREESTANDING_BUILD)
     add_executable(kernel_core_test tests/kernel/core_test.c)
     target_link_libraries(kernel_core_test PRIVATE loos_kernel_core)
     target_compile_options(kernel_core_test PRIVATE ${LOOS_C_WARNINGS})
@@ -69,30 +83,39 @@ if(BUILD_TESTING)
                      $<TARGET_FILE:test_btrfs>)
     set_tests_properties(btrfs_real_reader PROPERTIES SKIP_RETURN_CODE 77)
 
+    add_executable(iso9660_test tests/fs/iso9660_test.c)
+    target_link_libraries(iso9660_test PRIVATE loos_iso9660)
+    target_compile_options(iso9660_test PRIVATE ${LOOS_C_WARNINGS})
+    add_test(NAME fs.iso9660 COMMAND iso9660_test)
+
     if(LOOS_BUILD_WIN32)
         add_subdirectory(tests/win32)
     endif()
 endif()
 
 # ---- applications (PE targets) ----
-if(WIN32 AND LOOS_BUILD_APPS)
+if(WIN32 AND LOOS_BUILD_APPS AND NOT LOOS_FREESTANDING_BUILD)
     add_subdirectory(apps)
 endif()
 
-add_subdirectory(tests/shell)
+if(NOT LOOS_FREESTANDING_BUILD AND NOT WIN32)
+    add_subdirectory(tests/shell)
+endif()
 
 # privacy gate: no direct network APIs, network libraries or external URLs anywhere in src/ or apps/
 find_program(LOOS_PYTHON3 NAMES python3)
 if(LOOS_PYTHON3 AND BUILD_TESTING)
     add_test(NAME privacy.lint COMMAND ${LOOS_PYTHON3} ${CMAKE_SOURCE_DIR}/tests/privacy/privacy_lint.py --root ${CMAKE_SOURCE_DIR})
 endif()
-add_subdirectory(tests/net)
-add_subdirectory(tests/pkg)
+if(NOT LOOS_FREESTANDING_BUILD)
+    add_subdirectory(tests/net)
+    add_subdirectory(tests/pkg)
+endif()
 
 # Rust crates (kernel components written in Rust): host unit tests via cargo
 find_program(LOOS_CARGO NAMES cargo)
 if(LOOS_CARGO AND BUILD_TESTING)
-    add_test(NAME rust.workspace COMMAND ${LOOS_CARGO} test --manifest-path ${CMAKE_SOURCE_DIR}/crates/Cargo.toml --target-dir ${CMAKE_BINARY_DIR}/crates-target)
+    add_test(NAME rust.workspace COMMAND ${CMAKE_COMMAND} -E chdir ${CMAKE_SOURCE_DIR} ${LOOS_CARGO} test --manifest-path ${CMAKE_SOURCE_DIR}/crates/Cargo.toml --target-dir ${CMAKE_BINARY_DIR}/crates-target --locked --offline)
 endif()
 
 # assembly sources must at least assemble for the bare-metal target
@@ -103,12 +126,32 @@ if(LOOS_CLANG AND BUILD_TESTING)
     endforeach()
 endif()
 
+# The boot sources already build a complete BIOS image through the checked-in
+# script. Expose that path as a first-class host build target without pulling
+# freestanding-only boot inputs into the normal CMake graph.
+if(NOT LOOS_FREESTANDING_BUILD AND NOT WIN32 AND LOOS_CLANG)
+    set(LOOS_BIOS_IMAGE "${CMAKE_BINARY_DIR}/boot/bios.img")
+    add_custom_command(
+        OUTPUT "${LOOS_BIOS_IMAGE}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/boot"
+        COMMAND ${CMAKE_COMMAND} -E env
+                "CC=${LOOS_CLANG}"
+                bash "${CMAKE_SOURCE_DIR}/boot/bios/build.sh"
+                "${CMAKE_BINARY_DIR}/boot"
+                --cmdline "console=ttyS0 loos.test=1"
+        DEPENDS
+            "${CMAKE_SOURCE_DIR}/boot/bios/build.sh"
+            "${CMAKE_SOURCE_DIR}/boot/build-kernel.sh"
+        VERBATIM)
+    add_custom_target(loos_boot_bios DEPENDS "${LOOS_BIOS_IMAGE}")
+endif()
+
 find_program(LOOS_QEMU NAMES qemu-system-x86_64)
 if(LOOS_QEMU AND LOOS_CLANG AND BUILD_TESTING)
 endif()
 
 # ---- boot loader ----
-if(BUILD_TESTING AND LOOS_CLANG)
+if(BUILD_TESTING AND LOOS_CLANG AND NOT LOOS_FREESTANDING_BUILD)
     add_executable(loader_test tests/boot/loader_test.c boot/common/loader.c boot/common/mmap.c boot/common/elf.c boot/common/paging.c)
     target_compile_definitions(loader_test PRIVATE LOADER_HOST_TEST=1)
     target_compile_options(loader_test PRIVATE -Wall -Wextra -g)
@@ -124,28 +167,48 @@ if(BUILD_TESTING AND LOOS_CLANG)
     endif()
 endif()
 
-# ---- host snapshot tool + resolution test ----
-add_executable(shell_snap tools/shell/shell_snap.c)
-target_link_libraries(shell_snap PRIVATE loos_shell)
-target_compile_options(shell_snap PRIVATE ${LOOS_C_WARNINGS})
-add_executable(installer_snap tools/shell/installer_snap.c)
-target_link_libraries(installer_snap PRIVATE loos_shell)
-target_compile_options(installer_snap PRIVATE ${LOOS_C_WARNINGS})
-add_executable(btrfs_mkfs tools/btrfs_mkfs.c)
-target_link_libraries(btrfs_mkfs PRIVATE loos_btrfs)
-target_compile_options(btrfs_mkfs PRIVATE ${LOOS_C_WARNINGS})
+# ---- host snapshot tools + resolution tests ----
+if(NOT LOOS_FREESTANDING_BUILD AND NOT WIN32)
+    add_executable(shell_snap tools/shell/shell_snap.c)
+    target_link_libraries(shell_snap PRIVATE loos_shell)
+    target_compile_options(shell_snap PRIVATE ${LOOS_C_WARNINGS})
+    add_executable(installer_snap tools/shell/installer_snap.c)
+    target_link_libraries(installer_snap PRIVATE loos_shell)
+    target_compile_options(installer_snap PRIVATE ${LOOS_C_WARNINGS})
+    add_executable(btrfs_mkfs tools/btrfs_mkfs.c)
+    target_link_libraries(btrfs_mkfs PRIVATE loos_btrfs)
+    target_compile_options(btrfs_mkfs PRIVATE ${LOOS_C_WARNINGS})
+    add_executable(btrfs_check tools/btrfs_check.c)
+    target_link_libraries(btrfs_check PRIVATE loos_btrfs_tools)
+    target_compile_options(btrfs_check PRIVATE ${LOOS_C_WARNINGS})
 
-# btrfs formatter: reader round trip, then the host's own checker as an independent oracle
-add_executable(test_mkfs tests/fs/btrfs/test_mkfs.c)
-target_link_libraries(test_mkfs PRIVATE loos_btrfs)
-target_compile_options(test_mkfs PRIVATE ${LOOS_C_WARNINGS})
-add_test(NAME btrfs_mkfs COMMAND test_mkfs)
-find_program(LOOS_BTRFS_CHECK NAMES btrfs)
-if(LOOS_BTRFS_CHECK)
-    add_test(NAME btrfs_mkfs_check COMMAND sh -c "for s in 128 300 4000; do rm -f ${CMAKE_BINARY_DIR}/mkfs.img && $<TARGET_FILE:btrfs_mkfs> ${CMAKE_BINARY_DIR}/mkfs.img $s LoOS && ${LOOS_BTRFS_CHECK} check --readonly ${CMAKE_BINARY_DIR}/mkfs.img > /dev/null || exit 1; done")
+    # btrfs formatter: reader round trip, then the host's own checker as an independent oracle
+    add_executable(test_mkfs tests/fs/btrfs/test_mkfs.c)
+    target_link_libraries(test_mkfs PRIVATE loos_btrfs)
+    target_compile_options(test_mkfs PRIVATE ${LOOS_C_WARNINGS})
+    add_test(NAME btrfs_mkfs COMMAND test_mkfs)
+
+    add_executable(test_btrfs_integrity tests/fs/btrfs/test_integrity.c)
+    target_link_libraries(test_btrfs_integrity PRIVATE loos_btrfs_tools)
+    target_compile_options(test_btrfs_integrity PRIVATE ${LOOS_C_WARNINGS})
+    add_test(NAME btrfs_integrity COMMAND test_btrfs_integrity)
+    add_test(NAME btrfs_check_tool
+             COMMAND sh ${CMAKE_SOURCE_DIR}/tests/fs/btrfs/test_tool.sh
+                     $<TARGET_FILE:btrfs_check>
+                     $<TARGET_FILE:btrfs_mkfs>
+                     ${CMAKE_CURRENT_BINARY_DIR}/btrfs-tool-test)
+
+    find_program(LOOS_BTRFS_CHECK NAMES btrfs)
+    if(LOOS_BTRFS_CHECK)
+        add_test(NAME btrfs_mkfs_check COMMAND sh -c "for s in 128 300 4000; do rm -f ${CMAKE_BINARY_DIR}/mkfs.img && $<TARGET_FILE:btrfs_mkfs> ${CMAKE_BINARY_DIR}/mkfs.img $s LoOS && ${LOOS_BTRFS_CHECK} check --readonly ${CMAKE_BINARY_DIR}/mkfs.img > /dev/null || exit 1; done")
+    endif()
+    add_executable(diskfmt_tool tools/diskfmt_tool.c)
+    target_link_libraries(diskfmt_tool PRIVATE loos_diskfmt loos_btrfs)
+    target_compile_options(diskfmt_tool PRIVATE ${LOOS_C_WARNINGS})
+    add_executable(diskfmt_unit_test tests/fs/diskfmt_unit_test.c)
+    target_link_libraries(diskfmt_unit_test PRIVATE loos_diskfmt)
+    target_compile_options(diskfmt_unit_test PRIVATE ${LOOS_C_WARNINGS})
+    add_test(NAME fs.diskfmt_unit COMMAND diskfmt_unit_test)
+    add_test(NAME fs.diskfmt COMMAND ${CMAKE_SOURCE_DIR}/tests/fs/diskfmt_test.sh $<TARGET_FILE:diskfmt_tool> ${CMAKE_BINARY_DIR}/diskfmt)
+    set_tests_properties(fs.diskfmt PROPERTIES SKIP_RETURN_CODE 77)
 endif()
-add_executable(diskfmt_tool tools/diskfmt_tool.c)
-target_link_libraries(diskfmt_tool PRIVATE loos_diskfmt loos_btrfs)
-target_compile_options(diskfmt_tool PRIVATE ${LOOS_C_WARNINGS})
-add_test(NAME fs.diskfmt COMMAND ${CMAKE_SOURCE_DIR}/tests/fs/diskfmt_test.sh $<TARGET_FILE:diskfmt_tool> ${CMAKE_BINARY_DIR}/diskfmt)
-set_tests_properties(fs.diskfmt PROPERTIES SKIP_RETURN_CODE 77)

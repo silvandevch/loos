@@ -162,3 +162,19 @@ Graphics: `gfxgop`, `gfxbdd`, `comp`, `virtgpu` (under `virtio`), `d3dvk`,
 AMD/vendor GPU: `kms`, `amdgpu`, `mesa`, `gfxfw`, `amdwddm`, `amdd3d`.
 NVIDIA/vendor GPU: `nouveau`, `nvk`, `nvwddm`, `nvd3d`, `cuda`.
 Both vendor paths share `kms`, `gfxfw`, `mesa`, `d3dvk`, and the D3D UMD host.
+
+## `crates/loos-drivers` (Rust, host-tested)
+
+Hardware-agnostic drivers; the kernel supplies `PortIo` / `Mmio` / `DmaArena` (`hw.rs`), the crate
+is `#![forbid(unsafe_code)]` and unit-tested against device models (`cargo test -p loos-drivers`).
+
+| Module | Covers |
+|---|---|
+| `ps2` | i8042 init, set-1 keyboard decoder (E0/E1, shift/caps/ctrl/super, F-keys), mouse 3-byte + IntelliMouse wheel/5-button negotiation |
+| `input` | shared `KeyEvent` / `MouseEvent` / `InputEvent` (USB HID will emit the same) |
+| `display` | basic display driver: BGRX/RGBX/BGR24/RGB565 scanout, fill, `present` from a `0x00RRGGBB` backbuffer, software cursor with save-under |
+| `e1000` | 8254x legacy rings, MAC from RAL/RAH or EEPROM, TX/RX polled |
+| `virtio_net` | virtio 1.x PCI split virtqueues, `VERSION_1`+`MAC` negotiation, 12-byte net hdr |
+
+All NICs implement `hw::Nic` (`mac / link_up / send / recv`). Not yet wired into the C bring-up
+kernel (`src/kernel/boot/ps2.c`, `video.c`): that needs `extern "C"` shims + real port/MMIO/DMA backends.

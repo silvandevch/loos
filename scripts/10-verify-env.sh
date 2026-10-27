@@ -10,7 +10,7 @@ note() { printf '  \033[1;33mNOTE\033[0m %s\n' "$*"; }
 echo "== host =="
 ok "arch $(uname -m), $(nproc) cpus"
 echo "== LoOS build tooling =="
-for c in bash cmake ninja clang python3 x86_64-w64-mingw32-gcc x86_64-w64-mingw32-windres; do
+for c in bash cmake ninja clang cargo rustc python3 x86_64-w64-mingw32-gcc x86_64-w64-mingw32-windres; do
     command -v "$c" >/dev/null 2>&1 && ok "$c" || bad "$c missing"
 done
 

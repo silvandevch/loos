@@ -17,6 +17,7 @@ Borrowed open-source projects go in `THIRD-PARTY.md` instead.
 | 2026-10-19 | `src/libc/src/time.c` (days_from_civil) | Howard Hinnant, chrono-Compatible Low-Level Date Algorithms | re-implemented, not copied; credited for the algorithm | public domain |
 | 2026-10-19 | `src/libc/src/math.c` (fmod loop) | musl `src/math/fmod.c` (algorithm only) | re-implemented in own code; credited | MIT |
 | 2026-10-20 | `boot/uefi/efi.h` | UEFI 2.x specification: table layouts, protocol GUIDs, function order | spec-defined binary interface; written from the spec, not copied from gnu-efi/EDK II | public spec |
+| crates/loos-security/src/x25519.rs | field arithmetic structure after TweetNaCl (public domain, Bernstein et al.) | adapted, rewritten in Rust | public domain | RFC 7748 vectors in tests |
 | | | | | |
 
 Prefer a link/reference to a public spec over a copy. If you copy, name the exact

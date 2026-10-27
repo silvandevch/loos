@@ -1,0 +1,10 @@
+[package]
+name = "loos-pkgstate"
+description = "LoOS package trust policy, file-ownership database, install journal with rollback, repair"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

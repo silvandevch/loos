@@ -6,6 +6,7 @@
 #   ./loos prep              overlay + oobe + certs + media tags + missing bins
 #   ./loos build             build all implemented LoOS targets on Linux
 #   ./loos source-build      build a selected LoOS CMake preset
+#   ./loos boot-bios         build the LoOS BIOS boot image
 #   ./loos source-build windows-mingw  cross-build LoOS PE apps on Linux
 #   ./loos iso               (re)make the bootable ISO
 #   ./loos qemu              boot the ISO in QEMU
@@ -34,7 +35,7 @@ cmd_status() {
     printf '  disk SRC    : %s\n' "$(disk_of "$SRC_ROOT")"
     hr
     printf '  tools       : '
-    for t in git rsync openssl python3 7z mkisofs qemu-system-x86_64 wine; do
+    for t in git rsync openssl python3 cargo rustc 7z mkisofs qemu-system-x86_64 wine; do
         printf '%s%s ' "$([ "$(command -v $t 2>/dev/null)" ] && echo '' || echo 'MISSING:')" "$t"
     done; echo
     printf '  ISO         : %s\n' "$([ -f "$NT_OUT/loos.iso" ] && du -h "$NT_OUT/loos.iso" | cut -f1 || echo 'not built')"
@@ -71,6 +72,17 @@ cmd_source_build() {
     elif [ "$preset" = windows-msvc ]; then
         cmake --build --preset windows-msvc || return $?
     fi
+}
+
+cmd_boot_bios() {
+    [ "$#" -eq 0 ] || die "usage: ./loos boot-bios"
+    command -v cmake >/dev/null || die "cmake is required for boot-bios"
+    command -v ninja >/dev/null || die "ninja is required for boot-bios"
+    cmake --preset host-clang || return $?
+    cmake --build --preset host-clang --target loos_boot_bios || return $?
+    local image="$OUT_ROOT/cmake/host-clang/boot/bios.img"
+    [ -s "$image" ] || die "boot image was not produced: $image"
+    log "BIOS boot image: $image"
 }
 
 cmd_build() {
@@ -126,6 +138,7 @@ case "${1:-help}" in
     prep)     shift; bash "$SCRIPTS_DIR/run-all.sh" ;;
     build)    shift; cmd_build "$@" ;;
     source-build) shift; cmd_source_build "$@" ;;
+    boot-bios) shift; cmd_boot_bios "$@" ;;
     iso)      shift; bash "$SCRIPTS_DIR/_iso-run.sh" ;;
     qemu)     shift; bash "$HERE/remote/run-qemu.sh" "$NT_OUT/loos.iso" ;;
     vm-build) shift; python3 "$HERE/remote/loos-build.py" all ;;

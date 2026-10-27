@@ -1,0 +1,18 @@
+[package]
+name = "loos-fs"
+description = "LoOS non-btrfs filesystems: FAT12/16/32, exFAT, NTFS (read-only), ISO9660/UDF (read-only)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+# Host builds: adds file-backed block devices for tests and tools.
+std = []
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+loos-fs = { path = ".", features = ["std"] }

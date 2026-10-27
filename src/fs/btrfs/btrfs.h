@@ -2,8 +2,9 @@
 #define LOOS_BTRFS_H
 
 /*
- * LoOS btrfs interface. Mounts are read-only; the transaction API below
- * provides the first crash-ordered metadata COW primitive used by B1.
+ * LoOS btrfs interface. Mounted subvolumes are read-only views; the
+ * transaction API below provides crash-ordered data and metadata COW
+ * primitives used by B1.
  *
  * The filesystem talks to a block device through read_at.  No host file,
  * libc allocator, or global state is required by the reader, which keeps the
@@ -27,6 +28,7 @@ extern "C" {
 #define LOOS_BTRFS_MAX_CHUNKS UINT32_C(512)
 #define LOOS_BTRFS_MAX_NAME UINT32_C(255)
 #define LOOS_BTRFS_MAX_TX_BLOCKS UINT32_C(16)
+#define LOOS_BTRFS_SUBVOLUME_READONLY UINT64_C(1)
 
 enum loos_btrfs_status {
     LOOS_BTRFS_OK = 0,
@@ -96,10 +98,13 @@ struct loos_btrfs_mount {
     uint64_t fs_tree;
     uint64_t csum_tree;
     uint64_t fs_root_dirid;
+    uint64_t subvolume_id;
+    uint64_t subvolume_flags;
     uint8_t root_tree_level;
     uint8_t chunk_tree_level;
     uint8_t fs_tree_level;
     uint8_t csum_tree_level;
+    uint8_t scan_depth;
     bool has_csum_tree;
 
     size_t chunk_count;
@@ -123,9 +128,14 @@ struct loos_btrfs_write_transaction {
     size_t storage_size;
     size_t new_block_count;
     uint64_t new_blocks[LOOS_BTRFS_MAX_TX_BLOCKS];
+    uint64_t new_block_lengths[LOOS_BTRFS_MAX_TX_BLOCKS];
+    uint64_t base_generation;
+    uint64_t base_root;
+    uint8_t base_root_level;
     uint64_t published_root;
     uint64_t published_generation;
     uint8_t published_level;
+    uint8_t staged_superblock[LOOS_BTRFS_SUPERBLOCK_SIZE];
     bool active;
     bool root_published;
 };
@@ -166,6 +176,17 @@ int loos_btrfs_mount(struct loos_btrfs_mount *mount,
                      void *node_storage,
                      size_t node_storage_size,
                      bool verify_checksums);
+
+/* Mount an existing filesystem-tree root item as a read-only subvolume view.
+ * Object id 5 selects the default/top-level filesystem tree.  A read-only
+ * snapshot root can be reopened by its root object id without copying any
+ * data or metadata blocks. */
+int loos_btrfs_mount_subvolume(struct loos_btrfs_mount *mount,
+                               const struct loos_btrfs_io *io,
+                               void *node_storage,
+                               size_t node_storage_size,
+                               bool verify_checksums,
+                               uint64_t subvolume_id);
 
 void loos_btrfs_unmount(struct loos_btrfs_mount *mount);
 
@@ -230,7 +251,7 @@ int loos_btrfs_read_file(struct loos_btrfs_mount *mount,
                          size_t length,
                          size_t *bytes_read);
 
-/* Begin a metadata COW transaction. storage must hold one nodesize block plus
+/* Begin a data/metadata COW transaction. storage must hold one nodesize block plus
  * one 4096-byte superblock buffer. The allocator must return aligned logical
  * and physical space that is not live in the current filesystem. */
 int loos_btrfs_write_transaction_begin(
@@ -247,6 +268,17 @@ int loos_btrfs_write_transaction_cow_tree(
     struct loos_btrfs_write_transaction *transaction,
     uint64_t old_logical,
     const void *replacement,
+    uint64_t *new_logical);
+
+/* Write a regular data extent to fresh allocator space. The extent is flushed
+ * before this call returns and is never written in place; callers then COW the
+ * referencing filesystem-tree items and publish their new root. A caller that
+ * adds a data extent must publish matching EXTENT_CSUM items in the same
+ * metadata transaction. */
+int loos_btrfs_write_transaction_cow_data(
+    struct loos_btrfs_write_transaction *transaction,
+    const void *data,
+    size_t length,
     uint64_t *new_logical);
 
 /* Stage a new root-tree pointer. The pointer must be a block allocated by this

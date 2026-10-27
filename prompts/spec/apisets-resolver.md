@@ -17,6 +17,8 @@ entry round-trips.
 
 **Caveat.** The map is a best-effort schema written from memory of the Win10
 surface. It has not been diffed against a real `apisetschema` and may list
-contracts that don't exist or miss some. Host modules (kernelbase, ucrtbase,
-combase, ...) are LoOS names and don't exist yet. Next: PE import binder calls
-this before LoadLibrary-equivalent lookup.
+contracts that don't exist or miss some. The `api-ms-win-crt-*` contracts now
+resolve to the first LoOS `ucrtbase.dll` surface (`src/win32/ucrt/ucrtbase.c`),
+including memory/string helpers, heap-backed allocation, conversion and a
+small console-formatting path. The PE app-compat test builds an ordinary
+MinGW PE32+ program against that image and runs it through the loader.

@@ -1,0 +1,20 @@
+[package]
+name = "loos-vfs"
+description = "LoOS virtual filesystem mount manager and filesystem adapters"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+std = ["loos-fs/std"]
+
+[dependencies]
+loos-fs = { path = "../loos-fs" }
+
+[dev-dependencies]
+loos-fs = { path = "../loos-fs", features = ["std"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,10 @@
+[package]
+name = "loos-dpkg"
+description = "LoOS dpkg model: control/status parsing, Debian version ordering, dependency resolution"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

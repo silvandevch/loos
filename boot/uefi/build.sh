@@ -14,10 +14,22 @@ cc=${CC:-clang}
 find_lld() {
     [ -n "${LLD:-}" ] && { echo "$LLD"; return; }
     command -v lld-link >/dev/null 2>&1 && { command -v lld-link; return; }
-    for t in "$HOME"/.rustup/toolchains/*/lib/rustlib/*/bin/rust-lld; do [ -x "$t" ] && { echo "$t -flavor link"; return; }; done
+    for t in "$HOME"/.rustup/toolchains/*/lib/rustlib/*/bin/rust-lld; do
+        if [ -x "$t" ]; then
+            echo "$t -flavor link"
+            return
+        fi
+    done
     echo "error: no lld found (install lld, or set LLD=)" >&2; exit 1
 }
 LINK=$(find_lld)
+if [[ "$LINK" == *rust-lld* ]]; then
+    # find_lld runs in command substitution, so repeat the environment setup
+    # in the parent shell before invoking the linker.
+    rust_lld=${LINK%% *}
+    rust_lib=$(cd "$(dirname "$rust_lld")/../../.." && pwd)
+    export LD_LIBRARY_PATH="$rust_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
 cflags="--target=x86_64-unknown-windows -std=c11 -ffreestanding -fshort-wchar -fno-stack-protector -fno-stack-check -mno-red-zone -mgeneral-regs-only -O2 -Wall -Wextra -Werror"
 objs=()
 for f in "$here/main.c" "$root"/boot/common/{loader,mmap,elf,paging,rt}.c; do

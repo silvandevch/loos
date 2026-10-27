@@ -47,12 +47,15 @@ impl<P: PageSource> SlabHeap<P> {
         if size == 0 {
             return Err(Error::BadSize);
         }
-        let Some(c) = class_of(size) else {
-            let pages = size.div_ceil(PAGE_SIZE);
-            let a = self.pages.alloc_pages(pages)?;
-            self.large.insert(a, pages);
-            self.bytes_in_use += pages * PAGE_SIZE;
-            return Ok(a);
+        let c = match class_of(size) {
+            Some(c) => c,
+            None => {
+                let pages = size.checked_add(PAGE_SIZE - 1).ok_or(Error::BadSize)? / PAGE_SIZE;
+                let a = self.pages.alloc_pages(pages)?;
+                self.large.insert(a, pages);
+                self.bytes_in_use += pages * PAGE_SIZE;
+                return Ok(a);
+            }
         };
         let base = match self.partial[c].last() {
             Some(&b) => b,
@@ -125,4 +128,3 @@ impl<P: PageSource> SlabHeap<P> {
         &self.pages
     }
 }
-

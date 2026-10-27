@@ -1,0 +1,10 @@
+[package]
+name = "loos-timesvc"
+description = "LoOS time service core: SNTP packets and clock discipline, POSIX-TZ timezones, calendar"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

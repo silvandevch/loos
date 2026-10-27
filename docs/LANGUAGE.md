@@ -101,6 +101,7 @@ src/                    C that stays C (see §C)
 |---|---|---|
 | kernel core, drivers, fs, net, pkg, services, compositor | **Rust** | §Why — untrusted input / safety |
 | Win32 subsystem DLLs (ntdll/kernel32/…) | **Rust** (`extern "C"`) | big parsers + handles; C ABI at the edge |
+| UCRT compatibility image (`src/win32/ucrt`) | **C** | the freestanding PE build has a C-only variadic `printf` ABI; fixed-width helpers are kept in the same image until the Rust Win32 target is wired |
 | boot/entry, IDT/syscall stubs, context switch | **C + asm** | §C.2 |
 | WDDM/DXGK, CUDA, D3D UMD host | **C** | §C.1 vendor interfaces |
 | current PE loader / btrfs / crypto (until rewritten) | C → **Rust** | tracked by `rust-be`/`rust-btrfs`/`rust-crypto` |

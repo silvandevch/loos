@@ -55,9 +55,10 @@ $OUT_ROOT/  (default /run/media/silvan/DATA/loos/out, external DATA)
 ./loos build                 # native modules/tests + all LoOS desktop apps
 ```
 
-Requires CMake, Ninja, Clang, and MinGW-w64. `./loos build` does not build the
-NT study tree. The LoOS kernel/loader are not implemented yet, so this builds
-all current LoOS targets rather than producing a bootable OS image.
+Requires CMake, Ninja, Clang, Cargo/Rust 1.63, and MinGW-w64. `./loos build`
+does not build the NT study tree. The LoOS kernel/loader are not implemented
+yet, so this builds all current LoOS targets rather than producing a bootable
+OS image.
 
 ## Optional NT 5.2 study-tree tools
 

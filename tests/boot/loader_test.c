@@ -1,5 +1,6 @@
 /* Host tests for the shared loader core (boot/common): memory-map normalisation, ELF64 validation and relocation,
  * page-table construction, and the full loader_prepare() pipeline against the real stage-0 kernel image. */
+#define _GNU_SOURCE 1
 #define LOADER_HOST_TEST 1
 #include "../../boot/common/loader.h"
 #include "../../boot/common/elf.h"
@@ -290,6 +291,10 @@ static void test_rejects(const uint8_t *kernel, size_t ksize)
     make_env(kernel, ksize, 0); env.scratch_size = 4u << 20;                   loader_prepare(&env, &r); CHECK(r.status == LOADER_E_MEMORY);   /* kernel is bigger */
     make_env(kernel, ksize, 0); env.scratch_base = 0x100000; env.scratch_size = 0x100000;
     loader_prepare(&env, &r); CHECK(r.status == LOADER_E_MEMORY);              /* not inside the usable region we declared */
+    make_env(kernel, ksize, 0); env.scratch_base = ~0ull - 0xfff; env.scratch_size = 0x2000;
+    loader_prepare(&env, &r); CHECK(r.status == LOADER_E_ENV);                 /* scratch range wraps */
+    make_env(kernel, ksize, 0); env.reserved[0] = (struct loader_range){ ~0ull - 0xfff, 0x2000 };
+    loader_prepare(&env, &r); CHECK(r.status == LOADER_E_MEMORY);              /* reserved range wraps */
     make_env(kernel, ksize, 0); env.files[1].addr = env.files[0].addr + 4096;  loader_prepare(&env, &r); CHECK(r.status == LOADER_E_MEMORY);   /* aliasing files */
     make_env(kernel, ksize, 0); env.files[0].size = 0;                         loader_prepare(&env, &r); CHECK(r.status == LOADER_E_MEMORY);
     make_env(kernel, ksize, 0); arena[0] = 0;                                  loader_prepare(&env, &r); CHECK(r.status == LOADER_E_ELF && r.detail == ELF_E_MAGIC);

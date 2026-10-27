@@ -45,8 +45,10 @@ static int guid_eq(const EFI_GUID *a, const EFI_GUID *b) { return memcmp(a, b, s
 
 static void *alloc_pages(UINTN bytes, int type, EFI_PHYSICAL_ADDRESS max)
 {
+    if (bytes == 0 || bytes > UINT64_MAX - 4095) return 0;
     EFI_PHYSICAL_ADDRESS a = max;
     UINTN pages = (bytes + 4095) / 4096;
+    if (pages == 0) return 0;
     if (EFI_ERROR(BS->AllocatePages(max ? AllocateMaxAddress : AllocateAnyPages, type, pages, &a))) return 0;
     return (void *)(uintptr_t)a;
 }
@@ -70,6 +72,10 @@ static void *read_file(const char *path, uint64_t *size_out)
     if (EFI_ERROR(root->Open(root, &f, widen(path, w, 256), EFI_FILE_MODE_READ, 0))) return 0;
     uint64_t size = 0;
     if (EFI_ERROR(f->SetPosition(f, ~0ull)) || EFI_ERROR(f->GetPosition(f, &size)) || EFI_ERROR(f->SetPosition(f, 0)) || size == 0) {
+        f->Close(f);
+        return 0;
+    }
+    if (size == UINT64_MAX) {
         f->Close(f);
         return 0;
     }

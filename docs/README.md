@@ -20,6 +20,7 @@ no accounts, no phone-home. Runs Windows applications. Native filesystem is
 | 7 | [SOURCE-POLICY.md](SOURCE-POLICY.md) | What code we may use and how. **Not** clean-room. |
 | 8 | [BRANDING.md](BRANDING.md) | LoOS branding; how to rebrand your decompiled apps. |
 | 9 | [BTRFS.md](BTRFS.md) | btrfs as the native FS (NTFS is not used). |
+| 9b | [FILESYSTEMS.md](FILESYSTEMS.md) | FAT/exFAT (rw), NTFS/ISO9660/UDF (read-only): `crates/loos-fs`. |
 | 10 | [COMPAT-APPS.md](COMPAT-APPS.md) | The modern Windows apps you rebranded for LoOS. |
 | 11 | [DEVELOPMENT.md](DEVELOPMENT.md) | Day-to-day workflow, tests, CI, QEMU. |
 | 12 | [AGENT-WORKSPACE.md](AGENT-WORKSPACE.md) | Where the agents work, and how to set that folder. |

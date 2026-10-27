@@ -1,0 +1,4 @@
+#!/bin/sh
+# Project-local clang-cl driver for Linux hosts whose LLVM package ships only
+# the clang driver. Keeping this wrapper in the tree avoids a global symlink.
+exec clang --driver-mode=cl "$@"

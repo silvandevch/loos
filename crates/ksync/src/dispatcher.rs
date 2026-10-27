@@ -371,7 +371,10 @@ impl Dispatcher {
         let now = self.now;
         let mut i = 0;
         while i < self.waiters.len() {
-            if self.waiters[i].deadline.is_some_and(|d| d <= now) {
+            if match self.waiters[i].deadline {
+                Some(d) => d <= now,
+                None => false,
+            } {
                 let w = self.waiters.remove(i);
                 self.ready.push(Wakeup { thread: w.thread, status: WaitStatus::Timeout });
             } else {

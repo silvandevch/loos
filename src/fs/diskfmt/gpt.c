@@ -19,7 +19,17 @@ static void p32(uint8_t *b, size_t o, uint32_t v) { for (int i = 0; i < 4; i++) 
 static void p64(uint8_t *b, size_t o, uint64_t v) { for (int i = 0; i < 8; i++) b[o + i] = (uint8_t)(v >> (8 * i)); }
 
 uint64_t gpt_first_usable_lba(void) { return 2048; }
-uint64_t gpt_last_usable_lba(uint64_t disk_sectors) { return disk_sectors - 1 - ENTRY_SECTORS - 1; }
+uint64_t gpt_last_usable_lba(uint64_t disk_sectors)
+{
+    return disk_sectors > (uint64_t)ENTRY_SECTORS + 2 ? disk_sectors - 1 - ENTRY_SECTORS - 1 : 0;
+}
+
+static int guid_is_zero(const uint8_t guid[16])
+{
+    uint8_t any = 0;
+    for (int i = 0; i < 16; i++) any |= guid[i];
+    return any == 0;
+}
 
 static void header(uint8_t *h, uint64_t disk_sectors, const uint8_t *guid, uint32_t entries_crc, bool primary)
 {
@@ -38,11 +48,16 @@ static void header(uint8_t *h, uint64_t disk_sectors, const uint8_t *guid, uint3
 int gpt_write(uint64_t disk_sectors, const uint8_t disk_guid[16], const struct gpt_part *parts, int nparts, const uint8_t *boot_code,
               diskfmt_write_fn write, void *opaque)
 {
-    if (!write || nparts < 0 || nparts > GPT_MAX_PARTS || disk_sectors < 4096) return -22;
+    if (!write || !disk_guid || nparts < 0 || nparts > GPT_MAX_PARTS || (nparts && !parts) || disk_sectors < 4096 || guid_is_zero(disk_guid)) return -22;
     uint64_t lo = gpt_first_usable_lba(), hi = gpt_last_usable_lba(disk_sectors);
     for (int i = 0; i < nparts; i++) {
+        if (guid_is_zero(parts[i].type_guid) || guid_is_zero(parts[i].unique_guid)) return -22;
+        for (int k = 0; k < 36 && parts[i].name[k]; k++) if ((unsigned char)parts[i].name[k] > 0x7f) return -22;
         if (parts[i].first_lba < lo || parts[i].last_lba > hi || parts[i].first_lba > parts[i].last_lba) return -22;
-        for (int j = 0; j < i; j++) if (parts[i].first_lba <= parts[j].last_lba && parts[j].first_lba <= parts[i].last_lba) return -22;
+        for (int j = 0; j < i; j++) {
+            if (parts[i].first_lba <= parts[j].last_lba && parts[j].first_lba <= parts[i].last_lba) return -22;
+            if (!memcmp(parts[i].unique_guid, parts[j].unique_guid, 16)) return -22;
+        }
     }
     static uint8_t entries[ENTRY_SIZE * ENTRY_COUNT];
     memset(entries, 0, sizeof entries);

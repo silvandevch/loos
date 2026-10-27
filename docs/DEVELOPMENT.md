@@ -94,7 +94,7 @@ demo.
 |---|---|---|---|
 | M0 | loader + kernel banner in QEMU | astra | ☐ |
 | M1 | kernel core (paging, threads, preemption, syscalls, timers) | astra | ☐ |
-| M2 | kernel objects + first syscalls | astra | ☐ |
+| M2 | kernel objects + first syscalls | astra | ◐ host executive layer; entry wiring remains |
 | M3 | btrfs + registry | astra | ☐ |
 | M4 | native test binary runs | astra | ☐ |
 | M5 | PE loading (first real exe) | astra | ☐ |

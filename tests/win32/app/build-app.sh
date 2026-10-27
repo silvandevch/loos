@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build the Windows-app proof images with MinGW-w64:
 #   compat-hello.exe  — an ordinary Win32 app importing GetStdHandle/WriteFile from kernel32.dll
+#   ucrt-hello.exe    — an ordinary Win32 app importing string/format helpers from ucrtbase.dll
 #   k32shim.dll       — exports of the same names, forwarding to host hooks
 #   tests/win32/app/build-app.sh <outdir>
 set -euo pipefail
@@ -23,4 +24,14 @@ common=(-nostdlib -fno-builtin -fno-stack-protector -fno-asynchronous-unwind-tab
     -Wl,--image-base,0x140000000 -Wl,--dynamicbase -Wl,--subsystem,console \
     -Wl,-e,app_main
 
-echo "built: $out/k32shim.dll $out/compat-hello.exe"
+if [ -n "${LOOS_DLL_DIR:-}" ] && [ -f "$LOOS_DLL_DIR/ucrtbase.lib" ]; then
+    "$CC" "${common[@]}" \
+        -o "$out/ucrt-hello.exe" "$here/ucrt-hello.c" \
+        -L"$LOOS_DLL_DIR" -lucrtbase \
+        -Wl,--image-base,0x150000000 -Wl,--dynamicbase -Wl,--subsystem,console \
+        -Wl,-e,app_main
+    cp "$LOOS_DLL_DIR/ucrtbase.dll" "$out/ucrtbase.dll"
+    echo "built: $out/k32shim.dll $out/compat-hello.exe $out/ucrt-hello.exe"
+else
+    echo "built: $out/k32shim.dll $out/compat-hello.exe (UCRT proof skipped: no PE system DLL output)"
+fi

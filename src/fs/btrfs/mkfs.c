@@ -172,7 +172,7 @@ int loos_btrfs_mkfs(const struct loos_btrfs_mkfs_params *p, loos_btrfs_write_fn 
     /* tree block addresses */
     const uint64_t a_chunk = SYS_AT, a_extent = META_AT, a_dev = META_AT + NODE, a_fs = META_AT + 2 * NODE, a_root = META_AT + 3 * NODE,
                    a_csum = META_AT + 4 * NODE, a_reloc = META_AT + 5 * NODE;
-    static struct leaf L;
+    struct leaf L;
     uint8_t v[512];
     int rc = 0;
 
@@ -236,7 +236,7 @@ int loos_btrfs_mkfs(const struct loos_btrfs_mkfs_params *p, loos_btrfs_write_fn 
     if (rc || leaf_write(&L, &c)) return -5;
 
     /* superblock (primary and mirror) */
-    static uint8_t sb[4096];
+    uint8_t sb[4096];
     memset(sb, 0, sizeof sb);
     memcpy(sb + 32, p->fsid, 16);
     p64(sb, 56, 1);                                           /* WRITTEN */

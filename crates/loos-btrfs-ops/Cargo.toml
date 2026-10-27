@@ -1,0 +1,22 @@
+[package]
+name = "loos-btrfs-ops"
+description = "LoOS btrfs operations layer: multi-device volumes + RAID, tree search, read-only filesystem view, xattr/ACL, ioctl codec, check/scrub/restore, maintenance planners"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+# Host builds (tests, CLI tools): file-backed devices.
+std = []
+
+[dependencies]
+loos-btrfs = { path = "../loos-btrfs" }
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
+
+[dev-dependencies]
+loos-btrfs-ops = { path = ".", features = ["std"] }
+
+[lints]
+workspace = true

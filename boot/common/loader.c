@@ -11,12 +11,22 @@
 
 static inline void *P(uint64_t a) { return (void *)(uintptr_t)a; }
 
+static bool valid_range(uint64_t base, uint64_t length)
+{
+    return length <= UINT64_MAX - base;
+}
+
 static bool str_has_word(const char *s, const char *w)
 {
     size_t wl = strlen(w);
-    for (size_t i = 0; s[i]; i++) {
+    if (wl == 0 || wl > LOOS_BOOT_CMDLINE) return false;
+    for (size_t i = 0; i < LOOS_BOOT_CMDLINE && s[i]; i++) {
         bool start = i == 0 || s[i - 1] == ' ';
-        if (start && memcmp(s + i, w, wl) == 0 && (s[i + wl] == 0 || s[i + wl] == ' ')) return true;
+        if (start && i <= LOOS_BOOT_CMDLINE - wl &&
+            memcmp(s + i, w, wl) == 0 &&
+            (i + wl == LOOS_BOOT_CMDLINE || s[i + wl] == 0 || s[i + wl] == ' ')) {
+            return true;
+        }
     }
     return false;
 }
@@ -68,6 +78,7 @@ static uint64_t find_rsdp_bios(void)
 
 static bool overlaps_ram(const struct mm *m, uint64_t base, uint64_t len)
 {
+    if (!valid_range(base, len)) return true;
     for (uint32_t i = 0; i < m->n; i++) {
         uint32_t t = m->e[i].type;
         bool ram = t == LOOS_MEM_USABLE || t == LOOS_MEM_BOOT || t == LOOS_MEM_ACPI_RECLAIM || t == LOOS_MEM_KERNEL || t == LOOS_MEM_MODULE;
@@ -76,7 +87,11 @@ static bool overlaps_ram(const struct mm *m, uint64_t base, uint64_t len)
     return false;
 }
 
-static bool disjoint(uint64_t a, uint64_t al, uint64_t b, uint64_t bl) { return a + al <= b || b + bl <= a; }
+static bool disjoint(uint64_t a, uint64_t al, uint64_t b, uint64_t bl)
+{
+    if (!valid_range(a, al) || !valid_range(b, bl)) return false;
+    return a + al <= b || b + bl <= a;
+}
 
 /* CPUID.1:EDX[16]: the page attribute table exists. Without it the framebuffer stays uncached. */
 static bool cpu_has_pat(void)
@@ -98,14 +113,23 @@ static bool map_huge(struct pt *p, uint64_t addr, uint64_t flags)
 
 void loader_prepare(struct loader_env *env, struct loader_result *out)
 {
+    if (out == NULL) return;
     memset(out, 0, sizeof *out);
     out->status = LOADER_E_ENV;
+    if (env == NULL) return;
     if (env->magic != LOADER_ENV_MAGIC || env->version != LOADER_ENV_VERSION) return;
     if (env->nfiles < 1 || env->nfiles > LOADER_MAX_FILES || env->nreserved > LOADER_MAX_RESERVED) return;
     if (env->mmap_count == 0 || env->mmap_count > LOADER_MAX_RAW_MMAP || !env->mmap_phys) return;
     if ((env->scratch_base | env->scratch_size) & (PAGE_SIZE - 1) || env->scratch_size < 64 * 1024 ||
-        env->scratch_base + env->scratch_size > LOW_IDENTITY)
+        env->scratch_size > LOW_IDENTITY || env->scratch_base > LOW_IDENTITY - env->scratch_size ||
+        !valid_range(env->image.base, env->image.length))
         return;
+    for (uint32_t i = 0; i < env->nreserved; i++) {
+        if (!valid_range(env->reserved[i].base, env->reserved[i].length)) {
+            out->status = LOADER_E_MEMORY;
+            return;
+        }
+    }
 
     static struct mm mm;
     mm_init(&mm);
@@ -122,7 +146,7 @@ void loader_prepare(struct loader_env *env, struct loader_result *out)
     if (!mm_covered_by(&mm, env->scratch_base, env->scratch_size, LOOS_MEM_USABLE)) { out->status = LOADER_E_MEMORY; return; }
     for (uint32_t i = 0; i < env->nfiles; i++) {
         const struct loader_file *f = &env->files[i];
-        if (f->size == 0 || f->addr + f->size < f->addr || !mm_covered_by(&mm, f->addr, f->size, LOOS_MEM_USABLE) ||
+        if (f->size == 0 || !valid_range(f->addr, f->size) || !mm_covered_by(&mm, f->addr, f->size, LOOS_MEM_USABLE) ||
             !disjoint(f->addr, f->size, env->scratch_base, env->scratch_size)) {
             out->status = LOADER_E_MEMORY;
             return;
@@ -137,9 +161,13 @@ void loader_prepare(struct loader_env *env, struct loader_result *out)
     if (rc != ELF_OK) { out->status = LOADER_E_ELF; out->detail = rc; return; }
 
     uint64_t bi_size = ALIGN_UP(sizeof(struct loos_bootinfo) + (uint64_t)MM_CAP * sizeof(struct loos_mem_entry), PAGE_SIZE);
+    if (ei.span > env->scratch_size || bi_size > env->scratch_size - ei.span ||
+        16 * PAGE_SIZE > env->scratch_size - ei.span - bi_size) {
+        out->status = LOADER_E_MEMORY;
+        return;
+    }
     uint64_t kernel_phys = env->scratch_base + bi_size;
     uint64_t pt_base = kernel_phys + ei.span;
-    if (ei.span > env->scratch_size || bi_size + ei.span + 16 * PAGE_SIZE > env->scratch_size) { out->status = LOADER_E_MEMORY; return; }
 
     bool kaslr = !str_has_word(env->cmdline, "nokaslr");
     uint64_t vbase = KERNEL_WINDOW_BASE;
@@ -164,6 +192,7 @@ void loader_prepare(struct loader_env *env, struct loader_result *out)
     if (!pt_init(&pt, P(pt_base), env->scratch_base + env->scratch_size - pt_base)) { out->status = LOADER_E_PAGING; return; }
     bool wc = cpu_has_pat();                                     /* framebuffer as write-combining: ~10x faster than uncached */
     uint64_t fb_len = env->fb_phys ? (uint64_t)env->fb_pitch * env->fb_height : 0;
+    if (!valid_range(env->fb_phys, fb_len)) { out->status = LOADER_E_MEMORY; return; }
     for (uint64_t a = 0; a < LOW_IDENTITY; a += HUGE) {
         uint64_t flags = PT_W | PT_NX;
         if (fb_len && !disjoint(a, HUGE, env->fb_phys, fb_len)) flags |= wc ? PT_PAT2M : PT_UC;

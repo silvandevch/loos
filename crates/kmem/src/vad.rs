@@ -109,7 +109,7 @@ impl AddressSpace {
         let size = round_up(size, PAGE).ok_or(Error::BadSize)?;
         let base = match at {
             Some(b) => {
-                if !aligned(b, ALLOC_GRANULARITY) || b < self.lo || b.checked_add(size).is_none_or(|e| e > self.hi) || self.overlaps(b, b + size) {
+                if !aligned(b, ALLOC_GRANULARITY) || b < self.lo || b.checked_add(size).map_or(true, |e| e > self.hi) || self.overlaps(b, b + size) {
                     return Err(Error::BadAddress);
                 }
                 b
@@ -122,7 +122,7 @@ impl AddressSpace {
     }
 
     fn overlaps(&self, s: u64, e: u64) -> bool {
-        self.map.range(..e).next_back().is_some_and(|(_, v)| v.end > s) && self.map.range(..e).any(|(_, v)| v.end > s && v.start < e)
+        self.map.range(..e).next_back().map_or(false, |(_, v)| v.end > s) && self.map.range(..e).any(|(_, v)| v.end > s && v.start < e)
     }
 
     fn find_gap(&self, size: u64, top_down: bool) -> Option<u64> {
@@ -149,7 +149,10 @@ impl AddressSpace {
 
     /// Splits so that `addr` is a region boundary.
     fn split_at(&mut self, addr: u64) {
-        let Some((&k, &v)) = self.map.range(..=addr).next_back() else { return };
+        let (k, v) = match self.map.range(..=addr).next_back() {
+            Some((&k, &v)) => (k, v),
+            None => return,
+        };
         if v.start < addr && addr < v.end {
             let mut lo = v;
             let mut hi = v;
@@ -166,7 +169,10 @@ impl AddressSpace {
     fn merge_around(&mut self, s: u64, e: u64) {
         let keys: Vec<u64> = self.map.range(..=e).rev().take_while(|(_, v)| v.end >= s).map(|(k, _)| *k).collect();
         for k in keys.into_iter().rev() {
-            let Some(&a) = self.map.get(&k) else { continue };
+            let a = match self.map.get(&k) {
+                Some(&a) => a,
+                None => continue,
+            };
             let mut a = a;
             while let Some(&b) = self.map.get(&a.end) {
                 let same = a.alloc_base == b.alloc_base && a.state == b.state && a.protect == b.protect && a.max_protect == b.max_protect;
@@ -275,13 +281,19 @@ impl AddressSpace {
 
     /// Whether `[addr, addr+len)` is committed and permits the access (the user-pointer check).
     pub fn check_access(&self, addr: u64, len: u64, write: bool, exec: bool) -> bool {
-        let Some(end) = addr.checked_add(len) else { return false };
+        let end = match addr.checked_add(len) {
+            Some(end) => end,
+            None => return false,
+        };
         if len == 0 {
             return true;
         }
         let mut cur = addr;
         while cur < end {
-            let Some(v) = self.query(cur) else { return false };
+            let v = match self.query(cur) {
+                Some(v) => v,
+                None => return false,
+            };
             let ok = v.state == State::Committed
                 && match v.protect {
                     Protect::None => false,
