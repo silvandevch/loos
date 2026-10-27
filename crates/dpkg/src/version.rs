@@ -98,3 +98,21 @@ impl PartialOrd for Version {
         Some(self.cmp(o))
     }
 }
+
+/// Compares two version strings the way `dpkg --compare-versions` does, without requiring them to be valid
+/// (a missing/garbled epoch counts as 0, a missing revision as ""). Total order for any input.
+pub fn compare_lenient(a: &str, b: &str) -> Ordering {
+    fn split(v: &str) -> (u64, &str, &str) {
+        let (epoch, rest) = match v.split_once(':') {
+            Some((e, r)) if !e.is_empty() && e.bytes().all(|c| c.is_ascii_digit()) => (e.parse().unwrap_or(u64::MAX), r),
+            _ => (0, v),
+        };
+        match rest.rsplit_once('-') {
+            Some((u, r)) => (epoch, u, r),
+            None => (epoch, rest, ""),
+        }
+    }
+    let (ea, ua, ra) = split(a);
+    let (eb, ub, rb) = split(b);
+    ea.cmp(&eb).then_with(|| cmp_part(ua, ub)).then_with(|| cmp_part(ra, rb))
+}

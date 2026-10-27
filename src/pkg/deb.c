@@ -9,6 +9,10 @@ static int lc(int c) { return c >= 'A' && c <= 'Z' ? c + 32 : c; }
 static bool ieq(const char *a, const char *b) { for (; *a && lc((unsigned char)*a) == lc((unsigned char)*b); a++, b++) { } return !*a && !*b; }
 
 /* ---- version comparison: dpkg's verrevcmp ---- */
+#ifdef LOOS_RUST_DPKG
+#include "loos_rust.h"
+int deb_version_compare(const char *a, const char *b) { return loos_deb_version_compare(a, b); }   /* crates/dpkg */
+#else
 static int order(int c)
 {
     if (c >= '0' && c <= '9') return 0;
@@ -56,6 +60,7 @@ int deb_version_compare(const char *a, const char *b)
     r = verrevcmp(ra, rb);
     return r < 0 ? -1 : r > 0;
 }
+#endif
 bool deb_version_valid(const char *v)
 {
     if (!*v) return false;

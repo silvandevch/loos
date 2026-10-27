@@ -10,7 +10,7 @@ objs=()
 for s in entry.S kclib.c serial.c ktime.c kalloc.c video.c ata.c pci.c blk.c ahci.c nvme.c install.c ps2.c vm.c acpi.c smp.c splash.c shellhost.c kmain.c blob.c; do
     o=$out/k_${s%.*}.o; $cc $flags -c "$kdir/$s" -o "$o"; objs+=("$o")
 done
-for f in installer session desktop font raster font_data draw compositor inventory launcher taskbar wm ui backend_mem settings apphost util filemgr taskmon; do
+for f in installer session desktop font raster font_data draw compositor inventory launcher taskbar wm ui backend_mem settings theme apphost util filemgr taskmon; do
     $cc $flags -c "$root/src/shell/$f.c" -o "$out/k_shell_$f.o"; objs+=("$out/k_shell_$f.o")
 done
 $cc $flags -DLOOS_LIBC_PURE=1 -fno-builtin -I"$root/src/libc/src" -c "$root/src/libc/src/string.c" -o "$out/k_libc_string.o"; objs+=("$out/k_libc_string.o")

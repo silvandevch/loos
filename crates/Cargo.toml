@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["ksync", "kmem", "khal", "loos-kernel", "loos-drivers", "loos-security", "loos-btrfs", "loos-btrfs-ops", "loos-fs", "loos-vfs", "kdump", "tasksched", "vt", "dpkg", "winget", "timesvc", "msix", "pkgstate"]
+members = ["ksync", "kmem", "khal", "loos-kernel", "loos-registry", "loos-drivers", "loos-security", "loos-btrfs", "loos-btrfs-ops", "loos-fs", "loos-vfs", "kdump", "tasksched", "vt", "dpkg", "winget", "timesvc", "msix", "pkgstate", "msi", "kms", "ffi"]
 
 [workspace.package]
 version = "0.1.0"

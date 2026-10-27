@@ -8,7 +8,7 @@
 
 extern crate alloc;
 
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 
 /// Rights understood by the first object syscalls.
@@ -23,8 +23,10 @@ pub mod access {
     pub const TERMINATE: u32 = 0x0008;
     /// Duplicate a handle.
     pub const DUPLICATE: u32 = 0x0010;
+    /// Replace the object's security descriptor.
+    pub const SET_SECURITY: u32 = 0x0020;
     /// All rights supported by this crate.
-    pub const ALL: u32 = QUERY | MODIFY_STATE | SYNCHRONIZE | TERMINATE | DUPLICATE;
+    pub const ALL: u32 = QUERY | MODIFY_STATE | SYNCHRONIZE | TERMINATE | DUPLICATE | SET_SECURITY;
 }
 
 /// Object kinds exposed by the executive.
@@ -90,6 +92,51 @@ impl core::fmt::Debug for Handle {
 pub type ProcessId = u64;
 /// Stable thread identifier.
 pub type ThreadId = u64;
+
+/// Security principal identifier used by the object ACL model.
+pub type PrincipalId = u64;
+
+/// A compact discretionary access descriptor for an executive object.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SecurityDescriptor {
+    /// Principal that created/owns the object.
+    pub owner: PrincipalId,
+    /// Rights granted to authorized callers.
+    pub allow: u32,
+    /// Rights explicitly denied before `allow` is considered.
+    pub deny: u32,
+}
+
+impl SecurityDescriptor {
+    /// Creates a descriptor with explicit owner, allow, and deny masks.
+    pub const fn new(owner: PrincipalId, allow: u32, deny: u32) -> Self {
+        Self { owner, allow, deny }
+    }
+
+    /// Descriptor for an object initially accessible with every supported right.
+    pub const fn allow_all(owner: PrincipalId) -> Self {
+        Self::new(owner, access::ALL, 0)
+    }
+
+    fn check(self, principal: PrincipalId, rights: u32) -> Result<(), Error> {
+        // Principal zero is the built-in unrestricted/system identity. A
+        // non-zero owner descriptor is private to its owner until a future
+        // ACL implementation adds group/world entries.
+        if self.owner != 0 && principal != self.owner {
+            return Err(Error::AccessDenied);
+        }
+        if self.deny & rights != 0 || self.allow & rights != rights {
+            return Err(Error::AccessDenied);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ObjectNamespace {
+    Unnamed,
+    BaseNamedObjects,
+}
 
 /// Executive failures. These are mapped to syscall statuses by [`dispatch`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,6 +205,8 @@ struct ObjectSlot {
     generation: u32,
     references: u32,
     name: Option<String>,
+    namespace: ObjectNamespace,
+    security: SecurityDescriptor,
     object: Option<ObjectKind>,
 }
 
@@ -204,6 +253,7 @@ pub struct ObjectManager {
     free_handles: Vec<u32>,
     objects: Vec<ObjectSlot>,
     free_objects: Vec<u32>,
+    principal: PrincipalId,
     next_process: ProcessId,
     next_thread: ThreadId,
 }
@@ -222,17 +272,34 @@ impl ObjectManager {
             free_handles: Vec::new(),
             objects: Vec::new(),
             free_objects: Vec::new(),
+            principal: 0,
             next_process: 1,
             next_thread: 1,
         }
     }
 
     fn alloc_object(&mut self, object: ObjectKind, name: Option<String>) -> ObjectRef {
+        self.alloc_object_with_security(object, name, SecurityDescriptor::allow_all(self.principal))
+    }
+
+    fn alloc_object_with_security(
+        &mut self,
+        object: ObjectKind,
+        name: Option<String>,
+        security: SecurityDescriptor,
+    ) -> ObjectRef {
+        let namespace = if name.is_some() {
+            ObjectNamespace::BaseNamedObjects
+        } else {
+            ObjectNamespace::Unnamed
+        };
         if let Some(index) = self.free_objects.pop() {
             let slot = &mut self.objects[index as usize];
             slot.object = Some(object);
             slot.references = 0;
             slot.name = name;
+            slot.namespace = namespace;
+            slot.security = security;
             return ObjectRef {
                 index,
                 generation: slot.generation,
@@ -243,6 +310,8 @@ impl ObjectManager {
             generation: 1,
             references: 0,
             name,
+            namespace,
+            security,
             object: Some(object),
         });
         ObjectRef {
@@ -301,7 +370,19 @@ impl ObjectManager {
         if self.handles[handle.index as usize].rights & rights != rights {
             return Err(Error::AccessDenied);
         }
+        self.check_security(object, rights)?;
         Ok(object)
+    }
+
+    fn check_security(&self, object: ObjectRef, rights: u32) -> Result<(), Error> {
+        let slot = self
+            .objects
+            .get(object.index as usize)
+            .ok_or(Error::InvalidHandle)?;
+        if slot.generation != object.generation {
+            return Err(Error::InvalidHandle);
+        }
+        slot.security.check(self.principal, rights)
     }
 
     fn object(&self, object: ObjectRef) -> Result<&ObjectKind, Error> {
@@ -327,8 +408,9 @@ impl ObjectManager {
     }
 
     fn find_named(&self, name: &str, kind: ObjectType) -> Option<ObjectRef> {
+        let (name, namespace) = normalize_named_path(name).ok()?;
         self.objects.iter().enumerate().find_map(|(i, slot)| {
-            if slot.name.as_deref() != Some(name) {
+            if slot.name.as_deref() != Some(name.as_str()) || slot.namespace != namespace {
                 return None;
             }
             let object = slot.object.as_ref()?;
@@ -347,6 +429,16 @@ impl ObjectManager {
 
     fn add_object_handle(&mut self, object: ObjectRef) -> Handle {
         self.alloc_handle(object, access::ALL, false)
+    }
+
+    /// Changes the principal used for subsequent object access checks.
+    pub fn set_principal(&mut self, principal: PrincipalId) {
+        self.principal = principal;
+    }
+
+    /// Returns the principal currently used for access checks.
+    pub fn principal(&self) -> PrincipalId {
+        self.principal
     }
 
     /// Creates a process and returns its full-access handle and stable identifier.
@@ -404,15 +496,31 @@ impl ObjectManager {
         kind: EventKind,
         signaled: bool,
     ) -> Result<(Handle, bool), Error> {
-        if name.is_empty() {
-            return Err(Error::InvalidName);
-        }
+        self.create_named_event_with_security(
+            name,
+            kind,
+            signaled,
+            SecurityDescriptor::allow_all(self.principal),
+        )
+    }
+
+    /// Creates or opens a named event with an explicit security descriptor.
+    pub fn create_named_event_with_security(
+        &mut self,
+        name: &str,
+        kind: EventKind,
+        signaled: bool,
+        security: SecurityDescriptor,
+    ) -> Result<(Handle, bool), Error> {
+        let (canonical, _) = normalize_named_path(name)?;
         if let Some(object) = self.find_named(name, ObjectType::Event) {
+            self.check_security(object, access::ALL)?;
             return Ok((self.add_object_handle(object), false));
         }
-        let object = self.alloc_object(
+        let object = self.alloc_object_with_security(
             ObjectKind::Event(EventObject { kind, signaled }),
-            Some(name.to_string()),
+            Some(canonical),
+            security,
         );
         Ok((self.add_object_handle(object), true))
     }
@@ -422,7 +530,25 @@ impl ObjectManager {
         let object = self
             .find_named(name, ObjectType::Event)
             .ok_or(Error::NotFound)?;
+        self.check_security(object, access::ALL)?;
         Ok(self.add_object_handle(object))
+    }
+
+    /// Replaces an object's descriptor after checking `SET_SECURITY` access.
+    pub fn set_security_descriptor(
+        &mut self,
+        handle: Handle,
+        security: SecurityDescriptor,
+    ) -> Result<(), Error> {
+        let object = self.require(handle, access::SET_SECURITY)?;
+        self.objects[object.index as usize].security = security;
+        Ok(())
+    }
+
+    /// Reads an object's descriptor after checking query access.
+    pub fn security_descriptor(&self, handle: Handle) -> Result<SecurityDescriptor, Error> {
+        let object = self.require(handle, access::QUERY)?;
+        Ok(self.objects[object.index as usize].security)
     }
 
     /// Finds a process by identifier and grants a full-access handle.
@@ -493,6 +619,7 @@ impl ObjectManager {
         if rights & !source_rights != 0 {
             return Err(Error::AccessDenied);
         }
+        self.check_security(object, rights)?;
         Ok(self.alloc_handle(object, rights, inherit))
     }
 
@@ -635,6 +762,45 @@ impl ObjectManager {
             _ => Err(Error::WrongType),
         }
     }
+}
+
+fn strip_prefix_ascii_ci<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+    value
+        .get(..prefix.len())
+        .filter(|head| head.eq_ignore_ascii_case(prefix))
+        .map(|_| &value[prefix.len()..])
+}
+
+fn normalize_named_path(name: &str) -> Result<(String, ObjectNamespace), Error> {
+    if name.is_empty() {
+        return Err(Error::InvalidName);
+    }
+    let mut path = String::new();
+    for character in name.chars() {
+        path.push(if character == '/' { '\\' } else { character });
+    }
+    let rest = strip_prefix_ascii_ci(&path, "\\BaseNamedObjects\\")
+        .or_else(|| strip_prefix_ascii_ci(&path, "Global\\"))
+        .or_else(|| strip_prefix_ascii_ci(&path, "Local\\"))
+        .ok_or(Error::InvalidName)?;
+    if rest.is_empty() || rest.len() > 512 {
+        return Err(Error::InvalidName);
+    }
+    let mut canonical = String::new();
+    for component in rest.split('\\') {
+        if component.is_empty()
+            || component == "."
+            || component == ".."
+            || component.chars().any(|character| character == '\0')
+        {
+            return Err(Error::InvalidName);
+        }
+        if !canonical.is_empty() {
+            canonical.push('\\');
+        }
+        canonical.push_str(component);
+    }
+    Ok((canonical, ObjectNamespace::BaseNamedObjects))
 }
 
 /// Stable syscall numbers owned by the LoOS ABI.

@@ -49,6 +49,9 @@ struct loos_iso9660_entry {
     uint8_t flags;
     uint8_t name_length;
     char name[LOOS_ISO9660_MAX_NAME + 1U];
+#ifdef LOOS_RUST_ISO9660
+    char path[LOOS_ISO9660_MAX_PATH];     /* absolute path the Rust reader resolves again on read */
+#endif
 };
 
 struct loos_iso9660 {
@@ -58,10 +61,18 @@ struct loos_iso9660 {
     char volume_id[33];
     struct loos_iso9660_entry root;
     bool mounted;
+#ifdef LOOS_RUST_ISO9660
+    void *rust;                           /* Rust reader state; release with loos_iso9660_unmount */
+#endif
 };
 
 /* Reads and validates the primary volume descriptor and its root record. */
 int loos_iso9660_mount(struct loos_iso9660 *fs, const struct loos_iso9660_io *io);
+
+#ifdef LOOS_RUST_ISO9660
+/* Frees the Rust reader state (the C implementation holds none). Safe to call twice. */
+void loos_iso9660_unmount(struct loos_iso9660 *fs);
+#endif
 
 /* Resolves an absolute or relative slash-separated path.  Names are matched
  * case-insensitively and a trailing ISO9660 ";1" version is optional. */

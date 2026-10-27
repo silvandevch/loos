@@ -1,6 +1,6 @@
 use loos_kernel::{
-    access, dispatch, EventInfo, EventKind, ObjectManager, ObjectType, Status, SyscallArgs,
-    SyscallNumber,
+    access, dispatch, EventInfo, EventKind, ObjectManager, ObjectType, SecurityDescriptor, Status,
+    SyscallArgs, SyscallNumber,
 };
 
 fn args(a: u64, b: u64, c: u64) -> SyscallArgs {
@@ -79,6 +79,43 @@ fn named_event_is_shared_and_sync_event_is_consumed() {
     assert_eq!(
         manager.open_named_event("\\BaseNamedObjects\\ready"),
         Err(loos_kernel::Error::NotFound)
+    );
+}
+
+#[test]
+fn named_namespace_aliases_share_objects_and_security_is_enforced() {
+    let mut manager = ObjectManager::new();
+    manager.set_principal(7);
+    let (owner, created) = manager
+        .create_named_event_with_security(
+            "Global\\private",
+            EventKind::Notification,
+            false,
+            SecurityDescriptor::new(7, access::ALL, 0),
+        )
+        .unwrap();
+    assert!(created);
+    assert_eq!(
+        manager.event_info(owner).unwrap().kind,
+        EventKind::Notification
+    );
+    manager.set_principal(9);
+    assert_eq!(
+        manager.open_named_event("\\BaseNamedObjects\\private"),
+        Err(loos_kernel::Error::AccessDenied)
+    );
+    assert_eq!(
+        manager.event_info(owner),
+        Err(loos_kernel::Error::AccessDenied)
+    );
+    manager.set_principal(7);
+    let (alias, created) = manager
+        .create_named_event("Local\\private", EventKind::Synchronization, true)
+        .unwrap();
+    assert!(!created);
+    assert_eq!(
+        manager.event_info(alias).unwrap().kind,
+        EventKind::Notification
     );
 }
 

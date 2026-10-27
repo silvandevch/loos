@@ -30,6 +30,32 @@ name = "loos-drivers"
 version = "0.1.0"
 
 [[package]]
+name = "loos-ffi"
+version = "0.1.0"
+dependencies = [
+ "loos-btrfs-ops",
+ "loos-dpkg",
+ "loos-drivers",
+ "loos-fs",
+ "loos-kdump",
+ "loos-kernel",
+ "loos-khal",
+ "loos-kmem",
+ "loos-kms",
+ "loos-ksync",
+ "loos-msi",
+ "loos-msix",
+ "loos-pkgstate",
+ "loos-registry",
+ "loos-security",
+ "loos-tasksched",
+ "loos-timesvc",
+ "loos-vfs",
+ "loos-vt",
+ "loos-winget",
+]
+
+[[package]]
 name = "loos-fs"
 version = "0.1.0"
 dependencies = [
@@ -53,7 +79,15 @@ name = "loos-kmem"
 version = "0.1.0"
 
 [[package]]
+name = "loos-kms"
+version = "0.1.0"
+
+[[package]]
 name = "loos-ksync"
+version = "0.1.0"
+
+[[package]]
+name = "loos-msi"
 version = "0.1.0"
 
 [[package]]
@@ -65,6 +99,10 @@ dependencies = [
 
 [[package]]
 name = "loos-pkgstate"
+version = "0.1.0"
+
+[[package]]
+name = "loos-registry"
 version = "0.1.0"
 
 [[package]]

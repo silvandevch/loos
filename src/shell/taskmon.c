@@ -160,7 +160,7 @@ void tm_frame(shell_taskmon *t, ui_ctx *u, int w, int h)
         pp = u->pressed; pr = u->released; pw = u->wheel; u->nkeys = 0; u->pressed = u->released = false; u->wheel = 0;
     }
     /* summary strip */
-    char b[96], c1[16], c2[24];
+    char b[192], c1[16], c2[24];
     fmt_pct10(t->total_cpu_x10 > 1000 ? 1000 : t->total_cpu_x10, c1, sizeof c1); fmt_size(t->total_mem, c2, sizeof c2);
     snprintf(b, sizeof b, "Processes %d    CPU %s    Memory %s    Sockets %u", t->n, c1, c2, t->total_sockets);
     ui_label(u, 12, 12, b, th->text);

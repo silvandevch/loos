@@ -29,7 +29,8 @@ kernel entry point, no bootloader output, and no LoOS ISO.
 | compat engine | `src/win32/compat/compat.c` (329 lines) | per-era version claims (Win7/10/11); tested |
 | Win32 DLLs | `src/win32/{ntdll,kernel32}`, `scripts/win32/build-pe.sh` | builds real PE32+ `ntdll.dll` + `kernel32.dll` (+ `kernelbase.dll`) via clang + LLD |
 | Desktop apps | `apps/` (19,669 lines) | `LoCalc.exe`, `LoNotepad.exe`, `LoTaskMgr.exe`, `LoCmd.exe` — real Win32 GUI/console apps; `LoCmd.exe` verified running under Wine |
-| Executive object model | `crates/loos-kernel` | generation-safe handles, process/thread/event objects, named events, and first syscall dispatcher; four host tests pass |
+| Executive object model | `crates/loos-kernel` | generation-safe handles, process/thread/event objects, named namespaces, security descriptors, and first syscall dispatcher; five host tests pass |
+| Registry hive | `crates/loos-registry` | bounded `regf`/`hbin` load/save, key/value API, standard list-cell parsing, and three round-trip/corruption tests |
 
 Counts: `src/` is ~10,800 lines of C; `apps/` is ~19,700 lines. Only **17**
 stub/TODO markers exist and **3** real "not implemented" notes (ntdll
@@ -62,9 +63,9 @@ stub/TODO markers exist and **3** real "not implemented" notes (ntdll
 - **Show any UI of its own.** There is no `user32`/`gdi32`/compositor code in
   `src/win32` — the apps link the *real* Windows user32/gdi32. LoOS's own shell,
   window manager, and compositor are not started.
-- **Registry, networking, drivers, full security, and Linux ("Lin") support.**
-  The host-testable executive object layer has started, but it is not yet wired
-  into the freestanding kernel or syscall entry path.
+- **Networking, drivers, full security, and Linux ("Lin") support.** Registry
+  now has a host-testable hive layer, but it is not yet wired into btrfs or the
+  Win32 `advapi32` service path.
 - **A fully green test suite.** `security.crypto_block_test` fails on the
   constant-time length boundary (task #86).
 

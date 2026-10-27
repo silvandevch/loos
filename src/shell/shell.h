@@ -117,6 +117,9 @@ typedef struct {
     int title_h, border, button_w, edge_grab, corner_r;
 } shell_metrics;
 
+/* user-tunable look of the chrome: 0 / -1 mean "scale-derived default" */
+typedef struct { int radius, title_h, border, shadow_pct, glow_pct; } shell_style;
+
 typedef struct shell_comp {
     int screen_w, screen_h;
     shell_window win[SHELL_MAX_WINDOWS];
@@ -126,6 +129,7 @@ typedef struct shell_comp {
     int cur_desktop;
     shell_theme theme;
     shell_metrics m;
+    shell_style style;               /* see comp_set_style */
     shell_rect work_area;            /* screen minus reserved bars (taskbar) */
     int bottom_reserve;              /* logical px reserved at the bottom (taskbar); work_area follows scale changes */
     shell_damage damage;
@@ -142,13 +146,16 @@ typedef struct shell_comp {
     bool reduce_motion, high_contrast;   /* accessibility settings mirrored from the Settings app */
     uint32_t kbd_mods;               /* last modifier state seen on a key event; stamped onto mouse events */
     int press_win; shell_zone press_zone;     /* chrome button pressed, fires on release */
+    bool no_cull;                    /* debug/reference: paint every window even when an opaque one hides it */
+    uint32_t stat_culled;            /* windows (and wallpaper passes) skipped by occlusion culling, cumulative */
     int last_click_win; uint32_t last_click_ms, now_ms;   /* title double-click -> maximize; host sets now_ms */
 } shell_comp;
 
 void comp_init(shell_comp *c, int screen_w, int screen_h);
 void comp_set_work_area(shell_comp *c, shell_rect wa);
 bool comp_add_overlay(shell_comp *c, void (*fn)(shell_comp *, shell_fb *, shell_rect, void *), void *user);
-void comp_set_scale(shell_comp *c, uint32_t pct);              /* 100..300: chrome metrics follow */
+void comp_set_scale(shell_comp *c, uint32_t pct);
+void comp_set_style(shell_comp *c, const shell_style *st);     /* radius -1/title_h 0/border 0 = default; shadow/glow 0..150 %; damages the screen */              /* 100..300: chrome metrics follow */
 int  comp_create(shell_comp *c, const char *title, shell_rect rect, uint32_t flags, uint32_t owner);   /* id or 0 */
 void comp_destroy(shell_comp *c, int id);
 shell_window *comp_get(shell_comp *c, int id);

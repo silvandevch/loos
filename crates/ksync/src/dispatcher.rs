@@ -12,6 +12,21 @@ pub struct ObjId {
     generation: u32,
 }
 
+impl ObjId {
+    /// Non-zero 64-bit encoding for C callers (bit 63 is always set, so 0 can mean "no object").
+    pub const fn to_raw(self) -> u64 {
+        1 << 63 | (self.generation as u64) << 32 | self.index as u64
+    }
+
+    /// Inverse of [`ObjId::to_raw`]; `None` for 0 or values without the marker bit.
+    pub const fn from_raw(raw: u64) -> Option<ObjId> {
+        if raw >> 63 == 0 {
+            return None;
+        }
+        Some(ObjId { index: raw as u32, generation: (raw >> 32) as u32 & 0x7fff_ffff })
+    }
+}
+
 /// Event reset behaviour.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EventKind {

@@ -126,7 +126,10 @@ const font_bitmap *font_bitmap_get(const loos_font *f, const loos_glyph *g, int 
         int npts = g->ncont ? rel_ends[g->ncont - 1] : 0;
         for (int i = 0; i < npts; i++) {
             int x = path.xy[2 * i], y = path.xy[2 * i + 1];
-            if (x < xmin) xmin = x; if (x > xmax) xmax = x; if (y < ymin) ymin = y; if (y > ymax) ymax = y;
+            if (x < xmin) xmin = x;
+            if (x > xmax) xmax = x;
+            if (y < ymin) ymin = y;
+            if (y > ymax) ymax = y;
         }
         font_bitmap bm = { 0, 0, 0, 0, 0 };
         if (npts) {

@@ -2,9 +2,9 @@
 #include <string.h>
 #include <stdio.h>
 
-const char *const settings_page_name[PG_COUNT] = { "Privacy", "Network firewall", "App permissions", "Updates", "Appearance", "Accessibility", "Accounts" };
+const char *const settings_page_name[PG_COUNT] = { "Privacy", "Network firewall", "App permissions", "Updates", "Appearance", "Accessibility", "Accounts", "Personalize" };
 const uint32_t settings_accents[6] = { 0xFF3B82F6u, 0xFF8B5CF6u, 0xFF10B981u, 0xFFF59E0Bu, 0xFFEF4444u, 0xFFEC4899u };
-static const char *const page_ids[PG_COUNT] = { "privacy", "firewall", "permissions", "updates", "appearance", "accessibility", "accounts" };
+static const char *const page_ids[PG_COUNT] = { "privacy", "firewall", "permissions", "updates", "appearance", "accessibility", "accounts", "personalize" };
 
 bool settings_page_by_id(const char *id, settings_page *out)
 {
@@ -21,14 +21,14 @@ void settings_apply(shell_settings *s)
     s->scale = be_cfg_int(b, "ui.scale", 100);
     if (s->accent < 0 || s->accent > 5) s->accent = 0;
     if (be_cfg_bool(b, "ui.high_contrast", false)) s->theme = 2;
+    theme_spec_load(&s->spec, b, settings_accents[s->accent]);
+    if (be_cfg_bool(b, "ui.high_contrast", false)) s->spec.base = TB_HC;
     if (s->comp) {
         shell_comp *c = s->comp;
-        if (s->theme == 1) shell_theme_light(&c->theme, settings_accents[s->accent]);
-        else if (s->theme == 2) shell_theme_high_contrast(&c->theme);
-        else shell_theme_dark(&c->theme, settings_accents[s->accent]);
+        theme_apply(&s->spec, c);
         if (c->scale_pct != (uint32_t)s->scale) comp_set_scale(c, (uint32_t)s->scale);
         c->reduce_motion = be_cfg_bool(b, "ui.reduce_motion", false);
-        c->high_contrast = s->theme == 2;
+        c->high_contrast = s->spec.base == TB_HC;
         comp_damage_all(c);
     }
     if (s->taskbar) {
@@ -221,6 +221,87 @@ static void page_access(shell_settings *s, ui_ctx *u, shell_rect c)
     ui_label(u, c.x, c.y + 256, "Full keyboard navigation is always on. Ctrl+Space opens the command palette.", t->text_dim);
 }
 
+/* ---- Personalize: presets, accent picker, shape/effect sliders, per-token colors, export/import ---- */
+static void pers_commit(shell_settings *s) { theme_spec_store(&s->spec, s->be); changed(s); }
+
+static bool pers_slider(ui_ctx *u, int x, int y, int w, const char *label, int *v, int lo, int hi)
+{
+    char txt[48]; snprintf(txt, sizeof txt, "%s: %d", label, *v);
+    int yy = y;
+    ui_label(u, x, yy, txt, u->theme->text_dim);
+    bool ch = ui_slider(u, (shell_rect){ x, yy + 16, w, 22 }, label, v, lo, hi);
+    return ch;
+}
+
+static void page_personalize(shell_settings *s, ui_ctx *u, shell_rect c)
+{
+    const shell_theme *t = u->theme;
+    shell_rect saved; ui_clip_push(u, c, &saved);
+    if (ui_hovered(u, c) && u->wheel) s->p_scroll -= u->wheel * 24;
+    if (s->p_scroll < 0) s->p_scroll = 0;
+    if (s->p_scroll > 300) s->p_scroll = 300;
+    #define Y(v) ((v) + c.y - s->p_scroll)
+    theme_spec *sp = &s->spec;
+    ui_heading(u, c.x, Y(0), "Personalize");
+    ui_label(u, c.x, Y(46), "Presets", t->text_dim);
+    int n = theme_preset_count(), cols = 4, bw = (c.w - 3 * 8) / cols;
+    for (int i = 0; i < n; i++) {
+        shell_rect r = { c.x + (i % cols) * (bw + 8), Y(66 + (i / cols) * 32), bw, 26 };
+        if (ui_button(u, r, theme_preset_name(i))) { theme_preset(i, sp); pers_commit(s); }
+    }
+    int top = 66 + ((n + cols - 1) / cols) * 32 + 12;
+    ui_label(u, c.x, Y(top), "Accent color", t->text_dim);
+    int H, S, L; theme_to_hsl(sp->accent, &H, &S, &L);
+    int half = (c.w - 16) / 2, x2 = c.x + half + 16;
+    bool ch = false;
+    ch |= pers_slider(u, c.x, Y(top + 22), half - 80, "Hue", &H, 0, 359);
+    ch |= pers_slider(u, c.x, Y(top + 66), half - 80, "Saturation", &S, 0, 100);
+    ch |= pers_slider(u, c.x, Y(top + 110), half - 80, "Lightness", &L, 10, 90);
+    if (ch) { sp->accent = theme_hsl(H, S, L); pers_commit(s); }
+    fb_fill_round(u->fb, u->clip, (shell_rect){ c.x + half - 56, Y(top + 40), 56, 56 }, 12, sp->accent);
+    char hx[8]; theme_format_hex(sp->accent, hx); ui_label(u, c.x + half - 56, Y(top + 100), hx, t->text_dim);
+    ui_label(u, x2, Y(top), "Shape and effects", t->text_dim);
+    int v;
+    v = sp->radius < 0 ? 8 : sp->radius;  if (pers_slider(u, x2, Y(top + 22), half, "Corner radius", &v, 0, 24)) { sp->radius = v; pers_commit(s); }
+    v = sp->title_h ? sp->title_h : 28;   if (pers_slider(u, x2, Y(top + 66), half, "Title bar", &v, 20, 48)) { sp->title_h = v; pers_commit(s); }
+    v = sp->shadow;                       if (pers_slider(u, x2, Y(top + 110), half, "Shadow %", &v, 0, 150)) { sp->shadow = v; pers_commit(s); }
+    v = sp->glow;                         if (pers_slider(u, x2, Y(top + 154), half, "Wallpaper glow %", &v, 0, 150)) { sp->glow = v; pers_commit(s); }
+    v = sp->tint;                         if (pers_slider(u, c.x, Y(top + 154), half - 80, "Surface tint %", &v, 0, 100)) { sp->tint = v; pers_commit(s); }
+    v = sp->border ? sp->border : 1;      if (pers_slider(u, c.x, Y(top + 198), half - 80, "Border", &v, 1, 4)) { sp->border = v; pers_commit(s); }
+    bool g = sp->guard;
+    if (ui_toggle(u, (shell_rect){ x2, Y(top + 204), half, 26 }, "Keep text readable (contrast guard)", &g)) { sp->guard = g; pers_commit(s); }
+
+    int cy = top + 252;
+    ui_label(u, c.x, Y(cy), "Colors (click to select, type a hex value to override)", t->text_dim);
+    shell_theme res; theme_resolve(sp, &res);
+    const uint32_t cols10[TK_COUNT] = { res.desktop, res.surface, res.surface_hi, res.border, res.text, res.text_dim, res.accent, res.accent_text, res.danger, res.title_inactive };
+    int sw = (c.w - 9 * 6) / TK_COUNT; if (sw > 40) sw = 40;
+    for (int i = 0; i < TK_COUNT; i++) {
+        shell_rect r = { c.x + i * (sw + 6), Y(cy + 22), sw, 30 };
+        fb_fill_round(u->fb, u->clip, r, 6, cols10[i]);
+        fb_stroke_round(u->fb, u->clip, r, 6, s->p_token == i ? 2 : 1, s->p_token == i ? t->text : t->border);
+        if (sp->ovr_mask & (1u << i)) fb_fill_circle(u->fb, u->clip, r.x + r.w - 6, r.y + 6, 3, t->accent);
+        if (u->pressed && ui_hovered(u, r)) { s->p_token = i; theme_format_hex(cols10[i], hx); strcpy(s->p_hex, hx); s->p_hex_caret = (int)strlen(s->p_hex); }
+    }
+    char nm[64]; snprintf(nm, sizeof nm, "%s", theme_token_name[s->p_token]);
+    ui_label(u, c.x, Y(cy + 62), nm, t->text);
+    if (ui_textfield(u, (shell_rect){ c.x + 130, Y(cy + 58), 110, 26 }, s->p_hex, sizeof s->p_hex, &s->p_hex_caret, "#RRGGBB")) {
+        uint32_t col;
+        if (theme_parse_hex(s->p_hex, &col)) { sp->ovr[s->p_token] = col; sp->ovr_mask |= (uint16_t)(1u << s->p_token); pers_commit(s); }
+    }
+    if (ui_button(u, (shell_rect){ c.x + 252, Y(cy + 58), 120, 26 }, "Reset colors")) { sp->ovr_mask = 0; pers_commit(s); }
+
+    int io = cy + 104;
+    ui_label(u, c.x, Y(io), "Share or restore this theme as text (press Enter in the box to import)", t->text_dim);
+    if (ui_button(u, (shell_rect){ c.x, Y(io + 22), 120, 26 }, "Export")) { theme_export(sp, s->p_io, sizeof s->p_io); s->p_io_caret = (int)strlen(s->p_io); }
+    if (ui_textfield(u, (shell_rect){ c.x + 130, Y(io + 22), c.w - 130, 26 }, s->p_io, sizeof s->p_io, &s->p_io_caret, "base=nord;accent=#88C0D0;radius=10")) {
+        if (theme_import(sp, s->p_io) == 0) pers_commit(s);
+        else strncpy(s->p_io, "Some entries were not understood; valid ones were applied.", sizeof s->p_io - 1), pers_commit(s);
+    }
+    #undef Y
+    ui_clip_pop(u, saved);
+}
+
 static void page_accounts(shell_settings *s, ui_ctx *u, shell_rect c)
 {
     const shell_theme *t = u->theme;
@@ -259,6 +340,7 @@ void settings_frame(shell_settings *s, ui_ctx *u, int w, int h)
     case PG_APPEARANCE: page_appearance(s, u, c); break;
     case PG_ACCESS: page_access(s, u, c); break;
     case PG_ACCOUNTS: page_accounts(s, u, c); break;
+    case PG_PERSONALIZE: page_personalize(s, u, c); break;
     default: break;
     }
 }

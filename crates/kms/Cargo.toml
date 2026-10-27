@@ -1,0 +1,10 @@
+[package]
+name = "loos-kms"
+description = "LoOS display class core (DRM/KMS-compatible model): EDID parsing, CVT timings, mode selection, atomic commit validation, multi-monitor layout"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

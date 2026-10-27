@@ -104,7 +104,7 @@ src/                    C that stays C (see §C)
 | UCRT compatibility image (`src/win32/ucrt`) | **C** | the freestanding PE build has a C-only variadic `printf` ABI; fixed-width helpers are kept in the same image until the Rust Win32 target is wired |
 | boot/entry, IDT/syscall stubs, context switch | **C + asm** | §C.2 |
 | WDDM/DXGK, CUDA, D3D UMD host | **C** | §C.1 vendor interfaces |
-| current PE loader / btrfs / crypto (until rewritten) | C → **Rust** | tracked by `rust-be`/`rust-btrfs`/`rust-crypto` |
+| current PE loader / btrfs / crypto (until rewritten) | C → **Rust** | tracked by `rust-be`/`rust-btrfs`/`rust-crypto`; hosted builds already use Rust crypto + ISO 9660 + Debian versions through the C ABI — see [RUST-WIRING.md](RUST-WIRING.md) |
 | NT 5.2 study tree | C | external source, read-only |
 
 ## Tasks

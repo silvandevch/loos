@@ -21,6 +21,11 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/LoosWarnings.cmake)
 
 include(CTest)
 
+# ---- Rust crates behind a C ABI (hosted builds) ----
+if(NOT LOOS_FREESTANDING_BUILD AND NOT WIN32)
+    add_subdirectory(src/rust)
+endif()
+
 # ---- filesystems ----
 add_subdirectory(src/libc)
 add_subdirectory(src/fs/btrfs)
@@ -87,6 +92,19 @@ if(BUILD_TESTING AND NOT LOOS_FREESTANDING_BUILD)
     target_link_libraries(iso9660_test PRIVATE loos_iso9660)
     target_compile_options(iso9660_test PRIVATE ${LOOS_C_WARNINGS})
     add_test(NAME fs.iso9660 COMMAND iso9660_test)
+
+    if(TARGET loos_rust)
+        add_executable(rust_ffi_test tests/rust/ffi_test.c)
+        target_link_libraries(rust_ffi_test PRIVATE loos_rust)
+        target_compile_options(rust_ffi_test PRIVATE ${LOOS_C_WARNINGS})
+        add_test(NAME rust.ffi COMMAND rust_ffi_test)
+
+        add_executable(rust_ffi_btrfs_test tests/rust/ffi_btrfs_test.c)
+        target_link_libraries(rust_ffi_btrfs_test PRIVATE loos_rust)
+        target_compile_options(rust_ffi_btrfs_test PRIVATE ${LOOS_C_WARNINGS})
+        add_test(NAME rust.ffi_btrfs COMMAND ${CMAKE_COMMAND} -E env python3 ${CMAKE_SOURCE_DIR}/tests/rust/run_btrfs_ffi.py $<TARGET_FILE:rust_ffi_btrfs_test>)
+        set_tests_properties(rust.ffi_btrfs PROPERTIES SKIP_RETURN_CODE 77)
+    endif()
 
     if(LOOS_BUILD_WIN32)
         add_subdirectory(tests/win32)

@@ -7,7 +7,7 @@ mod=$(mktemp); head -c 40000 /dev/urandom > "$mod"
 crc=$(python3 -c "import zlib,sys; print('0x%016x' % zlib.crc32(open('$mod','rb').read()))")
 img=$("$here/build.sh" "$out" --module initrd="$mod" --cmdline "console=ttyS0 loos.test=1") || exit 1
 log=$(mktemp)
-timeout 60 qemu-system-x86_64 ${QEMU_ACCEL:-} -display none -vga std -smp 4 -m 256M -serial "file:$log" -drive "file=$img,format=raw,if=ide" \
+timeout 60 qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-off} "$(dirname "$0")/../../scripts/qemu-accel.sh" args)} -display none -vga std -smp 4 -m 256M -serial "file:$log" -drive "file=$img,format=raw,if=ide" \
     -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
 rc=$?
 for want in "LoOS BIOS loader" "LoOS kernel: entered at 0xffffffff" "boot: BIOS, KASLR on" "blob: 3145728 bytes" \

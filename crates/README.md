@@ -6,6 +6,7 @@ with host `cargo test` suites (run from ctest as `rust.workspace`).
 | crate | contents |
 |---|---|
 | `loos-kernel` | generation-safe executive handles, process/thread/event objects, and first syscall dispatcher |
+| `loos-registry` | bounded classic `regf`/`hbin` hive parser, canonical writer, and key/value API |
 | `ksync` | ticket `SpinLock`; NT-style `Dispatcher` (events, semaphores, recursive mutants, wait any/all, timeouts, abandonment on thread exit) |
 
 Layout rule: one module per concern under `src/`, integration tests under `tests/`, no `unsafe` outside

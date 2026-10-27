@@ -1,0 +1,36 @@
+[package]
+name = "loos-ffi"
+description = "C ABI for the Rust crates: the single static library (libloos_ffi.a) the C code links; headers in src/rust/"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "loos_ffi"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+loos-security = { path = "../loos-security" }
+loos-fs = { path = "../loos-fs" }
+loos-kdump = { path = "../kdump" }
+loos-tasksched = { path = "../tasksched" }
+loos-vt = { path = "../vt" }
+loos-dpkg = { path = "../dpkg" }
+loos-winget = { path = "../winget" }
+loos-msix = { path = "../msix" }
+loos-msi = { path = "../msi" }
+loos-pkgstate = { path = "../pkgstate" }
+loos-timesvc = { path = "../timesvc" }
+loos-kms = { path = "../kms" }
+loos-kernel = { path = "../loos-kernel" }
+loos-registry = { path = "../loos-registry" }
+loos-kmem = { path = "../kmem" }
+loos-ksync = { path = "../ksync" }
+loos-khal = { path = "../khal" }
+loos-drivers = { path = "../loos-drivers" }
+loos-vfs = { path = "../loos-vfs" }
+loos-btrfs-ops = { path = "../loos-btrfs-ops" }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"

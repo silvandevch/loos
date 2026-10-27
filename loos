@@ -143,6 +143,7 @@ case "${1:-help}" in
     qemu)     shift; bash "$HERE/remote/run-qemu.sh" "$NT_OUT/loos.iso" ;;
     vm-build) shift; python3 "$HERE/remote/loos-build.py" all ;;
     vm)       shift; python3 "$HERE/remote/loos-build.py" "$@" ;;
+    kvm)      shift; bash "$SCRIPTS_DIR/qemu-accel.sh" "${1:-status}" ;;
     verify)   shift; bash "$SCRIPTS_DIR/10-verify-env.sh" ;;
     fixwine)  shift; bash "$SCRIPTS_DIR/fix-wine-assoc.sh" ;;
     bus)      shift; python3 "$HERE/agents/agentbus" "${@:-status}" ;;

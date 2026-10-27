@@ -8,17 +8,19 @@
 #define SHADOW_DY 7
 #define DBLCLICK_MS 400
 
-static void metrics_for(shell_metrics *m, uint32_t pct)
+static void metrics_for(shell_metrics *m, const shell_style *st, uint32_t pct)
 {
-    m->title_h = (int)(28 * pct / 100); m->border = pct >= 150 ? 2 : 1; m->button_w = (int)(40 * pct / 100);
-    m->edge_grab = (int)(6 * pct / 100); m->corner_r = (int)(8 * pct / 100);
+    int th = st->title_h > 0 ? st->title_h : 28, bd = st->border > 0 ? st->border : 1, rad = st->radius >= 0 ? st->radius : 8;
+    m->title_h = (int)((uint32_t)th * pct / 100); m->border = st->border > 0 ? (int)((uint32_t)bd * (pct >= 150 ? 2 : 1)) : (pct >= 150 ? 2 : 1);
+    m->button_w = (int)(40 * pct / 100); m->edge_grab = (int)(6 * pct / 100); m->corner_r = (int)((uint32_t)rad * pct / 100);
 }
 
 void comp_init(shell_comp *c, int w, int h)
 {
     memset(c, 0, sizeof *c);
     c->screen_w = w; c->screen_h = h; c->next_id = 1; c->scale_pct = 100;
-    metrics_for(&c->m, 100);
+    c->style = (shell_style){ -1, 0, 0, 100, 100 };
+    metrics_for(&c->m, &c->style, 100);
     shell_theme_dark(&c->theme, 0xFF3B82F6u);
     c->work_area = (shell_rect){ 0, 0, w, h };
     c->mouse_x = w / 2; c->mouse_y = h / 2;
@@ -34,7 +36,7 @@ void comp_set_scale(shell_comp *c, uint32_t pct)
     if (pct < 100) pct = 100;
     if (pct > 400) pct = 400;
     c->scale_pct = pct;
-    metrics_for(&c->m, pct);
+    metrics_for(&c->m, &c->style, pct);
     if (c->bottom_reserve) c->work_area = (shell_rect){ 0, 0, c->screen_w, c->screen_h - c->bottom_reserve * (int)pct / 100 };
     for (int i = 0; i < SHELL_MAX_WINDOWS; i++) {            /* every window re-lays out at the new scale */
         shell_window *w = &c->win[i];
@@ -42,6 +44,18 @@ void comp_set_scale(shell_comp *c, uint32_t pct)
         w->dpi = 96 * pct / 100;
         comp_post_event(c, w->id, (shell_event){ EV_DPI_CHANGED, (int)w->dpi, 0, 0, 0, 0 });
     }
+    comp_damage_all(c);
+}
+void comp_set_style(shell_comp *c, const shell_style *st)
+{
+    shell_style n = *st;
+    n.radius = n.radius < -1 ? -1 : n.radius > 24 ? 24 : n.radius;
+    n.title_h = n.title_h <= 0 ? 0 : n.title_h < 20 ? 20 : n.title_h > 48 ? 48 : n.title_h;
+    n.border = n.border < 0 ? 0 : n.border > 4 ? 4 : n.border;
+    n.shadow_pct = n.shadow_pct < 0 ? 0 : n.shadow_pct > 150 ? 150 : n.shadow_pct;
+    n.glow_pct = n.glow_pct < 0 ? 0 : n.glow_pct > 150 ? 150 : n.glow_pct;
+    c->style = n;
+    metrics_for(&c->m, &c->style, c->scale_pct);
     comp_damage_all(c);
 }
 int comp_lw(const shell_comp *c) { return c->screen_w * 100 / (int)c->scale_pct; }
@@ -102,7 +116,7 @@ bool comp_is_shown(const shell_comp *c, const shell_window *w)
 }
 static shell_rect outer_with_shadow(const shell_comp *c, shell_rect r)
 {
-    int m = (SHADOW_BLUR + SHADOW_DY + 2) * (int)c->scale_pct / 100;
+    int m = (SHADOW_BLUR * 3 / 2 + SHADOW_DY + 2) * (int)c->scale_pct / 100;
     r.x -= m; r.y -= m; r.w += 2 * m; r.h += 2 * m + SHADOW_DY * (int)c->scale_pct / 100;
     return r;
 }
@@ -563,7 +577,11 @@ static void paint_wallpaper(const shell_comp *c, shell_fb *fb, shell_rect clip)
     int W = c->screen_w, H = c->screen_h;
     int gx1 = W * 78 / 100, gy1 = H * 18 / 100, gr1 = W * 55 / 100;
     int gx2 = W * 14 / 100, gy2 = H * 92 / 100, gr2 = W * 45 / 100;
-    int g1 = light ? 70 : 100, g2 = light ? 40 : 60;                              /* peak glow strength, 0..256 */
+    int g1 = (light ? 70 : 100) * c->style.glow_pct / 100, g2 = (light ? 40 : 60) * c->style.glow_pct / 100;   /* peak glow strength, 0..256 */
+    if (g1 == 0 && g2 == 0) {                                                     /* no glows: one fill per row, no per-pixel math */
+        for (int y = v.y; y < v.y + v.h; y++) fb_fill(fb, v, (shell_rect){ v.x, y, v.w, 1 }, color_mix(top, bot, H > 1 ? y * 256 / (H - 1) : 0));
+        return;
+    }
     int64_t inv1 = (256ll << 24) / ((int64_t)gr1 * gr1), inv2 = (256ll << 24) / ((int64_t)gr2 * gr2);   /* multiply instead of dividing per pixel */
     int ar = (int)((glow_a >> 16) & 255), ag = (int)((glow_a >> 8) & 255), ab = (int)(glow_a & 255);
     int br2 = (int)((glow_b >> 16) & 255), bg2 = (int)((glow_b >> 8) & 255), bb2 = (int)(glow_b & 255);
@@ -611,7 +629,8 @@ static void draw_window(shell_comp *c, shell_fb *fb, shell_rect clip, const shel
     bool max = (w->flags & WF_MAXIMIZED) != 0;
     int rad = max ? 0 : c->m.corner_r;
     if (!max) {
-        fb_shadow(fb, clip, w->rect, rad, SHADOW_BLUR * sc / 100, SHADOW_DY * sc / 100, focused ? 0x70000000u : 0x48000000u);
+        int sp = c->style.shadow_pct;
+        if (sp > 0) fb_shadow(fb, clip, w->rect, rad, SHADOW_BLUR * sp / 100 * sc / 100, SHADOW_DY * sc / 100, ((uint32_t)((focused ? 0x70 : 0x48) * sp / 100 > 255 ? 255 : (focused ? 0x70 : 0x48) * sp / 100)) << 24);
     }
     int b = c->m.border;
     shell_rect tb = { w->rect.x + b, w->rect.y + b, w->rect.w - 2 * b, c->m.title_h };
@@ -651,11 +670,30 @@ static void draw_window(shell_comp *c, shell_fb *fb, shell_rect clip, const shel
     fb_stroke_round(fb, clip, w->rect, rad, b, focused ? t->accent : t->border);          /* crisp AA frame over everything */
 }
 
+/* True when `w` paints every pixel of `clip` opaquely: its body is an opaque fill, so only the rounded corners
+ * (and NOCHROME windows, whose client may carry alpha) can let what is below show through. */
+static bool window_hides(const shell_comp *c, const shell_window *w, shell_rect clip)
+{
+    if (w->flags & WF_NOCHROME) return false;
+    int rad = (w->flags & WF_MAXIMIZED) ? 0 : c->m.corner_r;
+    shell_rect in = { w->rect.x + rad, w->rect.y + rad, w->rect.w - 2 * rad, w->rect.h - 2 * rad };
+    return !rect_empty(in) && !rect_empty(clip) && clip.x >= in.x && clip.y >= in.y && clip.x + clip.w <= in.x + in.w && clip.y + clip.h <= in.y + in.h;
+}
+
 static void paint(shell_comp *c, shell_fb *fb, shell_rect clip)
 {
-    paint_wallpaper(c, fb, clip);
+    /* Occlusion culling: start at the topmost window that fully hides `clip`; everything beneath it (including the
+     * costly wallpaper gradient) cannot show. A maximized window turns every repaint inside it into a single draw. */
+    int start = 0;
+    if (!c->no_cull) {
+        for (int i = c->nwin - 1; i >= 0; i--) {
+            shell_window *w = comp_get(c, c->order[i]);
+            if (w && comp_is_shown(c, w) && window_hides(c, w, clip)) { start = i; break; }
+        }
+    }
+    if (start > 0) c->stat_culled++; else paint_wallpaper(c, fb, clip);
     int hz_win = 0; shell_zone hz = comp_hit_test(c, c->mouse_x, c->mouse_y, &hz_win);
-    for (int i = 0; i < c->nwin; i++) {
+    for (int i = start; i < c->nwin; i++) {
         shell_window *w = comp_get(c, c->order[i]);
         if (!w || !comp_is_shown(c, w)) continue;
         if (!rect_overlaps(outer_with_shadow(c, w->rect), clip)) continue;

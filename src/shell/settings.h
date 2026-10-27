@@ -5,12 +5,13 @@
 #define LOOS_SHELL_SETTINGS_H
 #include "ui.h"
 #include "backend.h"
+#include "theme.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef enum { PG_PRIVACY, PG_NETWORK, PG_PERMISSIONS, PG_UPDATES, PG_APPEARANCE, PG_ACCESS, PG_ACCOUNTS, PG_COUNT } settings_page;
+typedef enum { PG_PRIVACY, PG_NETWORK, PG_PERMISSIONS, PG_UPDATES, PG_APPEARANCE, PG_ACCESS, PG_ACCOUNTS, PG_PERSONALIZE, PG_COUNT } settings_page;
 extern const char *const settings_page_name[PG_COUNT];
 extern const uint32_t settings_accents[6];
 
@@ -27,6 +28,10 @@ typedef struct {
     int accent;                        /* index into settings_accents */
     net_conn conns[32]; int nconns;
     char apps[MEM_MAX_APPS][32]; int napps;
+    theme_spec spec;                   /* the full custom theme (Personalize page); mirrors the ui.* config keys */
+    int p_scroll, p_token;             /* Personalize: scroll offset, selected color token */
+    char p_hex[12]; int p_hex_caret;   /* hex field for the selected token */
+    char p_io[480]; int p_io_caret;    /* export/import text */
     int changes;                       /* count of applied changes, observable by the shell/tests */
 } shell_settings;
 

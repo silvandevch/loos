@@ -97,7 +97,7 @@ static void row_redirect(ui_ctx *u, shell_rect row, int i, bool sel, void *user)
         const compat_redirect *r = &c->db->redirects[k];
         if (strcmp(r->app, app) && strcmp(r->app, "*")) continue;
         if (seen++ != i) continue;
-        char b[160]; snprintf(b, sizeof b, "%s%s%s -> %s%s%s%s", r->from_dll, r->from_sym[0] ? "!" : "", r->from_sym, r->to_dll, r->to_sym[0] ? "!" : "", r->to_sym, strcmp(r->app, "*") ? "" : "   (all apps)");
+        char b[320]; snprintf(b, sizeof b, "%s%s%s -> %s%s%s%s", r->from_dll, r->from_sym[0] ? "!" : "", r->from_sym, r->to_dll, r->to_sym[0] ? "!" : "", r->to_sym, strcmp(r->app, "*") ? "" : "   (all apps)");
         ui_label(u, row.x + 8, row.y + 3, b, sel ? u->theme->accent_text : u->theme->text);
         return;
     }

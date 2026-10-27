@@ -15,6 +15,13 @@ Each handle carries an access mask and an inherit flag. Duplication can retain
 the source mask (`rights = 0`) or request a subset. Operations validate both
 the handle generation and the requested right before touching the object.
 
+Named objects are normalized into `\\BaseNamedObjects`; `Local\\name`,
+`Global\\name`, and the fully qualified form address the same namespace. Every
+object has a compact security descriptor. Principal zero is the system/public
+identity; a non-zero owner descriptor is private to its owner until group/world
+ACL entries are added. Denied rights always win, and replacing a descriptor
+requires `SET_SECURITY`.
+
 ## Objects
 
 The initial object types are:

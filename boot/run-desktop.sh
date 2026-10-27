@@ -9,4 +9,5 @@ case $mode in
     uefi) img=$("$here/uefi/build.sh" "$out"); fw=(-bios "${OVMF_CODE:-/usr/share/edk2/ovmf/OVMF_CODE.fd}") ;;
     *) echo "usage: $0 [bios|uefi]" >&2; exit 2 ;;
 esac
-exec qemu-system-x86_64 -smp 4 -m 512M -vga std -serial stdio -drive "file=$img,format=raw,if=ide" "${fw[@]}"
+accel=$("$here/../scripts/qemu-accel.sh" args)   # KVM when available (LOOS_KVM=off to force TCG)
+exec qemu-system-x86_64 $accel -smp 4 -m 512M -vga std -serial stdio -drive "file=$img,format=raw,if=ide" "${fw[@]}"

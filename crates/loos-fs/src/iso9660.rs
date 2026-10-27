@@ -164,6 +164,11 @@ impl<D: BlockDev> Iso<D> {
             }
         }
         let pvd = pvd.ok_or(FsError::NotRecognized)?;
+        // The logical block size is stored both-endian; this reader only supports 2048 and both halves must agree.
+        let (bs_le, bs_be) = (u16::from_le_bytes([pvd[128], pvd[129]]), u16::from_be_bytes([pvd[130], pvd[131]]));
+        if bs_le != 2048 || bs_be != 2048 {
+            return Err(FsError::Corrupt);
+        }
         let plain_root = parse_rec(&pvd[156..190]).ok_or(FsError::Corrupt)?;
         if plain_root.flags & 2 == 0 {
             return Err(FsError::Corrupt);
@@ -180,7 +185,8 @@ impl<D: BlockDev> Iso<D> {
             boot_catalog,
             total_sectors: total,
         };
-        let dot = tmp.read_dir_recs(&plain_root)?;
+        // A damaged root directory must not block the mount (the C reader reported it on first lookup); sniffing just fails.
+        let dot = tmp.read_dir_recs(&plain_root).unwrap_or_default();
         if let Some(first) = dot.first() {
             let su = &first.su;
             if su.len() >= 7 && &su[0..2] == b"SP" && su[4] == 0xbe && su[5] == 0xef {
