@@ -1,5 +1,7 @@
 //! Kernel synchronization for LoOS.
 //!
+//! * [`apc`] – per-thread kernel/user APC queues and alertable-wait rules.
+//! * [`dpc`] – per-CPU DPC queues and passive-level work queues.
 //! * [`spin`] – interrupt-agnostic ticket spinlock (`no_std`, no allocation).
 //! * [`dispatcher`] – NT-style dispatcher objects (events, semaphores, mutants) and the
 //!   wait machinery (`wait any` / `wait all`, timeouts, abandonment on thread death).
@@ -11,7 +13,9 @@
 
 extern crate alloc;
 
+pub mod apc;
 pub mod dispatcher;
+pub mod dpc;
 pub mod spin;
 
 pub use dispatcher::{Dispatcher, Error, EventKind, ObjId, ThreadId, WaitKind, WaitStart, WaitStatus, Wakeup};

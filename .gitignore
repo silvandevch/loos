@@ -19,4 +19,4 @@ crates/target/
 out/
 
 # Generated build output
-/out/
+out/

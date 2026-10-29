@@ -77,6 +77,8 @@ pub enum WaitStatus {
     Timeout,
     /// The wait was cancelled by [`Dispatcher::cancel_wait`].
     Cancelled,
+    /// An alertable wait was ended by [`Dispatcher::alert`] (APC delivery).
+    Alerted,
 }
 
 /// Result of starting a wait.
@@ -103,6 +105,7 @@ enum Kind {
     Event { kind: EventKind, signaled: bool },
     Semaphore { count: u32, max: u32 },
     Mutex { owner: Option<ThreadId>, recursion: u32, abandoned: bool },
+    Timer { kind: EventKind, signaled: bool, due: Option<u64>, period: u64 },
 }
 
 struct Slot {
@@ -115,6 +118,7 @@ struct Waiter {
     objs: Vec<ObjId>,
     kind: WaitKind,
     deadline: Option<u64>,
+    alertable: bool,
 }
 
 /// Owns all dispatcher objects and the queue of blocked waiters.
@@ -191,6 +195,64 @@ impl Dispatcher {
         s.generation = s.generation.wrapping_add(1);
         self.free.push(id.index);
         Ok(())
+    }
+
+    /// Creates a waitable timer (not signaled, not armed). `kind` picks
+    /// manual-reset (`Notification`) or auto-reset (`Synchronization`).
+    pub fn create_timer(&mut self, kind: EventKind) -> ObjId {
+        self.alloc(Kind::Timer { kind, signaled: false, due: None, period: 0 })
+    }
+
+    /// Arms a timer `delay` ticks from now, repeating every `period` ticks when
+    /// non-zero. Clears the signal. Returns whether it was already armed.
+    pub fn set_timer(&mut self, id: ObjId, delay: u64, period: u64) -> Result<bool, Error> {
+        let now = self.now;
+        match self.get_mut(id)? {
+            Kind::Timer { signaled, due, period: p, .. } => {
+                *signaled = false;
+                *p = period;
+                let was = due.replace(now.saturating_add(delay)).is_some();
+                Ok(was)
+            }
+            _ => Err(Error::WrongType),
+        }
+        .inspect(|_| if delay == 0 { self.fire_timers() })
+    }
+
+    /// Disarms a timer, leaving its signal state. Returns whether it was armed.
+    pub fn cancel_timer(&mut self, id: ObjId) -> Result<bool, Error> {
+        match self.get_mut(id)? {
+            Kind::Timer { due, .. } => Ok(due.take().is_some()),
+            _ => Err(Error::WrongType),
+        }
+    }
+
+    /// Signal state of a timer.
+    pub fn timer_state(&self, id: ObjId) -> Result<bool, Error> {
+        match self.get(id)? {
+            Kind::Timer { signaled, .. } => Ok(*signaled),
+            _ => Err(Error::WrongType),
+        }
+    }
+
+    /// Signals every timer whose due time has passed and re-arms periodic ones.
+    /// A periodic timer that fell several periods behind fires once.
+    fn fire_timers(&mut self) {
+        let now = self.now;
+        let mut any = false;
+        for s in &mut self.slots {
+            if let Some(Kind::Timer { signaled, due: due @ Some(_), period, .. }) = s.obj.as_mut() {
+                let d = due.unwrap_or(0);
+                if d <= now {
+                    *signaled = true;
+                    any = true;
+                    *due = if *period == 0 { None } else { Some(d + ((now - d) / *period + 1) * *period) };
+                }
+            }
+        }
+        if any {
+            self.satisfy();
+        }
     }
 
     /// Signals an event, releasing waiters per its kind.
@@ -284,7 +346,7 @@ impl Dispatcher {
 
     fn signaled(k: &Kind, thread: ThreadId) -> bool {
         match k {
-            Kind::Event { signaled, .. } => *signaled,
+            Kind::Event { signaled, .. } | Kind::Timer { signaled, .. } => *signaled,
             Kind::Semaphore { count, .. } => *count > 0,
             Kind::Mutex { owner, recursion, .. } => owner.is_none() || (*owner == Some(thread) && *recursion < MAX_RECURSION),
         }
@@ -293,7 +355,7 @@ impl Dispatcher {
     /// Takes ownership/count from a signaled object; returns whether it was abandoned.
     fn consume(k: &mut Kind, thread: ThreadId) -> bool {
         match k {
-            Kind::Event { kind, signaled } => {
+            Kind::Event { kind, signaled } | Kind::Timer { kind, signaled, .. } => {
                 if *kind == EventKind::Synchronization {
                     *signaled = false;
                 }
@@ -342,6 +404,12 @@ impl Dispatcher {
 
     /// Starts a wait. `timeout` of `Some(0)` polls; `None` waits forever.
     pub fn wait(&mut self, thread: ThreadId, objs: &[ObjId], kind: WaitKind, timeout: Option<u64>) -> Result<WaitStart, Error> {
+        self.wait_ex(thread, objs, kind, timeout, false)
+    }
+
+    /// Starts a wait that [`Dispatcher::alert`] may end early when `alertable`.
+    /// The caller checks for pending user APCs before calling (see `apc`).
+    pub fn wait_ex(&mut self, thread: ThreadId, objs: &[ObjId], kind: WaitKind, timeout: Option<u64>, alertable: bool) -> Result<WaitStart, Error> {
         if objs.is_empty() || objs.iter().enumerate().any(|(i, o)| objs[..i].contains(o)) {
             return Err(Error::BadWaitList);
         }
@@ -357,7 +425,7 @@ impl Dispatcher {
         if timeout == Some(0) {
             return Ok(WaitStart::Done(WaitStatus::Timeout));
         }
-        self.waiters.push(Waiter { thread, objs: objs.to_vec(), kind, deadline: timeout.map(|t| self.now.saturating_add(t)) });
+        self.waiters.push(Waiter { thread, objs: objs.to_vec(), kind, deadline: timeout.map(|t| self.now.saturating_add(t)), alertable });
         Ok(WaitStart::Blocked)
     }
 
@@ -383,6 +451,7 @@ impl Dispatcher {
     /// Advances time, timing out expired waits.
     pub fn advance(&mut self, ticks: u64) {
         self.now = self.now.saturating_add(ticks);
+        self.fire_timers();
         let now = self.now;
         let mut i = 0;
         while i < self.waiters.len() {
@@ -404,6 +473,19 @@ impl Dispatcher {
             Some(i) => {
                 self.waiters.remove(i);
                 self.ready.push(Wakeup { thread, status: WaitStatus::Cancelled });
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Ends `thread`'s wait with [`WaitStatus::Alerted`] if it is alertable.
+    /// Returns whether the thread was woken.
+    pub fn alert(&mut self, thread: ThreadId) -> bool {
+        match self.waiters.iter().position(|w| w.thread == thread && w.alertable) {
+            Some(i) => {
+                self.waiters.remove(i);
+                self.ready.push(Wakeup { thread, status: WaitStatus::Alerted });
                 true
             }
             None => false,

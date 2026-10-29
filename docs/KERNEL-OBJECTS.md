@@ -54,3 +54,20 @@ Named objects are removed from the namespace when their last handle closes.
 These numbers are LoOS ABI numbers and are independent of the provisional
 compatibility numbers in `src/win32/ntdll/syscalls.tbl`. Architecture entry
 code must validate user pointers/register state before calling this dispatcher.
+
+## Deferred execution and timers (`crates/ksync`)
+
+- **Waitable timers** — `Dispatcher::create_timer(kind)`, `set_timer(id, delay, period)`,
+  `cancel_timer`, `timer_state`. `Notification` timers stay signaled; `Synchronization`
+  timers auto-reset on a satisfied wait. Periodic timers that fall behind fire once and
+  re-arm at the next period boundary. Timers fire inside `advance()`.
+- **Alertable waits** — `wait_ex(.., alertable)`; `alert(thread)` ends an alertable wait
+  with `WaitStatus::Alerted`.
+- **APCs** (`ksync::apc::ApcQueues`) — per-thread kernel/user FIFO queues. Kernel APCs are
+  gated by `disable_kernel`/`enable_kernel` nesting. User APCs only run at alertable points:
+  call `begin_alertable_wait` before an alertable wait (true = don't block), and on
+  `QueueResult::Alert` call `Dispatcher::alert`. `rundown` rejects new APCs, drops user
+  APCs and returns owed kernel APCs.
+- **DPCs** (`ksync::dpc::DpcQueue`) — per-CPU; a DPC id is queued at most once; `High`
+  importance goes to the head. `WorkQueue<T>` runs HyperCritical > Critical > Delayed,
+  FIFO within a class.
