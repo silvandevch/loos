@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/browser_test.dir/link.d CMakeFiles/browser_test.dir/browser_test.c.o -o browser_test  ../../src/shell/libloos_shell.a ../../rust-target/release/libloos_ffi.a -lpthread -ldl -lm -lgcc_s ../../src/win32/compat/libloos_compat.a  -Wl,--end-group

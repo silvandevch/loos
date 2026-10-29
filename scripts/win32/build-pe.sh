@@ -14,7 +14,10 @@ if command -v flock >/dev/null 2>&1; then exec 9>"$out/.build.lock"; flock 9; fi
 find_lld() {
     if [ -n "${LLD:-}" ]; then echo "$LLD"; return; fi
     for c in lld-link; do command -v "$c" >/dev/null 2>&1 && { echo "$(command -v $c)"; return; }; done
-    for t in "$HOME"/.rustup/toolchains/*/lib/rustlib/*/bin/rust-lld; do [ -x "$t" ] && { echo "$t -flavor link"; return; }; done
+    # Skip rust-lld copies from toolchains whose LLVM shared library is missing.
+    for t in "$HOME"/.rustup/toolchains/*/lib/rustlib/*/bin/rust-lld; do
+        [ -x "$t" ] && "$t" -flavor link --version >/dev/null 2>&1 && { echo "$t -flavor link"; return; }
+    done
     echo "error: no lld found (install lld, or rustup component rust-lld, or set LLD=)" >&2; exit 1
 }
 LINK="$(find_lld)"

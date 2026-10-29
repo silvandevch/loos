@@ -118,7 +118,7 @@ typedef struct {
 } shell_metrics;
 
 /* user-tunable look of the chrome: 0 / -1 mean "scale-derived default" */
-typedef struct { int radius, title_h, border, shadow_pct, glow_pct; } shell_style;
+typedef struct { int radius, title_h, border, shadow_pct, glow_pct, opacity_pct, icon_shape, wallpaper; } shell_style;
 
 typedef struct shell_comp {
     int screen_w, screen_h;
@@ -132,6 +132,10 @@ typedef struct shell_comp {
     shell_style style;               /* see comp_set_style */
     shell_rect work_area;            /* screen minus reserved bars (taskbar) */
     int bottom_reserve;              /* logical px reserved at the bottom (taskbar); work_area follows scale changes */
+    int top_reserve;                 /* same, at the top (taskbar moved up) */
+    struct shell_taskbar *taskbar;   /* set by taskbar_init */
+    uint32_t *wall_cache;            /* optional screen-sized wallpaper cache (comp_set_wallpaper_cache) */
+    uint32_t wall_key;               /* theme/size hash the cache was rendered for (0 = stale) */
     shell_damage damage;
     int mouse_x, mouse_y;
     uint32_t buttons;
@@ -183,6 +187,9 @@ bool comp_pop_event(shell_comp *c, int id, shell_event *out);
 
 /* output */
 void comp_render(shell_comp *c, shell_fb *fb);          /* repaints only damaged regions, clears damage */
+int comp_tile_radius(const shell_comp *c, int size);         /* app tile corner radius for the icon shape setting */
+uint32_t comp_panel_color(const shell_comp *c);             /* taskbar/Start/flyout fill at the opacity setting */
+void comp_set_wallpaper_cache(shell_comp *c, uint32_t *px);   /* screen_w*screen_h pixels, or NULL; wallpaper then costs a copy */
 void comp_render_full(shell_comp *c, shell_fb *fb);
 void comp_damage_all(shell_comp *c);
 /* Overlays (taskbar, launcher, notifications, prompts) are laid out in logical px like apps: these map to/from the device screen. */
@@ -275,7 +282,10 @@ void launcher_draw(const shell_launcher *l, const shell_comp *c, shell_fb *fb, s
 bool launcher_mouse(shell_launcher *l, const shell_comp *c, int x, int y, bool down);
 
 /* ---------- taskbar ---------- */
-#define TASKBAR_H 40
+extern int shell_taskbar_h;                /* 40 / 48 / 56 (ui.taskbar.size) */
+#define TASKBAR_H shell_taskbar_h
+/* Quick Settings actions, handled by the desktop (settings_quick) */
+enum { QS_NET, QS_DARK, QS_LARGE, QS_CENTER, QS_LABELS, QS_MOTION, QS_ACCENT, QS_OPACITY, QS_SETTINGS };
 typedef enum { NET_IDLE, NET_ACTIVE, NET_BLOCKED } shell_net_state;
 typedef struct shell_taskbar {
     struct shell_comp *comp;
@@ -284,6 +294,13 @@ typedef struct shell_taskbar {
     int net_sockets;                   /* open sockets reported by NetMonitor */
     bool net_hard_off;                 /* tray "no network" switch */
     int hour, minute;                  /* local time, fed by the shell */
+    int day, month, year;              /* local date (0 = unknown: clock only) */
+    int flyout;                        /* 0 none, 1 Quick Settings, 2 calendar */
+    int size;                          /* 0 small, 1 normal, 2 large */
+    void (*on_quick)(int action, uint32_t value, void *user);
+    bool centered;                     /* ui.taskbar.center: icons centered (default) or left */
+    bool labels;                       /* ui.taskbar.labels: titles next to icons */
+    bool top;                          /* ui.taskbar.top: bar at the top edge */
     void (*on_net_toggle)(bool hard_off, void *user);
     void *user;
 } shell_taskbar;
@@ -293,7 +310,13 @@ void taskbar_set_net(shell_taskbar *t, int sockets);
 shell_net_state taskbar_net_state(const shell_taskbar *t);
 shell_rect taskbar_rect(const shell_comp *c);
 bool taskbar_mouse(shell_taskbar *t, shell_comp *c, int x, int y, int button, bool down);   /* true = consumed */
-bool taskbar_key(shell_taskbar *t, shell_comp *c, uint32_t key, bool down, uint32_t mods);  /* Super toggles the launcher; Alt+Tab cycles */
+bool taskbar_key(shell_taskbar *t, shell_comp *c, uint32_t key, bool down, uint32_t mods);
+void taskbar_configure(shell_taskbar *t, bool centered, bool labels, bool top, int size);   /* re-lays out and moves the work area */
+void taskbar_set_date(shell_taskbar *t, int day, int month, int year);
+shell_rect taskbar_flyout_rect(const shell_taskbar *t, const shell_comp *c);   /* empty when closed */
+shell_rect taskbar_start_rect(const shell_comp *c);
+uint32_t shell_app_color(const char *name);                   /* stable per-app tile color */
+void shell_draw_app_tile(shell_fb *fb, shell_rect clip, shell_rect r, const char *name, int radius);   /* monogram icon */  /* Super toggles the launcher; Alt+Tab cycles */
 void taskbar_draw(const shell_taskbar *t, const shell_comp *c, shell_fb *fb, shell_rect clip);
 int  taskbar_button_count(const shell_taskbar *t, const shell_comp *c);
 shell_rect taskbar_button_rect(const shell_taskbar *t, const shell_comp *c, int index);    /* index into window buttons */

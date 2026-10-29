@@ -19,6 +19,19 @@ uint64_t vm_virt_to_phys(const struct loos_bootinfo *bi, const void *p)
     return bi->kernel_phys + ((uint64_t)(uintptr_t)p - bi->kernel_virt);
 }
 
+/* Makes the 4 KiB page at va not-present (stack guard). 0 ok, -1 if va is not mapped by a 4 KiB leaf. */
+int vm_unmap_page(uint64_t cr3, uint64_t va)
+{
+    uint64_t t = cr3 & 0x000ffffffffff000ull;
+    for (int level = 4; level >= 1; level--) {
+        uint64_t *e = &((uint64_t *)(uintptr_t)t)[(va >> (12 + 9 * (level - 1))) & 511];
+        if (!(*e & 1) || (level > 1 && (*e & 0x80))) return -1;
+        if (level == 1) { *e &= ~1ull; __asm__ volatile("invlpg (%0)" : : "r"(va) : "memory"); return 0; }
+        t = *e & 0x000ffffffffff000ull;
+    }
+    return -1;
+}
+
 /* ---- device memory ---- */
 #define PTE_P 1ull
 #define PTE_W 2ull
@@ -43,9 +56,14 @@ int vm_map_mmio(uint64_t phys, uint64_t len)
     __asm__ volatile("movq %%cr3, %0" : "=r"(cr3));
     uint64_t *pml4 = (uint64_t *)(uintptr_t)(cr3 & PTE_ADDR);
     for (uint64_t a = phys & ~0x1fffffull; a < phys + len; a += 0x200000) {
-        if (a >= (1ull << 39)) return -1;                                   /* beyond the first PML4 slot */
-        if (!(pml4[0] & PTE_P)) return -1;
-        uint64_t *pdpt = (uint64_t *)(uintptr_t)(pml4[0] & PTE_ADDR);
+        if (a >= (1ull << 47)) return -1;                                   /* beyond the lower canonical half */
+        uint64_t *e4 = &pml4[(a >> 39) & 511];                              /* OVMF may place 64-bit BARs above 512 GiB */
+        if (!(*e4 & PTE_P)) {
+            uint64_t *t = new_table();
+            if (!t) return -1;
+            *e4 = (uint64_t)(uintptr_t)t | PTE_P | PTE_W;
+        }
+        uint64_t *pdpt = (uint64_t *)(uintptr_t)(*e4 & PTE_ADDR);
         uint64_t *e3 = &pdpt[(a >> 30) & 511];
         if (!(*e3 & PTE_P)) {
             uint64_t *pd = new_table();

@@ -110,7 +110,7 @@ int main(void)
     /* network LED + hard switch */
     CHECK(taskbar_net_state(&tb) == NET_IDLE);
     taskbar_set_net(&tb, 3); CHECK(taskbar_net_state(&tb) == NET_ACTIVE);
-    shell_rect tgl = { W - 150 + 24 + 5, H - TASKBAR_H + 10, 10, 10 };
+    shell_rect tgl = { W - 170 + 24 + 5, H - TASKBAR_H + 14, 10, 10 };
     CHECK(taskbar_mouse(&tb, c, tgl.x, tgl.y, BTN_LEFT, true) && tb.net_hard_off && toggled == 1 && taskbar_net_state(&tb) == NET_BLOCKED);
     taskbar_mouse(&tb, c, tgl.x, tgl.y, BTN_LEFT, true);
     CHECK(!tb.net_hard_off && toggled == 0 && taskbar_net_state(&tb) == NET_ACTIVE);
@@ -118,13 +118,15 @@ int main(void)
 
     /* start button toggles the launcher; clicking outside closes it; clicking a result launches */
     nlaunch = 0;
-    CHECK(taskbar_mouse(&tb, c, 20, H - 20, BTN_LEFT, true) && L.open);
-    CHECK(taskbar_mouse(&tb, c, 20, H - 20, BTN_LEFT, true) && !L.open);
-    taskbar_mouse(&tb, c, 20, H - 20, BTN_LEFT, true);
+    shell_rect st = taskbar_start_rect(c);
+    int sx = st.x + st.w / 2, sy = st.y + st.h / 2;
+    CHECK(taskbar_mouse(&tb, c, sx, sy, BTN_LEFT, true) && L.open);
+    CHECK(taskbar_mouse(&tb, c, sx, sy, BTN_LEFT, true) && !L.open);
+    taskbar_mouse(&tb, c, sx, sy, BTN_LEFT, true);
     shell_rect lr = launcher_rect(c);
     CHECK(lr.y + lr.h < H - TASKBAR_H && lr.x >= 0);
-    CHECK(taskbar_mouse(&tb, c, lr.x + 50, lr.y + 44 + 36 * 2 + 10, BTN_LEFT, true) && nlaunch == 1 && !L.open);
-    taskbar_mouse(&tb, c, 20, H - 20, BTN_LEFT, true);
+    CHECK(taskbar_mouse(&tb, c, lr.x + 26 + 98 * 1 + 40, lr.y + 64 + 40 + 40, BTN_LEFT, true) && nlaunch == 1 && !L.open);   /* pinned tile 1 */
+    taskbar_mouse(&tb, c, sx, sy, BTN_LEFT, true);
     taskbar_mouse(&tb, c, 900, 100, BTN_LEFT, true);
     CHECK(!L.open);
 
@@ -132,21 +134,20 @@ int main(void)
     taskbar_set_time(&tb, 9, 5);
     comp_render_full(c, &fb);
     shell_rect bar = taskbar_rect(c);
-    CHECK(pixels[(bar.y + 20) * W + 600] == c->theme.surface || pixels[(bar.y + 20) * W + 600] == color_mix(c->theme.surface_hi, c->theme.accent, 60));
-    CHECK(pixels[bar.y * W + 900] == c->theme.border);                               /* top hairline */
-    CHECK(pixels[(bar.y + 12) * W + 12] == c->theme.accent);                           /* start button fill */
-    int led = 0; for (int y = bar.y; y < bar.y + TASKBAR_H; y++) for (int x = W - 150; x < W - 130; x++) if (pixels[y * W + x] == 0xFF4B5563u) led++;
+    CHECK(pixels[(bar.y + 20) * W + 300] != pixels[(bar.y - 20) * W + 300]);          /* translucent bar differs from the wallpaper */
+    int logo = 0; for (int y = st.y; y < st.y + st.h; y++) for (int x = st.x; x < st.x + st.w; x++) if (pixels[y * W + x] == c->theme.accent) logo++;
+    CHECK(logo > 20);                                                                   /* start mark in the accent color */
+    int led = 0; for (int y = bar.y; y < bar.y + TASKBAR_H; y++) for (int x = W - 170; x < W - 150; x++) if (pixels[y * W + x] == 0xFF4B5563u) led++;
     CHECK(led > 20);                                                                 /* idle LED grey */
     taskbar_set_net(&tb, 2); comp_render(c, &fb);
-    int amber = 0; for (int y = bar.y; y < bar.y + TASKBAR_H; y++) for (int x = W - 150; x < W - 130; x++) if (pixels[y * W + x] == 0xFFF59E0Bu) amber++;
+    int amber = 0; for (int y = bar.y; y < bar.y + TASKBAR_H; y++) for (int x = W - 170; x < W - 150; x++) if (pixels[y * W + x] == 0xFFF59E0Bu) amber++;
     CHECK(amber > 20);                                                               /* active LED amber */
     int clk = 0; for (int y = bar.y; y < bar.y + TASKBAR_H; y++) for (int x = W - 60; x < W - 8; x++) if (pixels[y * W + x] != pixels[(bar.y + 3) * W + W - 100]) clk++;
     CHECK(clk > 30);
     launcher_open(&L); type(&tb, c, "set"); comp_damage_all(c); comp_render(c, &fb);
     shell_rect lrr = launcher_rect(c);
-    CHECK(pixels[(lrr.y + 2) * W + lrr.x + 100] == c->theme.border || pixels[(lrr.y + 2) * W + lrr.x + 100] == c->theme.surface);
-    int accent = 0; for (int y = lrr.y; y < lrr.y + lrr.h; y++) for (int x = lrr.x; x < lrr.x + lrr.w; x++) if (pixels[y * W + x] == color_mix(c->theme.surface_hi, c->theme.accent, 90)) accent++;
-    CHECK(L.nhit >= 5 && accent > 1000);                                              /* "set" lists settings pages; row 0 highlighted */
+    int y0 = lrr.y + 64 + 8 + 2, y2 = y0 + 2 * 40;                                     /* result rows 0 (selected) and 2 */
+    CHECK(L.nhit >= 5 && pixels[y0 * W + lrr.x + 30] != pixels[y2 * W + lrr.x + 30]);  /* "set" lists settings pages; row 0 highlighted */
     if (getenv("LOOS_SHELL_PPM")) {
         FILE *f = fopen(getenv("LOOS_SHELL_PPM"), "wb");
         if (f) { fprintf(f, "P6\n%d %d\n255\n", W, H); for (int k = 0; k < W * H; k++) { fputc(pixels[k] >> 16, f); fputc(pixels[k] >> 8, f); fputc(pixels[k], f); } fclose(f); }

@@ -1,0 +1,2 @@
+/usr/bin/ar qc libloos_net.a CMakeFiles/loos_net.dir/netutil.c.o CMakeFiles/loos_net.dir/dns.c.o CMakeFiles/loos_net.dir/dhcp.c.o CMakeFiles/loos_net.dir/iphelp.c.o CMakeFiles/loos_net.dir/fw.c.o CMakeFiles/loos_net.dir/http.c.o
+/usr/bin/ranlib libloos_net.a

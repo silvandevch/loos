@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/artifacts_test.dir/link.d CMakeFiles/artifacts_test.dir/pe/artifacts_test.c.o -o artifacts_test  ../../src/win32/ldr/libloos_ldr.a ../../src/win32/pe/libloos_pe.a ../../src/win32/apisets/libloos_apiset.a  -Wl,--end-group

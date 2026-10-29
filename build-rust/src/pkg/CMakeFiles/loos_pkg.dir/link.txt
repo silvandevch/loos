@@ -1,0 +1,2 @@
+/usr/bin/ar qc libloos_pkg.a CMakeFiles/loos_pkg.dir/deb.c.o CMakeFiles/loos_pkg.dir/dpkgdb.c.o CMakeFiles/loos_pkg.dir/solver.c.o CMakeFiles/loos_pkg.dir/apt.c.o CMakeFiles/loos_pkg.dir/pgp.c.o
+/usr/bin/ranlib libloos_pkg.a

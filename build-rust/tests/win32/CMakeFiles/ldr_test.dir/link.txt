@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/ldr_test.dir/link.d CMakeFiles/ldr_test.dir/ldr/ldr_test.c.o CMakeFiles/ldr_test.dir/common/pebuild.c.o -o ldr_test  ../../src/win32/ldr/libloos_ldr.a ../../src/win32/compat/libloos_compat.a ../../src/win32/pe/libloos_pe.a ../../src/win32/apisets/libloos_apiset.a  -Wl,--end-group

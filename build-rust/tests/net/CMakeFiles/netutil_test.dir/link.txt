@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/netutil_test.dir/link.d CMakeFiles/netutil_test.dir/netutil_test.c.o -o netutil_test  ../../src/net/libloos_net.a  -Wl,--end-group

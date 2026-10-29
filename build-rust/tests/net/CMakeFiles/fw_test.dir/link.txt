@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/fw_test.dir/link.d CMakeFiles/fw_test.dir/fw_test.c.o -o fw_test  ../../src/net/libloos_net.a  -Wl,--end-group

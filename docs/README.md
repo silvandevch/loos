@@ -36,6 +36,7 @@ no accounts, no phone-home. Runs Windows applications. Native filesystem is
 | 16g | [PYTHON.md](PYTHON.md) | Native Python (python3, pip, C extensions) on LoOS. |
 | 17 | [INSTALL.md](INSTALL.md) | Booting and installing LoOS (installer, recovery, updates). |
 | 18 | [STATUS.md](STATUS.md) | Honest codebase snapshot: what works, what doesn't yet. |
+| 18b | [BROWSER.md](BROWSER.md) | The native LoOS Browser (live pages in QEMU) and the staged Firefox/Gecko port plan. |
 
 ## 30-second orientation
 

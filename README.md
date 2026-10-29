@@ -89,6 +89,8 @@ Documented in [`docs/`](docs/README.md). The short version:
 - [`docs/API-STYLE.md`](docs/API-STYLE.md) — API style + full-documentation standard.
 - [`docs/TOOLCHAINS.md`](docs/TOOLCHAINS.md) — gcc/g++/clang/rust targets + LoOS libc.
 - [`docs/PYTHON.md`](docs/PYTHON.md) — **native Python** on LoOS.
+- [`docs/BROWSER.md`](docs/BROWSER.md) — **LoOS Browser** (local-first, live pages in QEMU) and the
+  staged Firefox/Gecko port plan.
 - [`docs/DRIVERS.md`](docs/DRIVERS.md) — driver model, default drivers, AMD/NVIDIA GPU.
 - [`docs/PACKAGING.md`](docs/PACKAGING.md) — native package managers: winget + apt.
 - [`docs/INSTALL.md`](docs/INSTALL.md) — installer, recovery, and OTA updates.

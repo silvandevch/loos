@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/diskfmt_tool.dir/link.d CMakeFiles/diskfmt_tool.dir/tools/diskfmt_tool.c.o -o diskfmt_tool  src/fs/diskfmt/libloos_diskfmt.a src/fs/btrfs/libloos_btrfs.a  -Wl,--end-group

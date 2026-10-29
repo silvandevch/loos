@@ -283,7 +283,7 @@ static bool be_begin(void *u, const inst_config *cfg, char *err, size_t cap)
             if (add_file(nm, 2, (const uint8_t *)(uintptr_t)m->phys, m->size)) { snprintf(err, cap, "Too many boot modules."); return false; }
         }
         S.esp_first = gpt_first_usable_lba();
-        S.data_first = (S.esp_first + ESP_SECTORS + 2047) & ~2047ull;
+        S.data_first = (S.esp_first + ESP_SECTORS + 2048 + 2047) & ~2047ull;   /* >= 1 MiB gap: crash dump area */
         S.data_last = gpt_last_usable_lba(S.disk_sectors);
         if ((S.data_last - S.data_first + 1) * 512 < LOOS_BTRFS_MIN_DEVICE_BYTES) { snprintf(err, cap, "The disk is too small for LoOS."); return false; }
         new_uuid(S.guid_disk); new_uuid(S.guid_esp); new_uuid(S.guid_data);
@@ -387,6 +387,9 @@ static int be_step(void *u, int *percent, char *msg, size_t mcap, char *err, siz
         p.device_bytes = (S.data_last - S.data_first + 1) * 512; p.label = "LoOS"; p.unix_time = rtc_unix();
         new_uuid(p.fsid); new_uuid(p.dev_uuid); new_uuid(p.chunk_tree_uuid); new_uuid(p.subvol_uuid);
         if (loos_btrfs_mkfs(&p, btrfs_wcb, 0)) return fail(err, ecap, "Cannot format the data partition.");
+        uint8_t mark[512] = "LOOSDUMP-AREA";                  /* the 1 MiB before the data partition holds crash dumps */
+        mark[16] = 1; put32(mark + 20, DUMP_AREA_SECTORS);
+        if (wcb(0, (S.data_first - DUMP_AREA_SECTORS) * 512, mark, sizeof mark)) return fail(err, ecap, "Cannot write the crash dump area.");
         S.pos = 0; S.vstage = 0; S.phase = PH_VERIFY; *percent = 72; snprintf(msg, mcap, "Verifying the installation");
         return 0;
     }

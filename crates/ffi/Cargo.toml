@@ -31,6 +31,8 @@ loos-khal = { path = "../khal" }
 loos-drivers = { path = "../loos-drivers" }
 loos-vfs = { path = "../loos-vfs" }
 loos-btrfs-ops = { path = "../loos-btrfs-ops" }
+loos-btrfs = { path = "../loos-btrfs" }
+loos-shell = { path = "../loos-shell" }
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

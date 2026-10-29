@@ -94,6 +94,7 @@ fn status_code(s: WaitStatus) -> (i32, u32) {
         WaitStatus::Abandoned(i) => (1, i as u32),
         WaitStatus::Timeout => (2, 0),
         WaitStatus::Cancelled => (3, 0),
+        WaitStatus::Alerted => (5, 0),
     }
 }
 

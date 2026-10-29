@@ -12,7 +12,7 @@ One command does most things: **`./loos`**. Everything else is below it.
 ./loos build             build all implemented LoOS targets on Linux
 ./loos source-build      build a selected CMake preset
 ./loos iso               (re)make the bootable ISO
-./loos qemu              boot the ISO
+./loos qemu              boot the LoOS kernel + desktop (browser web bridge on; LOOS_WEBBRIDGE=0 disables)
 ./loos fixwine           fix Wine .cmd/.bat association
 ./loos vm-build          build on the Windows VM over SSH (all steps)
 ./loos vm <sync|build|iso|fetch|qemu|all>   VM sub-steps

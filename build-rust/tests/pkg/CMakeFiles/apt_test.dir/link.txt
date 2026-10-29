@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/apt_test.dir/link.d CMakeFiles/apt_test.dir/apt_test.c.o -o apt_test  ../../src/pkg/libloos_pkg.a ../../rust-target/release/libloos_ffi.a -lpthread -ldl -lm -lgcc_s  -Wl,--end-group

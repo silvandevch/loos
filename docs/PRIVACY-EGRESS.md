@@ -4,7 +4,8 @@ Policy (docs/OVERVIEW.md rule 3): no telemetry, ever; nothing leaves the machine
 network LED + firewall show it truthfully. This document lists every place in the tree that can cause traffic, why it
 exists, and how it is controlled. Re-audit whenever `privacy.lint` needs an allowlist change.
 
-Audit date: 2026-10-19. Scope: `src/`, `apps/`, `scripts/`, `branding/`, build files.
+Audit date: 2026-10-29. Scope: `src/`, `apps/`, `scripts/`, `branding/`, build files, and the Rust crates
+(`crates/loos-shell/src/web.rs` is reviewed by hand because the lint does not scan Rust yet).
 
 ## Enforced by CI (`ctest -R privacy.lint`, `tests/privacy/privacy_lint.py`)
 
@@ -14,7 +15,7 @@ Audit date: 2026-10-19. Scope: `src/`, `apps/`, `scripts/`, `branding/`, build f
   `example.com`, `example.org`, `localhost`, `127.0.0.1` (UI placeholders and loopback only).
   The scanner understands string literals, so a URL's `//` is not mistaken for a comment.
 
-Result at audit time: 143 files scanned, 0 findings.
+Result at audit time: 192 source files scanned, 0 findings.
 
 ## Findings fixed in this audit
 
@@ -31,6 +32,7 @@ Result at audit time: 143 files scanned, 0 findings.
 | Package managers (winget/apt clients, tasks #170-#182) | user runs an install | same firewall; repositories are user-configured; signatures verified before use (`pkg: trust/signing`) |
 | `scripts/winapp-probe.py`, `scripts/wine-source.sh`, `scripts/00-fetch.sh` | developer runs them on a build machine | **build-time only**, never shipped in an image; they fetch test binaries/sources from pinned URLs |
 | Apps the user runs | whatever the app does | the firewall defaults to ASK per process; the tray LED turns amber on any open socket; the "block all network" switch overrides everything |
+| **QEMU web bridge** (`boot/web-bridge.py` + `crates/loos-shell/src/web.rs`) | user navigates to an `http(s)` address in LoOS Browser while running `./loos qemu` | **development only**: host-side HTTPS with certificate validation; one request per explicit navigation; refuses non-http(s), `file:` and URL credentials; strips scripts/comments; Unix socket lives in `/tmp`; absent from real-machine images; `LOOS_WEBBRIDGE=0` disables it. The guest has no socket code, so the LoOS firewall/NetMonitor cannot see this request yet — stated explicitly, not hidden. |
 
 ## Things the shell guarantees (see `docs/SHELL.md`)
 
@@ -38,9 +40,13 @@ Result at audit time: 143 files scanned, 0 findings.
   `fw_*` calls of the backend, which describe traffic rather than create it.
 - Notifications have no push channel; they are published by local processes only and gated by a per-app permission.
 - Permissions default to ASK; a flood of requests fails closed.
+- The browser guest has no socket API: web access exists only through the QEMU host bridge
+  (`loos_web_fetch` over COM2). On real hardware that bridge is absent.
 
 ## Open items
 
 - When the NetMonitor/Firewall services land, add a boot-time test that opens a socket from a test process with the
   hard switch on and asserts it is refused and the LED goes red (tracked with `net: firewall` #135).
 - Extend the lint to Rust crates when the Rust surface (#246) lands (`std::net`, `reqwest`, `hyper`, `ureq`).
+- Replace the QEMU web bridge with a native LoOS TCP/IP + TLS stack; the bridge is a development step and must not
+  ship in a real-machine image (see [BROWSER.md](BROWSER.md) Phase 1/4).

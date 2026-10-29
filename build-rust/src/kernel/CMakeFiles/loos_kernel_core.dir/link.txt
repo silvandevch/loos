@@ -1,0 +1,2 @@
+/usr/bin/ar qc libloos_kernel_core.a CMakeFiles/loos_kernel_core.dir/core.c.o
+/usr/bin/ranlib libloos_kernel_core.a

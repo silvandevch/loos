@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/iso9660_test.dir/link.d CMakeFiles/iso9660_test.dir/tests/fs/iso9660_test.c.o -o iso9660_test  rust-target/release/libloos_ffi.a -lpthread -ldl -lm -lgcc_s  -Wl,--end-group

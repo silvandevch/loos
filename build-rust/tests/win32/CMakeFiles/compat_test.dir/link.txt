@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/compat_test.dir/link.d CMakeFiles/compat_test.dir/compat/compat_test.c.o -o compat_test  ../../src/win32/compat/libloos_compat.a  -Wl,--end-group

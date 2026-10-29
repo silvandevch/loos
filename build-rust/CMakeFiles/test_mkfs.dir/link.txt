@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/test_mkfs.dir/link.d CMakeFiles/test_mkfs.dir/tests/fs/btrfs/test_mkfs.c.o -o test_mkfs  src/fs/btrfs/libloos_btrfs.a  -Wl,--end-group

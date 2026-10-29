@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/apiset_test.dir/link.d CMakeFiles/apiset_test.dir/apisets/apiset_test.c.o -o apiset_test  ../../src/win32/apisets/libloos_apiset.a  -Wl,--end-group

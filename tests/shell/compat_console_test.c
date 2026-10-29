@@ -35,7 +35,7 @@ int main(void)
     inventory_add(&inv, "Old Game", "oldgame.exe", "", ITEM_APP);
     shell_compat_console cc; cc_init(&cc, &db, &inv);
     cc.persist = persist; cc.manifest_of = manifest_of;
-    CHECK(cc.napps == 5 && !strcmp(cc.apps[0], "calc.exe") && db.default_era == COMPAT_NATIVE_ERA);
+    CHECK(cc.napps == 6 && !strcmp(cc.apps[0], "calc.exe") && db.default_era == COMPAT_NATIVE_ERA);
 
     /* describe: automatic, then manifest, then user profile (profile wins) */
     compat_claim cl; char shims[256];
@@ -60,8 +60,8 @@ int main(void)
     /* UI: select app, pick era radio, clear profile, add a redirect through the form */
     memset(&u, 0, sizeof u);
     run(&cc);
-    click(&cc, 100, 120 + 24 * 4 + 12);                          /* "Old Game" row (5th) */
-    CHECK(cc.sel == 4);
+    click(&cc, 100, 120 + 24 * 5 + 12);                          /* "Old Game" row (6th; Browser is 5th) */
+    CHECK(cc.sel == 5);
     int x = W / 2 + 8, y0 = 120 + 28 + 22 + 28;                    /* first era radio */
     click(&cc, x + 20, y0 + 24 * 1 + 10);                         /* Windows 8 */
     cc_describe(&cc, "oldgame.exe", &cl, shims, sizeof shims);
@@ -87,7 +87,7 @@ int main(void)
 
     /* profiles for apps outside the inventory still show up */
     cc_set_claim(&cc, "C:\\tools\\legacy.exe", COMPAT_ERA_WIN7);
-    CHECK(cc.napps == 6);
+    CHECK(cc.napps == 7);
     run(&cc);
     int lit = 0; for (int i = 0; i < W * H; i += 17) if (pixels[i] != th.surface) lit++;
     CHECK(lit > 400);

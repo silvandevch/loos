@@ -52,7 +52,7 @@ int main(void)
     z = comp_hit_test(c, 50 + 299 - 10, 50 + 14, &top);            /* close button of w1 */
     CHECK(top == w1 && z == Z_CLOSE);
     z = comp_hit_test(c, 50 + 299 - 50, 64, &top); CHECK(z == Z_MAXIMIZE);
-    z = comp_hit_test(c, 50 + 299 - 90, 64, &top); CHECK(z == Z_MINIMIZE);
+    z = comp_hit_test(c, 50 + 299 - 100, 64, &top); CHECK(z == Z_MINIMIZE);
     z = comp_hit_test(c, 50, 50 + 195, &top); CHECK(z == Z_CORNER_BL);
     z = comp_hit_test(c, 50, 50 + 100, &top); CHECK(z == Z_EDGE_L);
     z = comp_hit_test(c, 50 + 299, 50, &top); CHECK(z == Z_CORNER_TR);

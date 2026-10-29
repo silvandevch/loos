@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/heap_test.dir/link.d CMakeFiles/heap_test.dir/ntdll/heap_test.c.o CMakeFiles/heap_test.dir/kernel32/nt_fake.c.o CMakeFiles/heap_test.dir/__/__/src/win32/ntdll/heap.c.o -o heap_test   -Wl,--end-group

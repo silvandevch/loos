@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/kernel_core_test.dir/link.d CMakeFiles/kernel_core_test.dir/tests/kernel/core_test.c.o -o kernel_core_test  src/kernel/libloos_kernel_core.a  -Wl,--end-group

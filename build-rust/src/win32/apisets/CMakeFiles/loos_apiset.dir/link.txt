@@ -1,0 +1,2 @@
+/usr/bin/ar qc libloos_apiset.a CMakeFiles/loos_apiset.dir/apiset.c.o CMakeFiles/loos_apiset.dir/apiset_table.c.o
+/usr/bin/ranlib libloos_apiset.a

@@ -36,7 +36,8 @@ typedef struct {
 } shell_settings;
 
 void settings_init(shell_settings *s, const shell_backend *be, shell_comp *comp, shell_taskbar *tb);
-void settings_apply(shell_settings *s);                         /* push persisted values into compositor/taskbar */
+void settings_apply(shell_settings *s);
+void settings_quick(shell_settings *s, int action, uint32_t value);   /* Quick Settings flyout (QS_*) */                         /* push persisted values into compositor/taskbar */
 void settings_frame(shell_settings *s, ui_ctx *ui, int w, int h);   /* draw + handle one frame inside a w x h client area */
 shell_net_state settings_net_state(const shell_settings *s);
 bool settings_page_by_id(const char *id, settings_page *out);       /* "settings:firewall" etc. from the launcher */

@@ -1,0 +1,2 @@
+/usr/bin/ar qc libloos_diskfmt.a CMakeFiles/loos_diskfmt.dir/gpt.c.o CMakeFiles/loos_diskfmt.dir/fat32.c.o
+/usr/bin/ranlib libloos_diskfmt.a

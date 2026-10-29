@@ -23,6 +23,9 @@ typedef struct {
     int shadow;                      /* 0..150 percent of the default drop shadow */
     int glow;                        /* 0..150 percent of the wallpaper glows; 0 = flat gradient (fastest) */
     bool guard;                      /* enforce readable contrast (default on) */
+    int opacity;                     /* 40..100: taskbar/Start/flyout opacity (default 92) */
+    int icons;                       /* app tile shape: 0 rounded square, 1 circle, 2 square */
+    int wallpaper;                   /* 0 glow, 1 flat gradient, 2 aurora bands, 3 solid */
     uint32_t ovr[TK_COUNT];          /* per-token override colors */
     uint16_t ovr_mask;               /* bit i set = ovr[i] is active */
 } theme_spec;

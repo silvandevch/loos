@@ -48,12 +48,18 @@ kgdt:
     .quad 0
     .quad 0x00af9a000000ffff            /* 0x08 kernel code */
     .quad 0x00cf92000000ffff            /* 0x10 kernel data */
+.global kgdt_tss
+kgdt_tss:
+    .quad 0, 0                          /* 0x18 TSS, filled by trap_init */
 kgdt_ptr:
-    .word 3*8 - 1
+    .word 5*8 - 1
     .quad 0                             /* filled with the (slid) address of kgdt at entry */
 
 .section .bss
-.balign 16
+.balign 4096
+.global kstack_guard
+kstack_guard:                           /* unmapped by trap_init: overflow faults instead of corrupting memory */
+    .skip 4096
 .global kstack_bottom
 kstack_bottom:
     .skip 64*1024

@@ -1,0 +1,2 @@
+/usr/bin/ar qc libloos_compat.a CMakeFiles/loos_compat.dir/compat.c.o
+/usr/bin/ranlib libloos_compat.a

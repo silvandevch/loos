@@ -1,0 +1,26 @@
+{
+	"InstallScripts" : 
+	[
+		"/run/media/silvan/DATA/LoOS/build-rust/cmake_install.cmake",
+		"/run/media/silvan/DATA/LoOS/build-rust/src/rust/cmake_install.cmake",
+		"/run/media/silvan/DATA/LoOS/build-rust/src/libc/cmake_install.cmake",
+		"/run/media/silvan/DATA/LoOS/build-rust/src/fs/btrfs/cmake_install.cmake",
+		"/run/media/silvan/DATA/LoOS/build-rust/src/fs/iso9660/cmake_install.cmake",
+		"/run/media/silvan/DATA/LoOS/build-rust/src/kernel/cmake_install.cmake",
+		"/run/media/silvan/DATA/LoOS/build-rust/src/io/cmake_install.cmake",
+		"/run/media/silvan/DATA/LoOS/build-rust/src/security/cmake_install.cmake",
+		"/run/media/silvan/DATA/LoOS/build-rust/src/net/cmake_install.cmake",
+		"/run/media/silvan/DATA/LoOS/build-rust/src/pkg/cmake_install.cmake",
+		"/run/media/silvan/DATA/LoOS/build-rust/src/fs/diskfmt/cmake_install.cmake",
+		"/run/media/silvan/DATA/LoOS/build-rust/src/win32/apisets/cmake_install.cmake",
+		"/run/media/silvan/DATA/LoOS/build-rust/src/win32/pe/cmake_install.cmake",
+		"/run/media/silvan/DATA/LoOS/build-rust/src/win32/compat/cmake_install.cmake",
+		"/run/media/silvan/DATA/LoOS/build-rust/src/win32/ldr/cmake_install.cmake",
+		"/run/media/silvan/DATA/LoOS/build-rust/src/shell/cmake_install.cmake",
+		"/run/media/silvan/DATA/LoOS/build-rust/tests/win32/cmake_install.cmake",
+		"/run/media/silvan/DATA/LoOS/build-rust/tests/shell/cmake_install.cmake",
+		"/run/media/silvan/DATA/LoOS/build-rust/tests/net/cmake_install.cmake",
+		"/run/media/silvan/DATA/LoOS/build-rust/tests/pkg/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

@@ -1,0 +1,2 @@
+/usr/bin/ar qc libloos_btrfs.a CMakeFiles/loos_btrfs.dir/btrfs.c.o CMakeFiles/loos_btrfs.dir/mkfs.c.o
+/usr/bin/ranlib libloos_btrfs.a

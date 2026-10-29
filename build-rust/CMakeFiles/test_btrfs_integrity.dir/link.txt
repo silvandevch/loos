@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/test_btrfs_integrity.dir/link.d CMakeFiles/test_btrfs_integrity.dir/tests/fs/btrfs/test_integrity.c.o -o test_btrfs_integrity  src/fs/btrfs/libloos_btrfs_tools.a src/fs/btrfs/libloos_btrfs.a  -Wl,--end-group

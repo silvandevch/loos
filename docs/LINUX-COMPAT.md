@@ -167,7 +167,7 @@ The differentiator: Linux apps can use the **LoOS/Win32 API**.
 | L4 | Linux VFS + `/proc` `/sys` `/dev` `/etc`; `.deb` base install | sol / claude |
 | L5 | threads, `futex`, `clone`, signals (`bash`, a threaded app) | astra |
 | L6 | `liblooswin` bridge — Linux apps call the LoOS/Win32 API | sol |
-| L7 | GUI: X11/Wayland served on the LoOS compositor | claude |
+| L7 | GUI: X11/Wayland served on the LoOS compositor; first big target is stock Firefox ESR ([BROWSER.md](BROWSER.md)) | claude |
 
 ## 9. Non-goals (v1)
 

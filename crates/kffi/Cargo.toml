@@ -1,0 +1,23 @@
+[package]
+name = "loos-kffi"
+description = "no_std C ABI for the boot kernel (x86_64-unknown-none): executive, Ps, crash dumps"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "loos_kffi"
+crate-type = ["staticlib"]
+test = false
+doctest = false
+bench = false
+
+[dependencies]
+loos-kernel = { path = "../loos-kernel" }
+loos-ksync = { path = "../ksync" }
+loos-kdump = { path = "../kdump" }
+loos-shell = { path = "../loos-shell" }
+
+[lints]
+workspace = true

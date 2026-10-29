@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/dns_test.dir/link.d CMakeFiles/dns_test.dir/dns_test.c.o -o dns_test  ../../src/net/libloos_net.a  -Wl,--end-group

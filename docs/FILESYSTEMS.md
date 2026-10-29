@@ -83,3 +83,24 @@ images): mount/read must return errors, never panic.
 
 UDF VAT (virtual) partitions; NTFS `$Secure` security descriptors and `$LogFile` replay;
 exFAT TexFAT/ACL entries; FAT `.` / `..` rename edge cases beyond directory moves.
+
+## LoOS directory layout and Windows paths
+
+LoOS uses a Linux-style tree with Windows-friendly folder names. Windows programs keep their
+usual paths; `loos-vfs::winpath` translates them (C: `loos_winpath_to_loos` / `loos_winpath_to_windows`).
+
+| LoOS | Windows programs see |
+|---|---|
+| `/home/<user>` (Desktop, Documents, Downloads, Music, Pictures, Videos) | `C:\Users\<user>` |
+| `/home/<user>/.appdata` | `C:\Users\<user>\AppData` |
+| `/home/public` | `C:\Users\Public` |
+| `/apps`, `/apps/x86` | `C:\Program Files`, `C:\Program Files (x86)` |
+| `/data` | `C:\ProgramData` |
+| `/system/windows` | `C:\Windows` |
+| `/tmp` | `C:\Windows\Temp` |
+| `/mnt/c/<x>` | other `C:\<x>` |
+| `/mnt/d` … | `D:\` … |
+| anything else | `Z:\<path>` |
+
+User names are lower-cased on the LoOS side. Relative, UNC and `..` paths are rejected
+(callers resolve them first). The NT I/O manager (#77) calls this when opening files.

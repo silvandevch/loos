@@ -1,5 +1,6 @@
 /* Calls every Rust-backed C API from C: proves the ABI, the headers and the linkage, and spot-checks behavior. */
 #include "loos_rust.h"
+#include "core.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -248,9 +249,56 @@ static void test_storage(void)
     CHECK(loos_gcm_open(key, 32, nonce, (const uint8_t *)"hdr", 3, data, sizeof data, tag) == -2);
 }
 
+static bool q_ok(void *o, uint64_t t, uint32_t *p, bool *r) { return loos_kobj_sched_query(o, t, p, r); }
+static void test_exec(void)
+{
+    loos_kobj *k = loos_kobj_new_cpus(2);
+    uint64_t a[6] = { 0 }, proc, thr, v;
+    CHECK(loos_kobj_syscall(k, 6, a, &proc) == 0);
+    a[0] = proc; a[1] = 1; CHECK(loos_kobj_syscall(k, 7, a, &thr) == 0);          /* suspended thread */
+    struct loos_thread t = { .id = 1, .priority = 0, .quantum_ticks = 2 };
+    struct loos_run_queue q; loos_run_queue_init(&q); loos_run_queue_enqueue(&q, &t);
+    CHECK(loos_scheduler_sync(&q, q_ok, k) == 1 && t.suspended && t.priority == 8);
+    CHECK(loos_scheduler_pick(&q) == NULL);
+    a[0] = thr; CHECK(loos_kobj_syscall(k, 18, a, &v) == 0 && v == 1);             /* resume */
+    loos_scheduler_sync(&q, q_ok, k); CHECK(loos_scheduler_pick(&q) == &t);
+    a[0] = 1; a[1] = 0; CHECK(loos_kobj_syscall(k, 11, a, &v) == 0);                /* kill-on-close job */
+    a[1] = proc; a[0] = v; CHECK(loos_kobj_syscall(k, 12, a, &proc) == 0);
+    loos_kobj_free(k);
+
+    loos_disp *d = loos_disp_new();
+    uint64_t tm = loos_disp_create_timer(d, false);
+    CHECK(loos_disp_set_timer(d, tm, 3, 0) == 0);
+    uint32_t idx; CHECK(loos_disp_wait(d, 9, &tm, 1, false, -1, &idx) == 4);
+    loos_disp_advance(d, 3);
+    uint64_t th; int32_t kind; CHECK(loos_disp_drain(d, &th, &kind, &idx, 1) == 1 && th == 9 && kind == 0);
+    uint64_t ev = loos_disp_create_event(d, false, false);
+    CHECK(loos_disp_wait_alertable(d, 9, &ev, 1, false, -1) == 4 && loos_disp_alert(d, 9));
+    CHECK(loos_disp_drain(d, &th, &kind, &idx, 1) == 1 && kind == 5);
+    loos_disp_free(d);
+
+    loos_apc *ap = loos_apc_new(); uint64_t o4[4];
+    CHECK(loos_apc_queue(ap, 9, true, 0x100, 1, 2, 3) == 0 && loos_apc_begin_alertable(ap, 9));
+    CHECK(loos_apc_next(ap, 9, false, o4) == 0 && loos_apc_next(ap, 9, true, o4) == 1 && o4[0] == 0x100 && o4[3] == 3);
+    loos_apc_free(ap);
+    loos_dpc *dq = loos_dpc_new(); uint64_t o8[8];
+    CHECK(loos_dpc_insert(dq, 1, 10, 0, 0, 1) && !loos_dpc_insert(dq, 1, 10, 0, 0, 1) && loos_dpc_insert(dq, 2, 20, 0, 0, 2));
+    CHECK(loos_dpc_drain(dq, o8, 2) == 2 && o8[0] == 2 && o8[4] == 1);
+    loos_dpc_free(dq);
+    loos_workq *w = loos_workq_new(); uint64_t it;
+    loos_workq_push(w, 0, 5); loos_workq_push(w, 2, 6);
+    CHECK(loos_workq_pop(w, &it) && it == 6 && loos_workq_pop(w, &it) && it == 5 && !loos_workq_pop(w, &it));
+    loos_workq_free(w);
+    CHECK(loos_btrfsr_open((const uint8_t *)"x", 1) == NULL);
+    char pb[128];
+    CHECK(loos_winpath_to_loos("C:\\Users\\Ann\\Desktop", pb, sizeof pb) > 0 && !strcmp(pb, "/home/ann/Desktop"));
+    CHECK(loos_winpath_to_loos("\\\\srv\\share", pb, sizeof pb) == -1);
+    CHECK(loos_winpath_to_windows("/apps/X", pb, sizeof pb) > 0 && !strcmp(pb, "C:\\Program Files\\X"));
+}
+
 int main(void)
 {
-    test_kdump(); test_sched_time(); test_kms(); test_pkg(); test_vt(); test_kernel_memory(); test_kernel_objects(); test_hive_hw(); test_storage();
+    test_kdump(); test_sched_time(); test_kms(); test_pkg(); test_vt(); test_kernel_memory(); test_kernel_objects(); test_hive_hw(); test_storage(); test_exec();
     printf("ffi_test: %d checks, %d failed\n", checks, fails);
     return fails != 0;
 }

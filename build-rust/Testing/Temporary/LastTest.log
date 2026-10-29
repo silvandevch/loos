@@ -1,0 +1,260 @@
+Start testing: Oct 29 20:17 CET
+----------------------------------------------------------
+9/67 Testing: rust.ffi
+9/67 Test: rust.ffi
+Command: "/run/media/silvan/DATA/LoOS/build-rust/rust_ffi_test"
+Directory: /run/media/silvan/DATA/LoOS/build-rust
+"rust.ffi" start time: Oct 29 20:17 CET
+Output:
+----------------------------------------------------------
+ffi_test: 118 checks, 0 failed
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"rust.ffi" end time: Oct 29 20:17 CET
+"rust.ffi" time elapsed: 00:00:00
+----------------------------------------------------------
+
+43/67 Testing: shell.compositor_test
+43/67 Test: shell.compositor_test
+Command: "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/compositor_test"
+Directory: /run/media/silvan/DATA/LoOS/build-rust/tests/shell
+"shell.compositor_test" start time: Oct 29 20:17 CET
+Output:
+----------------------------------------------------------
+compositor_test: 66 checks, 0 failed
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"shell.compositor_test" end time: Oct 29 20:17 CET
+"shell.compositor_test" time elapsed: 00:00:00
+----------------------------------------------------------
+
+44/67 Testing: shell.layout_test
+44/67 Test: shell.layout_test
+Command: "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/layout_test"
+Directory: /run/media/silvan/DATA/LoOS/build-rust/tests/shell
+"shell.layout_test" start time: Oct 29 20:17 CET
+Output:
+----------------------------------------------------------
+layout_test: 36 checks, 0 failed
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"shell.layout_test" end time: Oct 29 20:17 CET
+"shell.layout_test" time elapsed: 00:00:00
+----------------------------------------------------------
+
+45/67 Testing: shell.perf_test
+45/67 Test: shell.perf_test
+Command: "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/perf_test"
+Directory: /run/media/silvan/DATA/LoOS/build-rust/tests/shell
+"shell.perf_test" start time: Oct 29 20:17 CET
+Output:
+----------------------------------------------------------
+full repaint under a maximized window: 25.91 ms uncached, 0.84 ms culled
+perf_test: 11 checks, 0 failed
+<end of output>
+Test time =   0.88 sec
+----------------------------------------------------------
+Test Passed.
+"shell.perf_test" end time: Oct 29 20:17 CET
+"shell.perf_test" time elapsed: 00:00:00
+----------------------------------------------------------
+
+46/67 Testing: shell.theme_test
+46/67 Test: shell.theme_test
+Command: "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/theme_test"
+Directory: /run/media/silvan/DATA/LoOS/build-rust/tests/shell
+"shell.theme_test" start time: Oct 29 20:17 CET
+Output:
+----------------------------------------------------------
+theme_test: 100 checks, 0 failed
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"shell.theme_test" end time: Oct 29 20:17 CET
+"shell.theme_test" time elapsed: 00:00:00
+----------------------------------------------------------
+
+47/67 Testing: shell.taskbar_test
+47/67 Test: shell.taskbar_test
+Command: "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/taskbar_test"
+Directory: /run/media/silvan/DATA/LoOS/build-rust/tests/shell
+"shell.taskbar_test" start time: Oct 29 20:17 CET
+Output:
+----------------------------------------------------------
+taskbar_test: 63 checks, 0 failed
+<end of output>
+Test time =   0.08 sec
+----------------------------------------------------------
+Test Passed.
+"shell.taskbar_test" end time: Oct 29 20:17 CET
+"shell.taskbar_test" time elapsed: 00:00:00
+----------------------------------------------------------
+
+48/67 Testing: shell.wm_test
+48/67 Test: shell.wm_test
+Command: "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/wm_test"
+Directory: /run/media/silvan/DATA/LoOS/build-rust/tests/shell
+"shell.wm_test" start time: Oct 29 20:17 CET
+Output:
+----------------------------------------------------------
+wm_test: 59 checks, 0 failed
+<end of output>
+Test time =   0.05 sec
+----------------------------------------------------------
+Test Passed.
+"shell.wm_test" end time: Oct 29 20:17 CET
+"shell.wm_test" time elapsed: 00:00:00
+----------------------------------------------------------
+
+49/67 Testing: shell.ui_test
+49/67 Test: shell.ui_test
+Command: "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/ui_test"
+Directory: /run/media/silvan/DATA/LoOS/build-rust/tests/shell
+"shell.ui_test" start time: Oct 29 20:17 CET
+Output:
+----------------------------------------------------------
+ui_test: 30 checks, 0 failed
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"shell.ui_test" end time: Oct 29 20:17 CET
+"shell.ui_test" time elapsed: 00:00:00
+----------------------------------------------------------
+
+50/67 Testing: shell.settings_test
+50/67 Test: shell.settings_test
+Command: "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/settings_test"
+Directory: /run/media/silvan/DATA/LoOS/build-rust/tests/shell
+"shell.settings_test" start time: Oct 29 20:17 CET
+Output:
+----------------------------------------------------------
+settings_test: 45 checks, 0 failed
+<end of output>
+Test time =   0.17 sec
+----------------------------------------------------------
+Test Passed.
+"shell.settings_test" end time: Oct 29 20:17 CET
+"shell.settings_test" time elapsed: 00:00:00
+----------------------------------------------------------
+
+51/67 Testing: shell.apps_test
+51/67 Test: shell.apps_test
+Command: "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/apps_test"
+Directory: /run/media/silvan/DATA/LoOS/build-rust/tests/shell
+"shell.apps_test" start time: Oct 29 20:17 CET
+Output:
+----------------------------------------------------------
+apps_test: 80 checks, 0 failed
+<end of output>
+Test time =   0.14 sec
+----------------------------------------------------------
+Test Passed.
+"shell.apps_test" end time: Oct 29 20:17 CET
+"shell.apps_test" time elapsed: 00:00:00
+----------------------------------------------------------
+
+52/67 Testing: shell.browser_test
+52/67 Test: shell.browser_test
+Command: "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/browser_test"
+Directory: /run/media/silvan/DATA/LoOS/build-rust/tests/shell
+"shell.browser_test" start time: Oct 29 20:17 CET
+Output:
+----------------------------------------------------------
+browser_test: 31 checks, 0 failed
+<end of output>
+Test time =   0.37 sec
+----------------------------------------------------------
+Test Passed.
+"shell.browser_test" end time: Oct 29 20:17 CET
+"shell.browser_test" time elapsed: 00:00:00
+----------------------------------------------------------
+
+53/67 Testing: shell.a11y_test
+53/67 Test: shell.a11y_test
+Command: "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/a11y_test"
+Directory: /run/media/silvan/DATA/LoOS/build-rust/tests/shell
+"shell.a11y_test" start time: Oct 29 20:17 CET
+Output:
+----------------------------------------------------------
+a11y_test: 32 checks, 0 failed
+<end of output>
+Test time =   0.06 sec
+----------------------------------------------------------
+Test Passed.
+"shell.a11y_test" end time: Oct 29 20:17 CET
+"shell.a11y_test" time elapsed: 00:00:00
+----------------------------------------------------------
+
+54/67 Testing: shell.session_test
+54/67 Test: shell.session_test
+Command: "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/session_test"
+Directory: /run/media/silvan/DATA/LoOS/build-rust/tests/shell
+"shell.session_test" start time: Oct 29 20:17 CET
+Output:
+----------------------------------------------------------
+session_test: 68 checks, 0 failed
+<end of output>
+Test time =   1.90 sec
+----------------------------------------------------------
+Test Passed.
+"shell.session_test" end time: Oct 29 20:17 CET
+"shell.session_test" time elapsed: 00:00:01
+----------------------------------------------------------
+
+55/67 Testing: shell.notify_test
+55/67 Test: shell.notify_test
+Command: "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/notify_test"
+Directory: /run/media/silvan/DATA/LoOS/build-rust/tests/shell
+"shell.notify_test" start time: Oct 29 20:17 CET
+Output:
+----------------------------------------------------------
+notify_test: 53 checks, 0 failed
+<end of output>
+Test time =   0.09 sec
+----------------------------------------------------------
+Test Passed.
+"shell.notify_test" end time: Oct 29 20:17 CET
+"shell.notify_test" time elapsed: 00:00:00
+----------------------------------------------------------
+
+56/67 Testing: shell.installer_test
+56/67 Test: shell.installer_test
+Command: "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/installer_test"
+Directory: /run/media/silvan/DATA/LoOS/build-rust/tests/shell
+"shell.installer_test" start time: Oct 29 20:17 CET
+Output:
+----------------------------------------------------------
+installer_test: 41 checks, 0 failed
+<end of output>
+Test time =   4.43 sec
+----------------------------------------------------------
+Test Passed.
+"shell.installer_test" end time: Oct 29 20:17 CET
+"shell.installer_test" time elapsed: 00:00:04
+----------------------------------------------------------
+
+57/67 Testing: shell.compat_console_test
+57/67 Test: shell.compat_console_test
+Command: "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/compat_console_test"
+Directory: /run/media/silvan/DATA/LoOS/build-rust/tests/shell
+"shell.compat_console_test" start time: Oct 29 20:17 CET
+Output:
+----------------------------------------------------------
+compat_console_test: 21 checks, 0 failed
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"shell.compat_console_test" end time: Oct 29 20:17 CET
+"shell.compat_console_test" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Oct 29 20:17 CET

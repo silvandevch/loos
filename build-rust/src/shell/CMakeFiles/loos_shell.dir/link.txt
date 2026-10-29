@@ -1,0 +1,2 @@
+/usr/bin/ar qc libloos_shell.a CMakeFiles/loos_shell.dir/desktop.c.o CMakeFiles/loos_shell.dir/backend_mem.c.o CMakeFiles/loos_shell.dir/apphost.c.o CMakeFiles/loos_shell.dir/compat_console.c.o
+/usr/bin/ranlib libloos_shell.a

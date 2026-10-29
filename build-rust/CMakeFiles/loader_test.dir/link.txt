@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/loader_test.dir/link.d CMakeFiles/loader_test.dir/tests/boot/loader_test.c.o CMakeFiles/loader_test.dir/boot/common/loader.c.o CMakeFiles/loader_test.dir/boot/common/mmap.c.o CMakeFiles/loader_test.dir/boot/common/elf.c.o CMakeFiles/loader_test.dir/boot/common/paging.c.o -o loader_test   -Wl,--end-group

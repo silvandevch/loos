@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/kdf_test.dir/link.d CMakeFiles/kdf_test.dir/tests/kernel/kdf_test.c.o -o kdf_test  rust-target/release/libloos_ffi.a -lpthread -ldl -lm -lgcc_s  -Wl,--end-group

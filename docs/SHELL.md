@@ -23,12 +23,18 @@ runs in the real compositor process and in host tests (`ctest -R shell`). Palett
   `shell_fb.scale` (percent) maps them to device px inside every drawing primitive, so a 1920x1080 screen at 100% and a
   3840x2160 screen at 200% show the same layout, equally sharp. `desktop_auto_scale()` picks 100/150/200 by resolution; the
   Settings app and `scale=NNN` on the kernel command line override it. Client surfaces are device resolution.
-* **Text.** Inter outlines (`font_data.c`) are rasterised on demand by `raster.c` (exact-area coverage, integer only, usable in
-  the kernel) at the exact device size and a quarter-pixel phase, cached by `font.c`. Proportional layout (`shell_text_width`,
+* **Text.** Inter outlines (`crates/loos-shell/src/font_data.rs`) are rasterised on demand by `raster.rs` (exact-area coverage, integer only, usable in
+  the kernel) at the exact device size and a quarter-pixel phase, cached by `font.rs` (both in `crates/loos-shell`). Proportional layout (`shell_text_width`,
   `shell_ellipsize`, caret mapping) is measured in logical px; UTF-8 is decoded, Latin-1 plus a few symbols are included.
 * **Shapes.** Rounded rects, rings and circles are anti-aliased by distance coverage; windows have soft distance-based shadows
   and rounded corners (client surfaces are masked in the corners); the cursor is an anti-aliased polygon; the wallpaper is a
   dithered gradient with two soft glows derived from the theme.
+* **Toolkit + theme.** `ui.rs` is the immediate-mode widget toolkit (focus, clipping, accessibility tree); `theme.rs`
+  resolves presets, HSL accents, per-token overrides and the WCAG contrast guard, and exports/imports the `ui.*` text form.
+* **Taskbar + Start.** `taskbar.rs` / `launcher.rs` own the bar, tray, Quick Settings/calendar flyouts and Start
+  (fuzzy local search only: no web results, feed or ads); `notify.rs` owns the notification center; `inventory.rs` the app list.
+* **Compositor + WM.** `crates/loos-shell/src/{compositor,wm}.rs` own window state, z-order, focus, hit testing,
+  damaged-region painting with occlusion culling, wallpaper, chrome, cursor and the WM (snap, desktops, tiling).
 * **Desktop object.** `desktop.c` is the whole shell as one portable object (used by the kernel and by `tools/shell/shell_snap`,
   which renders any resolution/scale to a PPM for review and for the resolution test).
 
@@ -66,4 +72,21 @@ ATA/AHCI/NVMe disk, formats the data partition as btrfs, stores the account as a
 
 Per-monitor DPI scaling of fonts (chrome metrics scale, glyphs do not), IME/UIA bridge to external readers (the
 registry in `ui.c` is the data source), thumbnails/preview panes and tabs in the file manager, search index
-persistence for the launcher.
+persistence for the launcher. Browser: JavaScript, full CSS layout, images and a native network stack (the
+Firefox/Gecko port is planned in [BROWSER.md](BROWSER.md); the current app is a local-first shell, HTML/CSS
+subset and a development-only QEMU web bridge).
+
+## Built-in apps (Rust: `crates/loos-shell/src/apps`)
+
+| App | Start entry | What works |
+|---|---|---|
+| Notepad | LoOS Notepad | open/save by path (LoOS or `C:\...` paths), typing, Enter/Backspace/Delete, arrows, Home/End, PgUp/PgDn, mouse caret, wheel scroll, Ctrl+S, status bar |
+| LoCmd | LoCmd | `help cls ver whoami title exit history echo (echo x > file) cd dir/ls type/cat mkdir/md del/rm tasklist`, Windows paths, Up/Down history |
+| Calculator | LoOS Calculator | buttons + keyboard, `+ - * / % ( )`, unary minus, 12-digit fixed point (no floats: kernel is soft-float) |
+| LoOS Browser | LoOS Browser | tabs, back/forward/reload, address bar, bookmarks/history (persisted), HTML+CSS subset renderer, local files and `loos://` pages, local search; under `./loos qemu` live HTTP(S) pages via the host web bridge (COM2), offline fallback otherwise. See [BROWSER.md](BROWSER.md) |
+
+Logic is safe Rust with unit tests (`cargo test -p loos-shell`); the `loos_*_frame` functions draw
+through the C toolkit until it is ported. Files now have contents: `shell_backend.fs_read/fs_write`
+(in-memory backend: 16 files x 16 KiB). The Windows `.exe` builds in `apps/` remain for the PE
+compatibility corpus; they run natively once the process loader exists. The browser is covered by
+`tests/shell/browser_test.c` (`ctest -R shell.browser_test`).

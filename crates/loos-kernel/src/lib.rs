@@ -11,6 +11,9 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+pub mod ps;
+pub mod seh;
+
 /// Rights understood by the first object syscalls.
 pub mod access {
     /// Inspect object state.
@@ -39,6 +42,8 @@ pub enum ObjectType {
     Thread = 2,
     /// A notification or synchronization event.
     Event = 3,
+    /// A job grouping processes under shared limits.
+    Job = 4,
 }
 
 /// Event reset behavior.
@@ -155,6 +160,19 @@ pub enum Error {
     AlreadyTerminated,
     /// An operation would exceed the supported identifier range.
     LimitExceeded,
+    /// Bad argument or state for a Ps operation (fiber, job, affinity).
+    InvalidState,
+}
+
+impl From<ps::PsError> for Error {
+    fn from(e: ps::PsError) -> Self {
+        use ps::PsError::*;
+        match e {
+            NotFound => Self::NotFound,
+            LimitExceeded | SuspendLimit => Self::LimitExceeded,
+            Exists | InvalidParameter | AlreadyInJob | FiberState | FiberBusy => Self::InvalidState,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -199,6 +217,7 @@ enum ObjectKind {
     Process(ProcessObject),
     Thread(ThreadObject),
     Event(EventObject),
+    Job(ps::JobId),
 }
 
 struct ObjectSlot {
@@ -256,6 +275,8 @@ pub struct ObjectManager {
     principal: PrincipalId,
     next_process: ProcessId,
     next_thread: ThreadId,
+    /// Scheduler-facing process/thread/job/fiber state, kept in step with objects.
+    pub ps: ps::Ps,
 }
 
 impl Default for ObjectManager {
@@ -267,6 +288,11 @@ impl Default for ObjectManager {
 impl ObjectManager {
     /// Creates an empty manager. Identifiers start at one.
     pub const fn new() -> Self {
+        Self::with_cpus(1)
+    }
+
+    /// Creates a manager for a machine with `cpus` processors.
+    pub const fn with_cpus(cpus: u32) -> Self {
         Self {
             handles: Vec::new(),
             free_handles: Vec::new(),
@@ -275,6 +301,7 @@ impl ObjectManager {
             principal: 0,
             next_process: 1,
             next_thread: 1,
+            ps: ps::Ps::new(cpus),
         }
     }
 
@@ -419,6 +446,7 @@ impl ObjectManager {
                 (ObjectType::Event, ObjectKind::Event(_))
                     | (ObjectType::Process, ObjectKind::Process(_))
                     | (ObjectType::Thread, ObjectKind::Thread(_))
+                    | (ObjectType::Job, ObjectKind::Job(_))
             );
             matches.then_some(ObjectRef {
                 index: i as u32,
@@ -442,8 +470,15 @@ impl ObjectManager {
     }
 
     /// Creates a process and returns its full-access handle and stable identifier.
-    pub fn create_process(&mut self, parent: Option<ProcessId>) -> (Handle, ProcessId) {
+    /// Fails with `LimitExceeded` when the parent's job is full.
+    pub fn create_process(&mut self, parent: Option<ProcessId>) -> Result<(Handle, ProcessId), Error> {
+        self.create_process_ex(parent, false)
+    }
+
+    /// [`Self::create_process`] with `CREATE_BREAKAWAY_FROM_JOB`.
+    pub fn create_process_ex(&mut self, parent: Option<ProcessId>, breakaway: bool) -> Result<(Handle, ProcessId), Error> {
         let id = self.next_process;
+        self.ps.process_created(id, parent, breakaway).map_err(Error::from)?;
         self.next_process = self.next_process.saturating_add(1).max(1);
         let object = self.alloc_object(
             ObjectKind::Process(ProcessObject {
@@ -455,11 +490,16 @@ impl ObjectManager {
             }),
             None,
         );
-        (self.add_object_handle(object), id)
+        Ok((self.add_object_handle(object), id))
     }
 
     /// Creates a thread attached to the process named by `process`.
     pub fn create_thread(&mut self, process: Handle) -> Result<(Handle, ThreadId), Error> {
+        self.create_thread_ex(process, false)
+    }
+
+    /// [`Self::create_thread`] with `CREATE_SUSPENDED`.
+    pub fn create_thread_ex(&mut self, process: Handle, suspended: bool) -> Result<(Handle, ThreadId), Error> {
         let object = self.require(process, access::QUERY)?;
         let process_id = match self.object(object)? {
             ObjectKind::Process(p) if !p.terminated => p.id,
@@ -467,6 +507,7 @@ impl ObjectManager {
             _ => return Err(Error::WrongType),
         };
         let id = self.next_thread;
+        self.ps.thread_created(id, process_id, suspended).map_err(Error::from)?;
         self.next_thread = self.next_thread.saturating_add(1).max(1);
         let thread_object = self.alloc_object(
             ObjectKind::Thread(ThreadObject {
@@ -597,6 +638,12 @@ impl ObjectManager {
         let object_slot = &mut self.objects[object.index as usize];
         object_slot.references -= 1;
         if object_slot.references == 0 {
+            if let Some(ObjectKind::Job(j)) = object_slot.object {
+                for pid in self.ps.close_job(j).unwrap_or_default() {
+                    self.terminate_process_id(pid, 0);
+                }
+            }
+            let object_slot = &mut self.objects[object.index as usize];
             object_slot.object = None;
             object_slot.name = None;
             object_slot.generation = object_slot.generation.wrapping_add(1).max(1);
@@ -636,6 +683,7 @@ impl ObjectManager {
             ObjectKind::Process(_) => Ok(ObjectType::Process),
             ObjectKind::Thread(_) => Ok(ObjectType::Thread),
             ObjectKind::Event(_) => Ok(ObjectType::Event),
+            ObjectKind::Job(_) => Ok(ObjectType::Job),
         }
     }
 
@@ -711,56 +759,135 @@ impl ObjectManager {
             }
             ObjectKind::Process(p) => Ok(p.terminated),
             ObjectKind::Thread(t) => Ok(t.terminated),
+            ObjectKind::Job(j) => {
+                let j = *j;
+                Ok(self.ps.job_info(j).map_or(true, |i| i.active.is_empty()))
+            }
         }
     }
 
     /// Terminates a process and all its attached threads.
     pub fn terminate_process(&mut self, handle: Handle, status: u32) -> Result<(), Error> {
         let object = self.require(handle, access::TERMINATE)?;
-        let ids = match self.object_mut(object)? {
+        self.terminate_process_object(object, status)
+    }
+
+    fn find_ref(&self, f: impl Fn(&ObjectKind) -> bool) -> Option<ObjectRef> {
+        self.objects.iter().enumerate().find_map(|(i, slot)| {
+            f(slot.object.as_ref()?).then_some(ObjectRef { index: i as u32, generation: slot.generation })
+        })
+    }
+
+    fn terminate_process_id(&mut self, id: ProcessId, status: u32) {
+        if let Some(o) = self.find_ref(|k| matches!(k, ObjectKind::Process(p) if p.id == id)) {
+            let _ = self.terminate_process_object(o, status);
+        }
+    }
+
+    fn terminate_process_object(&mut self, object: ObjectRef, status: u32) -> Result<(), Error> {
+        let (pid, ids) = match self.object_mut(object)? {
             ObjectKind::Process(p) => {
                 if p.terminated {
                     return Err(Error::AlreadyTerminated);
                 }
                 p.terminated = true;
                 p.exit_status = status;
-                p.threads.clone()
+                (p.id, p.threads.clone())
             }
             _ => return Err(Error::WrongType),
         };
         for id in ids {
-            if let Some(thread_object) = self.objects.iter().enumerate().find_map(|(i, slot)| {
-                match slot.object.as_ref()? {
-                    ObjectKind::Thread(t) if t.id == id => Some(ObjectRef {
-                        index: i as u32,
-                        generation: slot.generation,
-                    }),
-                    _ => None,
-                }
-            }) {
-                if let Ok(ObjectKind::Thread(t)) = self.object_mut(thread_object) {
-                    t.terminated = true;
-                    t.exit_status = status;
-                }
-            }
+            self.mark_thread_dead(id, status);
         }
+        self.ps.process_exited(pid);
         Ok(())
+    }
+
+    fn mark_thread_dead(&mut self, id: ThreadId, status: u32) -> bool {
+        let Some(o) = self.find_ref(|k| matches!(k, ObjectKind::Thread(t) if t.id == id)) else { return false };
+        if let Ok(ObjectKind::Thread(t)) = self.object_mut(o) {
+            if t.terminated {
+                return false;
+            }
+            t.terminated = true;
+            t.exit_status = status;
+        }
+        self.ps.thread_exited(id);
+        true
     }
 
     /// Terminates one thread.
     pub fn terminate_thread(&mut self, handle: Handle, status: u32) -> Result<(), Error> {
         let object = self.require(handle, access::TERMINATE)?;
-        match self.object_mut(object)? {
-            ObjectKind::Thread(t) => {
-                if t.terminated {
-                    return Err(Error::AlreadyTerminated);
-                }
-                t.terminated = true;
-                t.exit_status = status;
-                Ok(())
-            }
+        let id = match self.object(object)? {
+            ObjectKind::Thread(t) if t.terminated => return Err(Error::AlreadyTerminated),
+            ObjectKind::Thread(t) => t.id,
+            _ => return Err(Error::WrongType),
+        };
+        self.mark_thread_dead(id, status);
+        Ok(())
+    }
+
+    /// `CreateJobObject`.
+    pub fn create_job(&mut self, limits: ps::JobLimits) -> Result<Handle, Error> {
+        let j = self.ps.create_job(limits)?;
+        let o = self.alloc_object(ObjectKind::Job(j), None);
+        Ok(self.add_object_handle(o))
+    }
+
+    fn job_id(&self, handle: Handle, rights: u32) -> Result<ps::JobId, Error> {
+        match self.object(self.require(handle, rights)?)? {
+            ObjectKind::Job(j) => Ok(*j),
             _ => Err(Error::WrongType),
         }
+    }
+
+    /// `AssignProcessToJobObject`.
+    pub fn assign_to_job(&mut self, job: Handle, process: Handle) -> Result<(), Error> {
+        let j = self.job_id(job, access::MODIFY_STATE)?;
+        let pid = self.live_process(process, access::MODIFY_STATE)?;
+        Ok(self.ps.assign(j, pid)?)
+    }
+
+    /// `TerminateJobObject`: returns how many processes were terminated.
+    pub fn terminate_job(&mut self, job: Handle, status: u32) -> Result<usize, Error> {
+        let pids = self.ps.terminate_job(self.job_id(job, access::TERMINATE)?)?;
+        for &p in &pids {
+            self.terminate_process_id(p, status);
+        }
+        Ok(pids.len())
+    }
+
+    /// Job accounting.
+    pub fn job_info(&self, job: Handle) -> Result<ps::JobInfo, Error> {
+        Ok(self.ps.job_info(self.job_id(job, access::QUERY)?)?)
+    }
+
+    /// Process id behind a handle, if still running.
+    pub fn live_process(&self, handle: Handle, rights: u32) -> Result<ProcessId, Error> {
+        match self.object(self.require(handle, rights)?)? {
+            ObjectKind::Process(p) if p.terminated => Err(Error::AlreadyTerminated),
+            ObjectKind::Process(p) => Ok(p.id),
+            _ => Err(Error::WrongType),
+        }
+    }
+
+    /// Thread id behind a handle, if still running.
+    pub fn live_thread(&self, handle: Handle, rights: u32) -> Result<ThreadId, Error> {
+        match self.object(self.require(handle, rights)?)? {
+            ObjectKind::Thread(t) if t.terminated => Err(Error::AlreadyTerminated),
+            ObjectKind::Thread(t) => Ok(t.id),
+            _ => Err(Error::WrongType),
+        }
+    }
+
+    /// `DeleteFiber`; terminates the thread that deleted its running fiber.
+    pub fn delete_fiber(&mut self, fiber: ps::FiberId) -> Result<Option<ThreadId>, Error> {
+        let t = self.ps.delete_fiber(fiber)?;
+        if let Some(t) = t {
+            self.mark_thread_dead(t, 0);
+        }
+        Ok(t)
     }
 }
 
@@ -829,6 +956,35 @@ pub enum SyscallNumber {
     TerminateThread = 9,
     /// Query object kind and identifier. arg0 handle, arg1 selector (0 kind, 1 id).
     QueryObject = 10,
+    /// Create a job; arg0 flags (1 kill-on-close, 2 breakaway ok), arg1 process
+    /// limit, arg2 affinity, arg3 priority class 1..=6 (0 = none each).
+    CreateJob = 11,
+    /// Assign arg1 process to arg0 job.
+    AssignJob = 12,
+    /// Terminate every process in job arg0 with status arg1; returns count.
+    TerminateJob = 13,
+    /// Process arg0, class arg1 (1 idle .. 6 realtime).
+    SetPriorityClass = 14,
+    /// Thread arg0, relative priority arg1 (signed).
+    SetThreadPriority = 15,
+    /// Process or thread arg0, mask arg1; thread returns previous mask.
+    SetAffinity = 16,
+    /// Thread arg0; returns previous suspend count.
+    SuspendThread = 17,
+    /// Thread arg0; returns previous suspend count.
+    ResumeThread = 18,
+    /// Thread arg0, param arg1; returns fiber id.
+    ConvertThreadToFiber = 19,
+    /// Process arg0, stack arg1, start arg2, param arg3; returns fiber id.
+    CreateFiber = 20,
+    /// Thread arg0 switches to fiber arg1; returns the previous fiber.
+    SwitchToFiber = 21,
+    /// Fiber arg0; returns the thread id terminated by it, or 0.
+    DeleteFiber = 22,
+    /// Thread arg0.
+    ConvertFiberToThread = 23,
+    /// Thread arg0, arg1: 0 base priority, 1 runnable, 2 affinity, 3 current fiber.
+    QuerySched = 24,
 }
 
 impl SyscallNumber {
@@ -845,6 +1001,20 @@ impl SyscallNumber {
             8 => Self::TerminateProcess,
             9 => Self::TerminateThread,
             10 => Self::QueryObject,
+            11 => Self::CreateJob,
+            12 => Self::AssignJob,
+            13 => Self::TerminateJob,
+            14 => Self::SetPriorityClass,
+            15 => Self::SetThreadPriority,
+            16 => Self::SetAffinity,
+            17 => Self::SuspendThread,
+            18 => Self::ResumeThread,
+            19 => Self::ConvertThreadToFiber,
+            20 => Self::CreateFiber,
+            21 => Self::SwitchToFiber,
+            22 => Self::DeleteFiber,
+            23 => Self::ConvertFiberToThread,
+            24 => Self::QuerySched,
             _ => return None,
         })
     }
@@ -868,6 +1038,10 @@ pub enum Status {
     NotFound = -5,
     /// Object was already terminated.
     AlreadyTerminated = -6,
+    /// A count or quota limit was hit.
+    LimitExceeded = -7,
+    /// Object is in the wrong state (fiber/job membership).
+    InvalidState = -8,
 }
 
 impl From<Error> for Status {
@@ -878,7 +1052,9 @@ impl From<Error> for Status {
             Error::AccessDenied => Self::AccessDenied,
             Error::NotFound => Self::NotFound,
             Error::AlreadyTerminated => Self::AlreadyTerminated,
-            Error::InvalidName | Error::LimitExceeded => Self::InvalidParameter,
+            Error::InvalidName => Self::InvalidParameter,
+            Error::LimitExceeded => Self::LimitExceeded,
+            Error::InvalidState => Self::InvalidState,
         }
     }
 }
@@ -957,10 +1133,10 @@ pub fn dispatch(manager: &mut ObjectManager, number: u32, args: SyscallArgs) -> 
                 raw_handle(args.0[0])
                     .and_then(|h| syscall_result(manager.process_info(h).map(|p| Some(p.id))))
             };
-            parent.map(|p| manager.create_process(p).0.raw())
+            parent.and_then(|p| syscall_result(manager.create_process_ex(p, args.0[1] & 1 != 0).map(|v| v.0.raw())))
         }
         SyscallNumber::CreateThread => raw_handle(args.0[0])
-            .and_then(|h| syscall_result(manager.create_thread(h).map(|v| v.0.raw()))),
+            .and_then(|h| syscall_result(manager.create_thread_ex(h, args.0[1] & 1 != 0).map(|v| v.0.raw()))),
         SyscallNumber::TerminateProcess => raw_handle(args.0[0]).and_then(|h| {
             syscall_result(manager.terminate_process(h, args.0[1] as u32).map(|_| 0))
         }),
@@ -972,12 +1148,105 @@ pub fn dispatch(manager: &mut ObjectManager, number: u32, args: SyscallArgs) -> 
                 ObjectType::Process => syscall_result(manager.process_info(h).map(|p| p.id)),
                 ObjectType::Thread => syscall_result(manager.thread_info(h).map(|t| t.id)),
                 ObjectType::Event => Ok(0),
+                ObjectType::Job => Ok(0),
             },
             _ => Err(Status::InvalidParameter),
         }),
+        n => ps_syscall(manager, n, &args.0),
     };
     match result {
         Ok(value) => SyscallResult::ok(value),
         Err(status) => SyscallResult::err(status),
+    }
+}
+
+fn class_arg(v: u64) -> Result<Option<ps::PriorityClass>, Status> {
+    use ps::PriorityClass::*;
+    Ok(Some(match v {
+        0 => return Ok(None),
+        1 => Idle,
+        2 => BelowNormal,
+        3 => Normal,
+        4 => AboveNormal,
+        5 => High,
+        6 => Realtime,
+        _ => return Err(Status::InvalidParameter),
+    }))
+}
+
+fn ps_syscall(m: &mut ObjectManager, n: SyscallNumber, a: &[u64; 6]) -> Result<u64, Status> {
+    use access::{MODIFY_STATE as MS, QUERY as Q};
+    let h = |i: usize| raw_handle(a[i]);
+    let ps_r = |r: Result<u64, ps::PsError>| syscall_result(r.map_err(Error::from));
+    match n {
+        SyscallNumber::CreateJob => {
+            let limits = ps::JobLimits {
+                kill_on_close: a[0] & 1 != 0,
+                breakaway_ok: a[0] & 2 != 0,
+                active_processes: (a[1] != 0).then_some(a[1] as u32),
+                affinity: (a[2] != 0).then_some(a[2]),
+                priority_class: class_arg(a[3])?,
+            };
+            syscall_result(m.create_job(limits).map(Handle::raw))
+        }
+        SyscallNumber::AssignJob => syscall_result(m.assign_to_job(h(0)?, h(1)?).map(|_| 0)),
+        SyscallNumber::TerminateJob => syscall_result(m.terminate_job(h(0)?, a[1] as u32).map(|n| n as u64)),
+        SyscallNumber::SetPriorityClass => {
+            let c = class_arg(a[1])?.ok_or(Status::InvalidParameter)?;
+            let p = syscall_result(m.live_process(h(0)?, MS))?;
+            ps_r(m.ps.set_priority_class(p, c).map(|_| 0))
+        }
+        SyscallNumber::SetThreadPriority => {
+            let t = syscall_result(m.live_thread(h(0)?, MS))?;
+            let rel = i8::try_from(a[1] as i64).map_err(|_| Status::InvalidParameter)?;
+            ps_r(m.ps.set_thread_priority(t, rel).map(|_| 0))
+        }
+        SyscallNumber::SetAffinity => match syscall_result(m.object_type(h(0)?))? {
+            ObjectType::Process => {
+                let p = syscall_result(m.live_process(h(0)?, MS))?;
+                ps_r(m.ps.set_process_affinity(p, a[1]).map(|_| 0))
+            }
+            ObjectType::Thread => {
+                let t = syscall_result(m.live_thread(h(0)?, MS))?;
+                ps_r(m.ps.set_thread_affinity(t, a[1]))
+            }
+            _ => Err(Status::ObjectTypeMismatch),
+        },
+        SyscallNumber::SuspendThread => {
+            let t = syscall_result(m.live_thread(h(0)?, MS))?;
+            ps_r(m.ps.suspend(t).map(u64::from))
+        }
+        SyscallNumber::ResumeThread => {
+            let t = syscall_result(m.live_thread(h(0)?, MS))?;
+            ps_r(m.ps.resume(t).map(u64::from))
+        }
+        SyscallNumber::ConvertThreadToFiber => {
+            let t = syscall_result(m.live_thread(h(0)?, MS))?;
+            ps_r(m.ps.convert_thread_to_fiber(t, a[1]))
+        }
+        SyscallNumber::CreateFiber => {
+            let p = syscall_result(m.live_process(h(0)?, MS))?;
+            ps_r(m.ps.create_fiber(p, a[1], a[2], a[3]))
+        }
+        SyscallNumber::SwitchToFiber => {
+            let t = syscall_result(m.live_thread(h(0)?, MS))?;
+            ps_r(m.ps.switch_to_fiber(t, a[1]))
+        }
+        SyscallNumber::DeleteFiber => syscall_result(m.delete_fiber(a[0]).map(|t| t.unwrap_or(0))),
+        SyscallNumber::ConvertFiberToThread => {
+            let t = syscall_result(m.live_thread(h(0)?, MS))?;
+            ps_r(m.ps.convert_fiber_to_thread(t).map(|_| 0))
+        }
+        SyscallNumber::QuerySched => {
+            let t = syscall_result(m.live_thread(h(0)?, Q))?;
+            ps_r(match a[1] {
+                0 => m.ps.base_priority(t).map(|p| p as u64),
+                1 => m.ps.runnable(t).map(u64::from),
+                2 => m.ps.thread_affinity(t),
+                3 => m.ps.current_fiber(t).map(|f| f.unwrap_or(0)),
+                _ => return Err(Status::InvalidParameter),
+            })
+        }
+        _ => Err(Status::InvalidParameter),
     }
 }

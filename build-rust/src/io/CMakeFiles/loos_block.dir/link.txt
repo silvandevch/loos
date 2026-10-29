@@ -1,0 +1,2 @@
+/usr/bin/ar qc libloos_block.a CMakeFiles/loos_block.dir/block.c.o
+/usr/bin/ranlib libloos_block.a

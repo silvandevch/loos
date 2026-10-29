@@ -1,0 +1,36 @@
+# CMake generated Testfile for 
+# Source directory: /run/media/silvan/DATA/LoOS/tests/shell
+# Build directory: /run/media/silvan/DATA/LoOS/build-rust/tests/shell
+# 
+# This file includes the relevant testing commands required for 
+# testing this directory and lists subdirectories to be tested as well.
+add_test([=[shell.compositor_test]=] "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/compositor_test")
+set_tests_properties([=[shell.compositor_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;6;add_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;8;loos_shell_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;0;")
+add_test([=[shell.layout_test]=] "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/layout_test")
+set_tests_properties([=[shell.layout_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;6;add_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;9;loos_shell_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;0;")
+add_test([=[shell.perf_test]=] "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/perf_test")
+set_tests_properties([=[shell.perf_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;6;add_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;10;loos_shell_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;0;")
+add_test([=[shell.theme_test]=] "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/theme_test")
+set_tests_properties([=[shell.theme_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;6;add_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;11;loos_shell_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;0;")
+add_test([=[shell.taskbar_test]=] "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/taskbar_test")
+set_tests_properties([=[shell.taskbar_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;6;add_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;12;loos_shell_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;0;")
+add_test([=[shell.wm_test]=] "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/wm_test")
+set_tests_properties([=[shell.wm_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;6;add_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;13;loos_shell_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;0;")
+add_test([=[shell.ui_test]=] "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/ui_test")
+set_tests_properties([=[shell.ui_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;6;add_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;14;loos_shell_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;0;")
+add_test([=[shell.settings_test]=] "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/settings_test")
+set_tests_properties([=[shell.settings_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;6;add_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;15;loos_shell_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;0;")
+add_test([=[shell.apps_test]=] "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/apps_test")
+set_tests_properties([=[shell.apps_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;6;add_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;16;loos_shell_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;0;")
+add_test([=[shell.browser_test]=] "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/browser_test")
+set_tests_properties([=[shell.browser_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;6;add_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;17;loos_shell_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;0;")
+add_test([=[shell.a11y_test]=] "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/a11y_test")
+set_tests_properties([=[shell.a11y_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;6;add_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;18;loos_shell_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;0;")
+add_test([=[shell.session_test]=] "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/session_test")
+set_tests_properties([=[shell.session_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;6;add_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;19;loos_shell_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;0;")
+add_test([=[shell.notify_test]=] "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/notify_test")
+set_tests_properties([=[shell.notify_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;6;add_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;20;loos_shell_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;0;")
+add_test([=[shell.installer_test]=] "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/installer_test")
+set_tests_properties([=[shell.installer_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;6;add_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;21;loos_shell_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;0;")
+add_test([=[shell.compat_console_test]=] "/run/media/silvan/DATA/LoOS/build-rust/tests/shell/compat_console_test")
+set_tests_properties([=[shell.compat_console_test]=] PROPERTIES  _BACKTRACE_TRIPLES "/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;6;add_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;23;loos_shell_test;/run/media/silvan/DATA/LoOS/tests/shell/CMakeLists.txt;0;")

@@ -1,6 +1,6 @@
 # Shell customization, performance, KVM, display class
 
-## Theme engine (`src/shell/theme.[ch]`, Settings → Personalize)
+## Theme engine (`crates/loos-shell/src/theme.rs`, Settings → Personalize)
 A theme is a `theme_spec`: base palette (`dark light hc amoled nord dracula solarized gruvbox paper`) + accent + surface **tint** + shape/effects + per-token color overrides. It resolves in order base → tint → overrides → **contrast guard**, then `theme_apply()` pushes palette and metrics to the compositor live.
 
 | config key | range | meaning |
@@ -27,3 +27,14 @@ DRM/KMS-shaped model so Linux userspace and the compositor share one driver inte
 
 ## Verify
 `cmake --build <dir> --target theme_test perf_test settings_test` then `ctest -R shell.`; `cargo +1.97.1 test -p loos-kms`.
+
+## Taskbar and Start (Windows 11 style, without the parts people dislike)
+
+- Keys: `ui.taskbar.center` (default on), `ui.taskbar.labels` (window titles next to icons, off),
+  `ui.taskbar.top` (bar at the top). All three are in Settings > Personalize > Taskbar and apply live.
+- Start: search box, pinned app grid, local account footer. No web results, no feed, no ads,
+  no "recommended" list, no online account.
+- Windows: title bar blends with the window body, 46 px caption buttons, red close hover,
+  monogram app icons (`shell_draw_app_tile`).
+- Performance: the wallpaper is rendered once into a cache (`comp_set_wallpaper_cache`) and
+  copied on repaint; it re-renders only when the theme or screen size changes.

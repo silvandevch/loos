@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/dhcp_test.dir/link.d CMakeFiles/dhcp_test.dir/dhcp_test.c.o -o dhcp_test  ../../src/net/libloos_net.a  -Wl,--end-group

@@ -48,6 +48,7 @@ bool ui_key(ui_ctx *u, uint32_t key, bool want_char, uint32_t *mods_out);   /* p
 
 void ui_clear(ui_ctx *u, uint32_t color);
 void ui_label(ui_ctx *u, int x, int y, const char *s, uint32_t color);
+int  ui_paragraph(ui_ctx *u, int x, int y, int w, const char *s, uint32_t color);   /* word-wrapped; returns height used */
 void ui_label_right(ui_ctx *u, int right_x, int y, const char *s, uint32_t color);
 void ui_heading(ui_ctx *u, int x, int y, const char *s);          /* 2x size title */
 void ui_separator(ui_ctx *u, int x, int y, int w);
@@ -69,10 +70,19 @@ int  ui_a11y_count(const ui_ctx *u);
 const ui_a11y_item *ui_a11y_get(const ui_ctx *u, int i);
 size_t ui_a11y_dump(const ui_ctx *u, char *out, size_t cap);      /* "button: OK\ntoggle: Dark mode [on]\n..." for screen readers */
 void ui_focus_next(ui_ctx *u, bool backwards);
+void ui_focus(ui_ctx *u, uint32_t id);                            /* move keyboard focus to a widget id (0 = none) */
+bool ui_focused(const ui_ctx *u, uint32_t id);                     /* true if that widget currently has keyboard focus */
 void ui_clip_push(ui_ctx *u, shell_rect r, shell_rect *saved);
 void ui_clip_pop(ui_ctx *u, shell_rect saved);
 bool ui_hovered(const ui_ctx *u, shell_rect r);
 bool ui_take_key(ui_ctx *u, uint32_t key, uint32_t need_mods);   /* remove a queued shortcut (lowercase key + required mods) */
+
+/* accessors for apps written in Rust (crates/loos-shell/src/apps) */
+shell_fb *ui_fb(ui_ctx *u);
+const shell_theme *ui_theme_of(const ui_ctx *u);
+void ui_pointer(const ui_ctx *u, int *x, int *y, bool *pressed, int *wheel);
+void ui_blur(ui_ctx *u);                                         /* no widget has keyboard focus */
+bool ui_next_input(ui_ctx *u, uint32_t *key, uint32_t *mods, bool *is_char);   /* pops keys and chars in arrival order */
 
 /* formatting helpers shared by the apps */
 void fmt_size(uint64_t bytes, char *out, size_t cap);          /* "812 B", "1.5 MB" */

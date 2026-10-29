@@ -1,0 +1,26 @@
+LIBRARY ucrtbase.dll
+EXPORTS
+    _stricmp
+    _strnicmp
+    calloc
+    free
+    malloc
+    memcmp
+    memcpy
+    memmove
+    memset
+    printf
+    puts
+    realloc
+    strcat
+    strchr
+    strcmp
+    strcpy
+    strlen
+    strncmp
+    strncpy
+    strnlen
+    strrchr
+    strtol
+    strtoul
+    vprintf

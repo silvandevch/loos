@@ -51,6 +51,8 @@ typedef struct shell_backend {
     bool (*fs_remove)(void *u, const char *path);                          /* recursive for directories */
     bool (*fs_rename)(void *u, const char *from, const char *to);
     bool (*fs_copy)(void *u, const char *from, const char *to);            /* recursive */
+    int64_t (*fs_read)(void *u, const char *path, char *out, size_t cap);   /* file contents (truncated to cap); -1 if not a file */
+    bool (*fs_write)(void *u, const char *path, const char *data, size_t len);   /* create or replace; parent must exist */
     int  (*fs_volumes)(void *u, fs_volume *out, int max);
     /* Ps */
     int  (*ps_snapshot)(void *u, ps_proc *out, int max);
@@ -62,6 +64,13 @@ typedef struct shell_backend {
 
 /* convenience wrappers */
 int  be_cfg_int(const shell_backend *b, const char *key, int def);
+/* plain-function wrappers for apps written in Rust */
+int     be_fs_list(const shell_backend *b, const char *path, fs_entry *out, int max);
+int64_t be_fs_read(const shell_backend *b, const char *path, char *out, size_t cap);
+bool    be_fs_write(const shell_backend *b, const char *path, const char *data, size_t len);
+bool    be_fs_mkdir(const shell_backend *b, const char *path);
+bool    be_fs_remove(const shell_backend *b, const char *path);
+int     be_ps_list(const shell_backend *b, char *out, size_t cap);   /* "pid name\n" lines; returns count */
 bool be_cfg_bool(const shell_backend *b, const char *key, bool def);
 void be_cfg_set_int(const shell_backend *b, const char *key, int v);
 void be_cfg_set_bool(const shell_backend *b, const char *key, bool v);
@@ -72,6 +81,8 @@ void be_cfg_set_bool(const shell_backend *b, const char *key, bool v);
 #define MEM_MAX_APPS 32
 #define MEM_MAX_CFG 128
 #define MEM_MAX_NODES 512
+#define MEM_MAX_FILES 16
+#define MEM_FILE_BYTES 16384
 #define MEM_MAX_PROCS 64
 typedef struct {
     net_conn conn[MEM_MAX_CONN]; int nconn;
@@ -82,6 +93,7 @@ typedef struct {
     struct { char path[160]; bool dir; uint64_t size; int64_t mtime; uint32_t attrs; } node[MEM_MAX_NODES]; int nnode;
     fs_volume vol[4]; int nvol;
     ps_proc proc[MEM_MAX_PROCS]; int nproc;
+    struct { char path[160]; uint32_t len; char data[MEM_FILE_BYTES]; } file[MEM_MAX_FILES]; int nfile;   /* text contents */
 } backend_mem;
 void backend_mem_init(backend_mem *m, shell_backend *out);
 void backend_mem_add_conn(backend_mem *m, const char *proc, uint32_t pid, const char *remote, uint16_t port, const char *proto, const char *state);

@@ -34,6 +34,26 @@ static shell_rect arrange(const shell_desktop *d, int which)
     return (shell_rect){ r.x * sc / 100, r.y * sc / 100, r.w * sc / 100, r.h * sc / 100 };
 }
 
+/* Rust apps: frame functions live in crates/loos-shell/src/apps */
+void *loos_notepad_new(const shell_backend *be, const char *path);
+void loos_notepad_frame(void *app, ui_ctx *u, int w, int h);
+void *loos_term_new(const shell_backend *be);
+void loos_term_frame(void *app, ui_ctx *u, int w, int h);
+bool loos_term_take_exit(void *app);
+void *loos_calc_new(void);
+void loos_calc_frame(void *app, ui_ctx *u, int w, int h);
+void *loos_browser_new(const shell_backend *be, const char *url);
+void loos_browser_frame(void *app, ui_ctx *u, int w, int h);
+bool loos_browser_navigate_to(void *app, const char *url);
+
+static shell_rect centered(const shell_desktop *d, int w, int h, int nudge)
+{
+    int sc = (int)d->comp.scale_pct, lw = comp_lw(&d->comp), lh = comp_lh(&d->comp) - TASKBAR_H;
+    w = clampi(w, 200, lw - 16); h = clampi(h, 160, lh - 16);
+    int x = clampi((lw - w) / 2 + nudge, 0, lw - w), y = clampi((lh - h) / 2 + nudge / 2, 0, lh - h);
+    return (shell_rect){ x * sc / 100, y * sc / 100, w * sc / 100, h * sc / 100 };
+}
+
 static void focus_existing(shell_desktop *d, int win)
 {
     comp_restore(&d->comp, win);
@@ -53,11 +73,55 @@ static void open_settings(shell_desktop *d)
     memset(&d->aw_settings, 0, sizeof d->aw_settings);
     appwin_open(&d->aw_settings, &d->comp, "Settings", arrange(d, 1), 0, 101, d->surf_settings, d->fb.w, d->fb.h, settings_cb, &d->settings);
 }
+static void on_quick(int action, uint32_t value, void *user)
+{
+    shell_desktop *d = user;
+    if (action == QS_SETTINGS) open_settings(d);
+    else settings_quick(&d->settings, action, value);
+}
+static void on_net_toggle(bool off, void *user) { shell_desktop *d = user; d->be.net_hard_off_set(d->be.user, off); settings_apply(&d->settings); }
 static void open_tasks(shell_desktop *d)
 {
     if (d->aw_tasks.comp && !d->aw_tasks.closed) { focus_existing(d, d->aw_tasks.win); return; }
     memset(&d->aw_tasks, 0, sizeof d->aw_tasks);
     appwin_open(&d->aw_tasks, &d->comp, "Task Manager", arrange(d, 2), 0, 102, d->surf_tasks, d->fb.w, d->fb.h, tasks_cb, &d->tasks);
+}
+
+static void open_rust_app(shell_desktop *d, shell_app_window *aw, uint32_t **surf, void **app, const char *title, shell_rect r, uint32_t owner,
+                          void (*frame)(void *, ui_ctx *, int, int))
+{
+    if (aw->comp && !aw->closed) { focus_existing(d, aw->win); return; }
+    if (!*surf && d->alloc) *surf = d->alloc((size_t)d->fb.w * (size_t)d->fb.h * sizeof(uint32_t), d->alloc_aux);
+    if (!*surf || !*app) return;
+    memset(aw, 0, sizeof *aw);
+    appwin_open(aw, &d->comp, title, r, 0, owner, *surf, d->fb.w, d->fb.h, frame, *app);
+}
+static void open_notepad(shell_desktop *d)
+{
+    if (!d->notepad) d->notepad = loos_notepad_new(&d->be, "/home/user/README.txt");
+    open_rust_app(d, &d->aw_notepad, &d->surf_notepad, &d->notepad, "Notepad", centered(d, 720, 480, 40), 103, loos_notepad_frame);
+}
+static void open_term(shell_desktop *d)
+{
+    if (!d->term) d->term = loos_term_new(&d->be);
+    open_rust_app(d, &d->aw_term, &d->surf_term, &d->term, "LoCmd", centered(d, 760, 440, -60), 104, loos_term_frame);
+}
+static void open_calc(shell_desktop *d)
+{
+    if (!d->calc) d->calc = loos_calc_new();
+    open_rust_app(d, &d->aw_calc, &d->surf_calc, &d->calc, "Calculator", centered(d, 320, 480, 200), 105, loos_calc_frame);
+}
+static void open_browser(shell_desktop *d)
+{
+    if (!d->browser) d->browser = loos_browser_new(&d->be, "loos://home");
+    open_rust_app(d, &d->aw_browser, &d->surf_browser, &d->browser, "LoOS Browser", centered(d, 1000, 720, 0), 106, loos_browser_frame);
+}
+/* Other apps can hand a local page to the browser (used by Help and by the file manager later). */
+void desktop_open_url(shell_desktop *d, const char *url)
+{
+    open_browser(d);
+    if (d->browser && url && *url) loos_browser_navigate_to(d->browser, url);
+    if (d->aw_browser.comp && !d->aw_browser.closed) { comp_raise(&d->comp, d->aw_browser.win); comp_focus(&d->comp, d->aw_browser.win); }
 }
 
 static void launch(const shell_item *it, void *user)
@@ -66,6 +130,11 @@ static void launch(const shell_item *it, void *user)
     settings_page pg;
     if (it->kind == ITEM_SETTING && settings_page_by_id(it->target, &pg)) { d->settings.page = pg; open_settings(d); return; }
     if (!strcmp(it->target, "loos-taskmgr.exe")) { open_tasks(d); return; }
+    if (!strcmp(it->target, "loos-notepad.exe")) { open_notepad(d); return; }
+    if (!strcmp(it->target, "loos-cmd.exe")) { open_term(d); return; }
+    if (!strcmp(it->target, "calc.exe")) { open_calc(d); return; }
+    if (!strcmp(it->target, "loos-browser.exe")) { open_browser(d); return; }
+    if (!strcmp(it->target, "files")) { open_files(d); return; }
     if (d->log) {
         char line[200];
         snprintf(line, sizeof line, "launch: %s (no process loader yet)", it->target);
@@ -85,15 +154,77 @@ static void seed_backend(shell_desktop *d)
         { "/home/user/Documents/report.txt", 0, 2048, 1700001000 }, { "/home/user/Documents/notes.md", 0, 512, 1700002000 },
         { "/home/user/Music", 1, 0, 1700000300 }, { "/home/user/Music/song.ogg", 0, 4ull << 20, 1700003000 },
         { "/home/user/Pictures", 1, 0, 1700000350 }, { "/home/user/README.txt", 0, 1337, 1700009999 },
+        { "/home/user/.config", 1, 0, 1700000400 }, { "/home/user/Web", 1, 0, 1700000500 },
         { "/etc", 1, 0, 1700000000 }, { "/etc/loos.conf", 0, 220, 1700000000 },
     };
     for (unsigned i = 0; i < sizeof nodes / sizeof *nodes; i++) backend_mem_add_node(m, nodes[i].p, nodes[i].dir, nodes[i].sz, nodes[i].t, 0);
+    static const char readme[] =
+        "Welcome to LoOS.\n\n"
+        "Everything stays on this computer: no telemetry, no account, no cloud.\n\n"
+        "Try these:\n"
+        "  - Super opens Start. Type to search apps, files and settings.\n"
+        "  - LoCmd is the terminal. Type HELP. Windows paths work too: cd C:\\Users\\user\n"
+        "  - Notepad edits text files. Ctrl+S saves.\n"
+        "  - LoOS Browser opens local pages. Web addresses explain why they are offline.\n"
+        "  - Click the clock for a calendar, the tray light for Quick Settings.\n"
+        "  - Settings > Personalize changes colors, taskbar, icons and wallpaper.\n";
+    d->be.fs_write(d->be.user, "/home/user/README.txt", readme, sizeof readme - 1);
+    static const char web_index[] =
+        "<html><head><title>LoOS Local Site</title></head><body>\n"
+        "<h1>LoOS local site</h1>\n"
+        "<p>This sample site lives on the LoOS disk. It exists so the browser can be tested without a network.</p>\n"
+        "<h2>Pages</h2><ul>\n"
+        "<li><a href=\"guide.html\">Browser guide</a> - tabs, history and bookmarks</li>\n"
+        "<li><a href=\"privacy.html\">Privacy</a> - what this browser does and does not do</li>\n"
+        "</ul>\n"
+        "<h2>Local-first</h2>\n"
+        "<p>No accounts, no trackers, no remote start page. Bookmarks and history are files under "
+        "<b>/home/user/.config/loos-browser</b>.</p>\n"
+        "<h2>An external link</h2>\n"
+        "<p><a href=\"https://example.com\">example.com</a> opens an offline explanation page; no request is made.</p>\n"
+        "<pre>local site /home/user/Web\n"
+        "offline by design</pre>\n"
+        "</body></html>\n";
+    static const char web_guide[] =
+        "<html><head><title>Browser Guide</title></head><body>\n"
+        "<h1>Browser guide</h1>\n"
+        "<p>The address bar accepts internal pages, local paths and web addresses.</p>\n"
+        "<h2>Keys</h2><ul>\n"
+        "<li><b>Ctrl+L</b> - focus the address bar</li>\n"
+        "<li><b>Ctrl+T</b> / <b>Ctrl+W</b> - new / close tab</li>\n"
+        "<li><b>Ctrl+R</b> - reload; <b>Ctrl+D</b> - bookmark this page</li>\n"
+        "<li><b>Alt+Left</b> / <b>Alt+Right</b> - back / forward</li>\n"
+        "<li><b>Page Up</b> / <b>Page Down</b> - scroll</li>\n"
+        "</ul>\n"
+        "<h2>Addresses</h2><ul>\n"
+        "<li><b>loos://home</b> - start page</li>\n"
+        "<li><b>loos://bookmarks</b> and <b>loos://history</b></li>\n"
+        "<li><b>/home/user/Web/index.html</b> or <b>file:///home/user/Web/index.html</b></li>\n"
+        "<li>A bare word searches bookmarks and /home/user/Web locally.</li>\n"
+        "</ul>\n"
+        "<p><a href=\"index.html\">Back to the local site</a></p>\n"
+        "</body></html>\n";
+    static const char web_privacy[] =
+        "<html><head><title>Privacy in this browser</title></head><body>\n"
+        "<h1>Privacy</h1>\n"
+        "<p>LoOS Browser has no socket code. It cannot send a request, a telemetry ping or a crash report.</p>\n"
+        "<ul><li>No network: HTTP and HTTPS show a local explanation page.</li>\n"
+        "<li>No telemetry and no accounts.</li>\n"
+        "<li>History and bookmarks are plain files you can delete.</li>\n"
+        "<li>No remote search provider. Search is local.</li></ul>\n"
+        "<blockquote>Nothing leaves the machine unless the user started it, and this build cannot start it at all.</blockquote>\n"
+        "<p><a href=\"index.html\">Back</a></p>\n"
+        "</body></html>\n";
+    d->be.fs_write(d->be.user, "/home/user/Web/index.html", web_index, sizeof web_index - 1);
+    d->be.fs_write(d->be.user, "/home/user/Web/guide.html", web_guide, sizeof web_guide - 1);
+    d->be.fs_write(d->be.user, "/home/user/Web/privacy.html", web_privacy, sizeof web_privacy - 1);
     backend_mem_add_proc(m, 1, 0, "system", 12, 18ull << 20, 5);
     backend_mem_add_proc(m, 4, 1, "loos-shell", 4, 42ull << 20, 12);
     backend_mem_add_proc(m, 9, 4, "loos-notepad.exe", 2, 16ull << 20, 0);
     backend_mem_add_proc(m, 12, 1, "loos-netd", 3, 9ull << 20, 1);
     backend_mem_add_app(m, "loos-notepad.exe");
     backend_mem_add_app(m, "calc.exe");
+    backend_mem_add_app(m, "loos-browser.exe");
 }
 
 bool desktop_init(shell_desktop *d, uint32_t *backbuf, int w, int h, int scale_pct, void *(*alloc)(size_t, void *), void *aux)
@@ -102,6 +233,7 @@ bool desktop_init(shell_desktop *d, uint32_t *backbuf, int w, int h, int scale_p
     void (*log)(const char *, void *) = d->log; void *laux = d->aux;
     memset(d, 0, sizeof *d);
     d->log = log; d->aux = laux;
+    d->alloc = alloc; d->alloc_aux = aux;
     d->fb = (shell_fb){ backbuf, w, h, w, 100 };
     size_t surf = (size_t)w * (size_t)h * sizeof(uint32_t);
     d->surf_files = alloc(surf, aux); d->surf_settings = alloc(surf, aux); d->surf_tasks = alloc(surf, aux);
@@ -117,6 +249,10 @@ bool desktop_init(shell_desktop *d, uint32_t *backbuf, int w, int h, int scale_p
     inventory_defaults(&d->inv);
     launcher_init(&d->launcher, &d->inv, launch, d);
     taskbar_init(&d->taskbar, c, &d->launcher);
+    taskbar_configure(&d->taskbar, be_cfg_bool(&d->be, "ui.taskbar.center", true), be_cfg_bool(&d->be, "ui.taskbar.labels", false),
+                      be_cfg_bool(&d->be, "ui.taskbar.top", false), be_cfg_int(&d->be, "ui.taskbar.size", 1));
+    d->taskbar.on_quick = on_quick; d->taskbar.on_net_toggle = on_net_toggle; d->taskbar.user = d;
+    comp_set_wallpaper_cache(c, alloc(surf, aux));                     /* NULL is fine: wallpaper is then drawn live */
     settings_init(&d->settings, &d->be, c, &d->taskbar);
     fm_init(&d->files, &d->be, "/home/user");
     tm_init(&d->tasks, &d->be);
@@ -179,10 +315,13 @@ void desktop_tick(shell_desktop *d, uint32_t now_ms, int hour, int minute)
         appwin_pump(&d->aw_login);
         return;
     }
-    shell_app_window *all[3] = { &d->aw_files, &d->aw_settings, &d->aw_tasks };
-    for (int i = 0; i < 3; i++) if (all[i]->comp && !all[i]->closed) appwin_pump(all[i]);
+    shell_app_window *all[7] = { &d->aw_files, &d->aw_settings, &d->aw_tasks, &d->aw_notepad, &d->aw_term, &d->aw_calc, &d->aw_browser };
+    for (int i = 0; i < 7; i++) if (all[i]->comp && !all[i]->closed) appwin_pump(all[i]);
+    if (d->term && d->aw_term.comp && !d->aw_term.closed && loos_term_take_exit(d->term)) appwin_close(&d->aw_term);
     taskbar_set_time(&d->taskbar, hour, minute);
 }
+
+void desktop_set_date(shell_desktop *d, int day, int month, int year) { taskbar_set_date(&d->taskbar, day, month, year); }
 
 shell_rect desktop_render(shell_desktop *d)
 {

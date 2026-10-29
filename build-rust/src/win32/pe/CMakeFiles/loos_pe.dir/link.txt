@@ -1,0 +1,2 @@
+/usr/bin/ar qc libloos_pe.a CMakeFiles/loos_pe.dir/pe.c.o
+/usr/bin/ranlib libloos_pe.a

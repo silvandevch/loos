@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/shell_snap.dir/link.d CMakeFiles/shell_snap.dir/tools/shell/shell_snap.c.o -o shell_snap  src/shell/libloos_shell.a rust-target/release/libloos_ffi.a -lpthread -ldl -lm -lgcc_s src/win32/compat/libloos_compat.a  -Wl,--end-group

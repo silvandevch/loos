@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/http_test.dir/link.d CMakeFiles/http_test.dir/http_test.c.o -o http_test  ../../src/net/libloos_net.a  -Wl,--end-group

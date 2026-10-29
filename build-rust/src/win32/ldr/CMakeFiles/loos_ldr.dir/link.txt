@@ -1,0 +1,2 @@
+/usr/bin/ar qc libloos_ldr.a CMakeFiles/loos_ldr.dir/ldr.c.o
+/usr/bin/ranlib libloos_ldr.a

@@ -1,0 +1,2 @@
+/usr/bin/ar qc libloos_btrfs_tools.a CMakeFiles/loos_btrfs_tools.dir/tools/integrity.c.o
+/usr/bin/ranlib libloos_btrfs_tools.a

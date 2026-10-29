@@ -1,7 +1,8 @@
 /* Host snapshot tool: runs the real desktop (src/shell/desktop.c) at any resolution/scale, optionally replays a few input
  * steps, and writes the frame as a PPM. Used for visual review and by the shell.snapshot ctest.
  *   shell_snap OUT.ppm [WxH] [scale%] [steps]
- * steps: comma separated: super, type:TEXT, key:enter|esc|tab, move:X,Y (device px), click:X,Y, win:N (settings page) */
+ * steps: comma separated: super, type:TEXT, key:enter|esc|tab, move:X,Y (device px), click:X,Y, win:N (settings page),
+ * url:TEXT (open the browser on a page) */
 #include "desktop.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,6 +37,7 @@ int main(int argc, char **argv)
             else if (sscanf(tok, "move:%d,%d", &x, &y) == 2) desktop_pointer_to(&d, x, y, 0);
             else if (sscanf(tok, "click:%d,%d", &x, &y) == 2) { desktop_pointer_to(&d, x, y, 0); settle(&d); desktop_pointer_to(&d, x, y, BTN_LEFT); settle(&d); desktop_pointer_to(&d, x, y, 0); }
             else if (sscanf(tok, "win:%d", &x) == 1) d.settings.page = (settings_page)x;
+            else if (!strncmp(tok, "url:", 4)) desktop_open_url(&d, tok + 4);
             settle(&d);
         }
         free(steps);

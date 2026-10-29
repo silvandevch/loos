@@ -37,6 +37,10 @@ typedef struct shell_desktop {
     shell_app_window aw_files, aw_settings, aw_tasks;
     shell_fb fb;
     uint32_t *surf_files, *surf_settings, *surf_tasks;
+    shell_app_window aw_notepad, aw_term, aw_calc, aw_browser;   /* Rust apps (crates/loos-shell/src/apps) */
+    void *notepad, *term, *calc, *browser;
+    uint32_t *surf_notepad, *surf_term, *surf_calc, *surf_browser;    /* allocated on first open */
+    void *(*alloc)(size_t bytes, void *aux); void *alloc_aux;
     int mx, my;
     uint32_t buttons;
     void (*log)(const char *line, void *aux);       /* optional diagnostics sink */
@@ -63,6 +67,9 @@ bool desktop_login_done(const shell_desktop *d, char *user_out, size_t cap);   /
 /* Applies machine configuration lines (key=value, up to an optional [accounts] section) to the backend and Settings. */
 void desktop_apply_config(shell_desktop *d, const char *text);
 
+/* Open the browser (if needed) on `url`: a loos:// page, a local path or a web address (shown offline). */
+void desktop_open_url(shell_desktop *d, const char *url);
+
 /* Relative pointer motion plus the current button mask (BTN_*), routed to the taskbar/launcher first, then the compositor. */
 void desktop_pointer(shell_desktop *d, int dx, int dy, uint32_t buttons);
 /* Absolute pointer position (tablet / tests). */
@@ -71,6 +78,7 @@ void desktop_pointer_to(shell_desktop *d, int x, int y, uint32_t buttons);
 void desktop_key(shell_desktop *d, uint32_t key, uint32_t ch, uint32_t mods, bool down);
 /* Advance time: runs the apps, updates the taskbar clock. now_ms is a monotonic clock. */
 void desktop_tick(shell_desktop *d, uint32_t now_ms, int hour, int minute);
+void desktop_set_date(shell_desktop *d, int day, int month, int year);
 /* Repaint what changed into the back buffer; returns the dirty rectangle (device px), empty if nothing changed. */
 shell_rect desktop_render(shell_desktop *d);
 void desktop_render_all(shell_desktop *d);

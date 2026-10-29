@@ -171,6 +171,44 @@ int     loos_btrfs_stat(loos_btrfs *b, const char *path, uint64_t *size, bool *i
 int64_t loos_btrfs_list(loos_btrfs *b, const char *path, char *out, size_t cap);
 int64_t loos_btrfs_read(loos_btrfs *b, const char *path, uint64_t offset, uint8_t *buf, size_t len);
 
+/* ---- Ps, timers/APC/DPC, SEH, loos-btrfs reader (crates/ffi/src/exec.rs) */
+loos_kobj *loos_kobj_new_cpus(uint32_t cpus);
+bool    loos_kobj_sched_query(void *kobj, uint64_t thread, uint32_t *priority, bool *runnable);          /* loos_sched_query_fn */
+uint64_t loos_disp_create_timer(loos_disp *d, bool synchronization);
+int     loos_disp_set_timer(loos_disp *d, uint64_t id, uint64_t delay, uint64_t period);                  /* 1 was armed, 0 not, -1 error */
+int     loos_disp_cancel_timer(loos_disp *d, uint64_t id);
+int     loos_disp_wait_alertable(loos_disp *d, uint64_t thread, const uint64_t *ids, size_t n, bool wait_all, int64_t timeout_ticks); /* 0 done 4 blocked -1 error */
+bool    loos_disp_alert(loos_disp *d, uint64_t thread);                                                  /* drain kind 5 = alerted */
+typedef struct loos_apc loos_apc;
+loos_apc *loos_apc_new(void);
+void    loos_apc_free(loos_apc *q);
+int     loos_apc_queue(loos_apc *q, uint64_t thread, bool user, uint64_t routine, uint64_t a0, uint64_t a1, uint64_t a2); /* 1 = alert thread */
+int     loos_apc_next(loos_apc *q, uint64_t thread, bool user_ok, uint64_t out4[4]);                     /* 1 = routine,a0..a2 written */
+bool    loos_apc_begin_alertable(loos_apc *q, uint64_t thread);
+typedef struct loos_dpc loos_dpc;
+loos_dpc *loos_dpc_new(void);
+void    loos_dpc_free(loos_dpc *q);
+bool    loos_dpc_insert(loos_dpc *q, uint64_t id, uint64_t routine, uint64_t a0, uint64_t a1, uint32_t importance);  /* 0 low 1 medium 2 high */
+size_t  loos_dpc_drain(loos_dpc *q, uint64_t *out, size_t cap);                                          /* (id,routine,a0,a1) per entry */
+typedef struct loos_workq loos_workq;
+loos_workq *loos_workq_new(void);
+void    loos_workq_free(loos_workq *q);
+void    loos_workq_push(loos_workq *q, uint32_t cls, uint64_t item);                                     /* 0 delayed 1 critical 2 hyper */
+bool    loos_workq_pop(loos_workq *q, uint64_t *item);
+struct loos_seh_image { uint64_t base, size; uint32_t pdata_rva, pdata_len; };
+typedef bool (*loos_seh_read_fn)(void *opaque, uint64_t addr, uint8_t *out, size_t len);
+typedef bool (*loos_seh_handler_fn)(void *opaque, uint32_t kind, uint64_t routine, uint64_t data, uint64_t establisher, uint64_t ctx17[17]); /* true = continue execution */
+int     loos_seh_dispatch(uint64_t ctx17[17], const struct loos_seh_image *images, size_t n, const uint64_t *veh, size_t nveh,
+                          const uint64_t *vch, size_t nvch, uint64_t unhandled, uint64_t stack_lo, uint64_t stack_hi,
+                          loos_seh_read_fn read, loos_seh_handler_fn handler, void *opaque);              /* 0 continue 1 unhandled 2 bad stack */
+typedef struct loos_btrfsr loos_btrfsr;
+loos_btrfsr *loos_btrfsr_open(const uint8_t *data, size_t len);                                         /* strict validating reader, NULL if invalid */
+void    loos_btrfsr_close(loos_btrfsr *r);
+int     loos_btrfsr_stat(const loos_btrfsr *r, const uint8_t *path, size_t plen, uint64_t out4[4]);     /* inode,size,mode,nlink */
+int64_t loos_btrfsr_read(const loos_btrfsr *r, const uint8_t *path, size_t plen, uint64_t offset, uint8_t *out, size_t cap);
+int64_t loos_winpath_to_loos(const char *win, char *out, size_t cap);      /* C:\Users\u -> /home/u; -1 unmappable (docs/FILESYSTEMS.md) */
+int64_t loos_winpath_to_windows(const char *path, char *out, size_t cap);  /* /home/u -> C:\Users\u; outside the map -> Z:\ */
+
 #ifdef __cplusplus
 }
 #endif

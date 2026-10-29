@@ -64,9 +64,14 @@ void kmain(const struct loos_bootinfo *bi)
     if ((uint64_t)(uintptr_t)&kmain < bi->kernel_virt || (uint64_t)(uintptr_t)&kmain >= bi->kernel_virt + bi->kernel_size)
         die("entry is outside the reported kernel image");
 
+    trap_init(bi);
     kalloc_init(bi);
     time_init();
     int test_mode = cmdline_get(bi, "loos.test") != 0;
+    int safe_mode = cmdline_get(bi, "safemode") != 0;           /* one CPU, no splash, 100% scale */
+    install_set_bootinfo(bi);
+    int ndisks = blk_init();
+    uint32_t crashed = bugcheck_boot_report();
     int scale = cmdline_int(cmdline_get(bi, "scale"));
     struct video vid; int have_video = 0;
     if (bi->fb_phys) {
@@ -75,12 +80,17 @@ void kmain(const struct loos_bootinfo *bi)
         if (video_init(&vid, bi) < 0) serial_puts("desktop: framebuffer not usable (needs 32 bpp, 640x400..8192x8192, enough RAM)\n");
         else {
             have_video = 1;
+            bugcheck_set_video(&vid);
+            const char *pick = cmdline_get(bi, "bootmenu.auto");
+            if (bootmenu_run(&vid, cmdline_get(bi, "bootmenu") != 0, test_mode ? 0 : 600, crashed, pick ? cmdline_int(pick) : -1)) safe_mode = 1;
+            if (safe_mode) scale = 100;
             if (!scale) scale = desktop_auto_scale(vid.w, vid.h);
-            splash_start(&vid, scale);
+            if (!safe_mode) splash_start(&vid, scale);
             splash_progress(8, "Starting");
         }
     }
 
+    if (safe_mode) serial_puts("boot: SAFE MODE\n");
     serial_puts("boot: "); serial_puts(bi->flags & LOOS_BOOT_FLAG_UEFI ? "UEFI" : "BIOS");
     serial_puts(", KASLR "); serial_puts(bi->flags & LOOS_BOOT_FLAG_KASLR ? "on" : "off");
     serial_puts(", kernel phys "); serial_hex(bi->kernel_phys); serial_puts(" virt "); serial_hex(bi->kernel_virt);
@@ -117,14 +127,17 @@ void kmain(const struct loos_bootinfo *bi)
     if (acpi_parse_madt(bi->rsdp_phys, &cpus) == 0) { serial_puts(", MADT lists "); serial_dec(cpus.count); serial_puts(" CPUs\n"); }
     else { serial_puts(", no MADT\n"); cpus.count = 1; }
     if (have_video) splash_progress(52, "Processors");
-    uint32_t online = smp_start_aps(bi, &cpus);
+    uint32_t online = safe_mode ? 1 : smp_start_aps(bi, &cpus);
     serial_puts("SMP: "); serial_dec(online); serial_puts(" CPUs online\n");
+    uint64_t sys = loos_kexec_init(online);
+    uint64_t a[6] = { 0 }, child = 0;
+    int st = loos_kexec_syscall(6, a, &child);                     /* CreateProcess: exercises Ob + Ps */
+    serial_puts("executive: System pid "); serial_dec(sys); serial_puts(st == 0 ? ", syscalls ok\n" : ", syscalls FAILED\n");
     (void)wx;
 
     /* ---- disks, installer and login ---- */
-    install_set_bootinfo(bi);
-    int ndisks = blk_init();
     serial_puts("disks: "); serial_dec((uint64_t)ndisks); serial_puts("\n");
+    bugcheck_selftest(cmdline_get(bi, "loos.bugcheck"));
     for (int i = 0; i < ndisks; i++) {
         serial_puts("  "); serial_puts(blk_get(i)->name); serial_puts(": "); serial_puts(blk_get(i)->model);
         serial_puts(", "); serial_dec(blk_get(i)->sectors >> 11); serial_puts(" MiB\n");

@@ -1,0 +1,17 @@
+rust.ffi 15 0.000253542
+shell.compositor_test 15 0.00268618
+shell.perf_test 15 0.0587761
+shell.theme_test 16 0.00274726
+shell.taskbar_test 16 0.00484192
+shell.wm_test 14 0.00391404
+shell.ui_test 16 0.000487448
+shell.settings_test 15 0.0115151
+shell.apps_test 16 0.00893803
+shell.a11y_test 16 0.00375213
+shell.session_test 15 0.126771
+shell.notify_test 15 0.00618735
+shell.installer_test 14 0.316583
+shell.compat_console_test 14 0.00289161
+shell.layout_test 12 0.000214186
+shell.browser_test 12 0.0306793
+---

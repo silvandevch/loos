@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/compositor_test.dir/link.d CMakeFiles/compositor_test.dir/compositor_test.c.o -o compositor_test  ../../src/shell/libloos_shell.a ../../rust-target/release/libloos_ffi.a -lpthread -ldl -lm -lgcc_s ../../src/win32/compat/libloos_compat.a  -Wl,--end-group

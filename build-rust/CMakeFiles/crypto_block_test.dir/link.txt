@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/crypto_block_test.dir/link.d CMakeFiles/crypto_block_test.dir/tests/kernel/crypto_block_test.c.o -o crypto_block_test  src/io/libloos_block.a rust-target/release/libloos_ffi.a -lpthread -ldl -lm -lgcc_s  -Wl,--end-group

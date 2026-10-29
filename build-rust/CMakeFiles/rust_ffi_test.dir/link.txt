@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/rust_ffi_test.dir/link.d CMakeFiles/rust_ffi_test.dir/tests/rust/ffi_test.c.o -o rust_ffi_test  rust-target/release/libloos_ffi.a src/kernel/libloos_kernel_core.a -lpthread -ldl -lm -lgcc_s  -Wl,--end-group

@@ -17,6 +17,22 @@ static inline uint32_t inl(uint16_t p) { uint32_t v; __asm__ volatile("inl %1,%0
 static inline uint64_t rdmsr(uint32_t m) { uint32_t lo, hi; __asm__ volatile("rdmsr" : "=a"(lo), "=d"(hi) : "c"(m)); return (uint64_t)hi << 32 | lo; }
 static inline void wrmsr(uint32_t m, uint64_t v) { __asm__ volatile("wrmsr" : : "c"(m), "a"((uint32_t)v), "d"((uint32_t)(v >> 32))); }
 
+/* bugcheck.c + trap.S. Crash dump area: DUMP_AREA_SECTORS right before the LoOS data partition;
+ * sector 0 = "LOOSDUMP-AREA" header (u8 version @16, u32 sectors @20, u32 len @24, u32 code @28), dump from sector 1. */
+#define DUMP_AREA_SECTORS 2048u
+struct video;
+void trap_init(const struct loos_bootinfo *bi);         /* IDT, TSS with IST stacks, stack guard page */
+uint32_t bugcheck_boot_report(void);                    /* stop code of a dump left by the last crash (reported once), or 0 */
+/* bootmenu.c */
+int bootmenu_run(struct video *v, int force, uint32_t wait_ms, uint32_t crash, int auto_pick);   /* 1 = safe mode */
+void bugcheck_set_video(struct video *v);               /* stop screen target */
+void bugcheck_selftest(const char *what);               /* loos.bugcheck=pf|ud|gp|manual */
+
+/* crates/kffi (Rust, no_std) */
+uint64_t loos_kexec_init(uint32_t cpus);                /* System pid, 0 on failure */
+int loos_kexec_syscall(uint32_t number, const uint64_t args6[6], uint64_t *value);
+size_t loos_kbugcheck_name(uint32_t code, char *out, size_t cap);
+
 /* kalloc.c */
 void kalloc_init(const struct loos_bootinfo *bi);
 void *kalloc(uint64_t size, uint64_t align);        /* NULL when out of memory */
@@ -123,6 +139,7 @@ uint32_t smp_start_aps(const struct loos_bootinfo *bi, const struct acpi_cpus *c
 
 /* vm.c: page-table inspection used for the W^X self check */
 uint64_t vm_pte(uint64_t cr3, uint64_t vaddr, uint64_t *page_size);
+int vm_unmap_page(uint64_t cr3, uint64_t vaddr);
 uint64_t vm_virt_to_phys(const struct loos_bootinfo *bi, const void *p);
 
 void kgdt_load(void);

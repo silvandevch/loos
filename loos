@@ -9,7 +9,8 @@
 #   ./loos boot-bios         build the LoOS BIOS boot image
 #   ./loos source-build windows-mingw  cross-build LoOS PE apps on Linux
 #   ./loos iso               (re)make the bootable ISO
-#   ./loos qemu              boot the ISO in QEMU
+#   ./loos qemu [bios|uefi]  boot the LoOS kernel + desktop in QEMU
+#   ./loos qemu-nt           boot the NT study-tree ISO
 #   ./loos vm-build          build on the Windows VM over SSH (all steps)
 #   ./loos vm <sync|build|iso|fetch|qemu|all>
 #   ./loos bus <status|start|stop|send|inbox|task|watch|...>   agent message bus
@@ -140,7 +141,8 @@ case "${1:-help}" in
     source-build) shift; cmd_source_build "$@" ;;
     boot-bios) shift; cmd_boot_bios "$@" ;;
     iso)      shift; bash "$SCRIPTS_DIR/_iso-run.sh" ;;
-    qemu)     shift; bash "$HERE/remote/run-qemu.sh" "$NT_OUT/loos.iso" ;;
+    qemu)     shift; bash "$HERE/boot/run-desktop.sh" "$@" ;;                 # LoOS kernel (bios|uefi)
+    qemu-nt)  shift; bash "$HERE/remote/run-qemu.sh" "$NT_OUT/loos.iso" ;;    # study-tree ISO
     vm-build) shift; python3 "$HERE/remote/loos-build.py" all ;;
     vm)       shift; python3 "$HERE/remote/loos-build.py" "$@" ;;
     kvm)      shift; bash "$SCRIPTS_DIR/qemu-accel.sh" "${1:-status}" ;;

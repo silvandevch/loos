@@ -32,7 +32,7 @@ fn handles_are_generation_safe_and_duplicate_tracks_rights() {
 #[test]
 fn processes_threads_and_cascading_termination() {
     let mut manager = ObjectManager::new();
-    let (process, pid) = manager.create_process(None);
+    let (process, pid) = manager.create_process(None).unwrap();
     let (thread, tid) = manager.create_thread(process).unwrap();
     assert_eq!(manager.process_info(process).unwrap().thread_count, 1);
     assert_eq!(manager.thread_info(thread).unwrap().process, pid);

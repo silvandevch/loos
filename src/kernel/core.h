@@ -28,6 +28,7 @@ struct loos_thread {
     uint32_t remaining_ticks;
     enum loos_thread_state state;
     bool on_run_queue;
+    bool suspended; /* set by loos_scheduler_sync; pick skips it */
 };
 
 struct loos_run_queue {
@@ -42,6 +43,13 @@ int loos_run_queue_enqueue(struct loos_run_queue *queue,
 int loos_run_queue_remove(struct loos_run_queue *queue,
                           struct loos_thread *thread);
 struct loos_thread *loos_scheduler_pick(struct loos_run_queue *queue);
+/* Executive view of one thread: base priority (1..31) and suspend state. */
+typedef bool (*loos_sched_query_fn)(void *opaque, uint64_t thread_id,
+                                    uint32_t *priority, bool *runnable);
+
+/* Refreshes priority/suspended of every queued thread; returns updated count. */
+size_t loos_scheduler_sync(struct loos_run_queue *queue,
+                           loos_sched_query_fn query, void *opaque);
 int loos_scheduler_tick(struct loos_run_queue *queue,
                         struct loos_thread *current,
                         bool *preempt);

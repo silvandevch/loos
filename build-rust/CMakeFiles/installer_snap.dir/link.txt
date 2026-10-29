@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/installer_snap.dir/link.d CMakeFiles/installer_snap.dir/tools/shell/installer_snap.c.o -o installer_snap  src/shell/libloos_shell.a rust-target/release/libloos_ffi.a -lpthread -ldl -lm -lgcc_s src/win32/compat/libloos_compat.a  -Wl,--end-group

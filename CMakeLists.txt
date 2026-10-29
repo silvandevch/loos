@@ -21,6 +21,13 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/LoosWarnings.cmake)
 
 include(CTest)
 
+# Rust crates and the remaining C modules call each other across static archives
+# (Rust -> loos_shell, C -> loos_rust). Group them so the linker rescans both.
+if(NOT LOOS_FREESTANDING_BUILD)
+    add_link_options("LINKER:--start-group")
+    set(CMAKE_C_STANDARD_LIBRARIES "${CMAKE_C_STANDARD_LIBRARIES} -Wl,--end-group")
+endif()
+
 # ---- Rust crates behind a C ABI (hosted builds) ----
 if(NOT LOOS_FREESTANDING_BUILD AND NOT WIN32)
     add_subdirectory(src/rust)
@@ -95,7 +102,7 @@ if(BUILD_TESTING AND NOT LOOS_FREESTANDING_BUILD)
 
     if(TARGET loos_rust)
         add_executable(rust_ffi_test tests/rust/ffi_test.c)
-        target_link_libraries(rust_ffi_test PRIVATE loos_rust)
+        target_link_libraries(rust_ffi_test PRIVATE loos_rust loos_kernel_core)
         target_compile_options(rust_ffi_test PRIVATE ${LOOS_C_WARNINGS})
         add_test(NAME rust.ffi COMMAND rust_ffi_test)
 

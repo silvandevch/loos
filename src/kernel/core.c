@@ -76,7 +76,8 @@ struct loos_thread *loos_scheduler_pick(struct loos_run_queue *queue)
     for (size_t pass = 0; pass < queue->count; ++pass) {
         const size_t index = (queue->cursor + pass) % queue->count;
         struct loos_thread *candidate = queue->threads[index];
-        if (!valid_thread(candidate) || candidate->state == LOOS_THREAD_BLOCKED) {
+        if (!valid_thread(candidate) || candidate->suspended ||
+            candidate->state == LOOS_THREAD_BLOCKED) {
             continue;
         }
         if (best == NULL || candidate->priority > best->priority) {
@@ -89,6 +90,27 @@ struct loos_thread *loos_scheduler_pick(struct loos_run_queue *queue)
         best->state = LOOS_THREAD_RUNNING;
     }
     return best;
+}
+
+size_t loos_scheduler_sync(struct loos_run_queue *queue,
+                           loos_sched_query_fn query, void *opaque)
+{
+    size_t n = 0;
+    if (queue == NULL || query == NULL) {
+        return 0;
+    }
+    for (size_t i = 0; i < queue->count; ++i) {
+        struct loos_thread *t = queue->threads[i];
+        uint32_t priority;
+        bool runnable;
+        if (t != NULL && query(opaque, t->id, &priority, &runnable) &&
+            priority <= 31U) {
+            t->priority = priority;
+            t->suspended = !runnable;
+            ++n;
+        }
+    }
+    return n;
 }
 
 int loos_scheduler_tick(struct loos_run_queue *queue,

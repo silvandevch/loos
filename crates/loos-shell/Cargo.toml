@@ -1,0 +1,15 @@
+[package]
+name = "loos-shell"
+description = "LoOS desktop shell in Rust: drawing primitives, damage tracking (C ABI matches src/shell/shell.h)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+loos-vfs = { path = "../loos-vfs" }
+loos-security = { path = "../loos-security" }
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
+
+[lints]
+workspace = true

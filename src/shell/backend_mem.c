@@ -38,6 +38,7 @@ static fw_action mem_fw_check(void *u, const char *proc)
 static bool mem_hard_get(void *u) { return M(u)->hard_off; }
 static void mem_hard_set(void *u, bool off) { M(u)->hard_off = off; }
 /* ---- in-memory filesystem: absolute '/'-separated paths, directories are explicit nodes ---- */
+static int file_find(backend_mem *m, const char *p) { for (int i = 0; i < m->nfile; i++) if (!strcmp(m->file[i].path, p)) return i; return -1; }
 static int node_find(backend_mem *m, const char *p) { for (int i = 0; i < m->nnode; i++) if (!strcmp(m->node[i].path, p)) return i; return -1; }
 static void norm_path(const char *in, char *out, size_t cap)
 {
@@ -99,6 +100,31 @@ static bool mem_fs_mkdir(void *u, const char *path)
     if (!parent_is_dir(m, p)) return false;
     return backend_mem_add_node(m, p, true, 0, 1700000000, 0);
 }
+static int64_t mem_fs_read(void *u, const char *path, char *out, size_t cap)
+{
+    backend_mem *m = M(u); char p[160]; norm_path(path, p, sizeof p);
+    int n = node_find(m, p);
+    if (n < 0 || m->node[n].dir) return -1;
+    int f = file_find(m, p);
+    size_t len = f < 0 ? 0 : m->file[f].len;
+    if (len > cap) len = cap;
+    if (len) memcpy(out, m->file[f].data, len);
+    return (int64_t)len;
+}
+static bool mem_fs_write(void *u, const char *path, const char *data, size_t len)
+{
+    backend_mem *m = M(u); char p[160]; norm_path(path, p, sizeof p);
+    if (len > MEM_FILE_BYTES || !parent_is_dir(m, p)) return false;
+    int n = node_find(m, p);
+    if (n >= 0 && (m->node[n].dir || (m->node[n].attrs & FSA_READONLY))) return false;
+    int f = file_find(m, p);
+    if (f < 0) { if (m->nfile >= MEM_MAX_FILES) return false; f = m->nfile++; strcpy(m->file[f].path, p); }
+    if (n < 0 && !backend_mem_add_node(m, p, false, 0, 1700000000, 0)) { m->nfile--; return false; }
+    n = node_find(m, p);
+    memcpy(m->file[f].data, data, len); m->file[f].len = (uint32_t)len;
+    m->node[n].size = len;
+    return true;
+}
 static bool mem_fs_remove(void *u, const char *path)
 {
     backend_mem *m = M(u); char p[160]; norm_path(path, p, sizeof p);
@@ -119,6 +145,8 @@ static bool mem_fs_rename(void *u, const char *from, const char *to)
     for (int k = 0; k < m->nnode; k++)
         if (!strcmp(m->node[k].path, f) || (!strncmp(m->node[k].path, f, fl) && m->node[k].path[fl] == '/')) {
             char np[160]; snprintf(np, sizeof np, "%s%s", t, m->node[k].path + fl);
+            int fi = file_find(m, m->node[k].path);
+            if (fi >= 0) strcpy(m->file[fi].path, np);                               /* contents follow the file */
             strcpy(m->node[k].path, np);
         }
     return true;
@@ -224,7 +252,7 @@ void backend_mem_init(backend_mem *m, shell_backend *b)
     b->perm_state_get = mem_perm_state; b->perm_reset = mem_perm_reset;
     b->cfg_get = mem_cfg_get; b->cfg_set = mem_cfg_set;
     b->fs_list = mem_fs_list; b->fs_stat = mem_fs_stat; b->fs_mkdir = mem_fs_mkdir; b->fs_remove = mem_fs_remove;
-    b->fs_rename = mem_fs_rename; b->fs_copy = mem_fs_copy; b->fs_volumes = mem_fs_volumes;
+    b->fs_rename = mem_fs_rename; b->fs_copy = mem_fs_copy; b->fs_read = mem_fs_read; b->fs_write = mem_fs_write; b->fs_volumes = mem_fs_volumes;
     b->ps_snapshot = mem_ps_snapshot; b->ps_kill = mem_ps_kill;
 }
 void backend_mem_add_conn(backend_mem *m, const char *proc, uint32_t pid, const char *remote, uint16_t port, const char *proto, const char *state)

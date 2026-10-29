@@ -27,7 +27,14 @@ static void host_frame(struct video *v, uint32_t *last_clock, int *h, int *m)
 {
     feed_inputs();
     uint32_t now = time_ms();
-    if (now - *last_clock > 1000) { *last_clock = now; int s; rtc_time(h, m, &s); }
+    if (now - *last_clock > 1000) {
+        *last_clock = now; int s; rtc_time(h, m, &s);
+        int64_t z = (int64_t)(rtc_unix() / 86400) + 719468, era = z / 146097;      /* civil date from days (Howard Hinnant) */
+        unsigned doe = (unsigned)(z - era * 146097), yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100), mp = (5 * doy + 2) / 153;
+        int mon = (int)(mp < 10 ? mp + 3 : mp - 9);
+        desktop_set_date(&D, (int)(doy - (153 * mp + 2) / 5 + 1), mon, (int)(yoe + era * 400 + (mon <= 2)));
+    }
     desktop_tick(&D, now, *h, *m);
     shell_rect r = desktop_render(&D);
     if (r.w > 0) video_present(v, r.x, r.y, r.w, r.h);

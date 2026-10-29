@@ -1,0 +1,18 @@
+src/win32/apisets/CMakeFiles/loos_apiset.dir/apiset.c.o: \
+  /run/media/silvan/DATA/LoOS/src/win32/apisets/apiset.c \
+  /run/media/silvan/DATA/LoOS/src/win32/apisets/apiset.h \
+  /usr/bin/../lib/clang/22/include/stddef.h \
+  /usr/bin/../lib/clang/22/include/__stddef_header_macro.h \
+  /usr/bin/../lib/clang/22/include/__stddef_ptrdiff_t.h \
+  /usr/bin/../lib/clang/22/include/__stddef_size_t.h \
+  /usr/bin/../lib/clang/22/include/__stddef_wchar_t.h \
+  /usr/bin/../lib/clang/22/include/__stddef_null.h \
+  /usr/bin/../lib/clang/22/include/__stddef_max_align_t.h \
+  /usr/bin/../lib/clang/22/include/__stddef_offsetof.h \
+  /run/media/silvan/DATA/LoOS/src/win32/apisets/apiset_table.h \
+  /usr/include/string.h /usr/include/bits/libc-header-start.h \
+  /usr/include/features.h /usr/include/features-time64.h \
+  /usr/include/bits/wordsize.h /usr/include/bits/timesize.h \
+  /usr/include/stdc-predef.h /usr/include/sys/cdefs.h \
+  /usr/include/bits/long-double.h /usr/include/gnu/stubs.h \
+  /usr/include/gnu/stubs-64.h

@@ -585,6 +585,8 @@ fn aliases_conflict_any(existing: &[String], mountpoint: &str, aliases: &[String
 }
 
 /// Adapter implementations for filesystems from [`loos_fs`].
+pub mod winpath;
+
 pub mod adapters {
     use super::{FileSystem, VfsError};
     use alloc::vec::Vec;

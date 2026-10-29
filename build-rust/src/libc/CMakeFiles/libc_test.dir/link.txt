@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -nostdlib -static -Xlinker --dependency-file=CMakeFiles/libc_test.dir/link.d CMakeFiles/libc_test.dir/__/__/tests/libc/libc_test.c.o -o libc_test  libloos_c.a  -Wl,--end-group

@@ -1,0 +1,1 @@
+/usr/bin/clang -Xlinker --start-group -Xlinker --dependency-file=CMakeFiles/ui_test.dir/link.d CMakeFiles/ui_test.dir/ui_test.c.o -o ui_test  ../../src/shell/libloos_shell.a ../../rust-target/release/libloos_ffi.a -lpthread -ldl -lm -lgcc_s ../../src/win32/compat/libloos_compat.a  -Wl,--end-group

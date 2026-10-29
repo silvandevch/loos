@@ -8,6 +8,9 @@
 use std::slice;
 
 pub mod crypto;
+/// Shell drawing core: its `extern "C"` symbols land in libloos_ffi.a.
+pub use loos_shell;
+pub mod exec;
 pub mod iso;
 pub mod kernel;
 pub mod storage;

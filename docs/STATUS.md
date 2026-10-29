@@ -29,6 +29,7 @@ kernel entry point, no bootloader output, and no LoOS ISO.
 | compat engine | `src/win32/compat/compat.c` (329 lines) | per-era version claims (Win7/10/11); tested |
 | Win32 DLLs | `src/win32/{ntdll,kernel32}`, `scripts/win32/build-pe.sh` | builds real PE32+ `ntdll.dll` + `kernel32.dll` (+ `kernelbase.dll`) via clang + LLD |
 | Desktop apps | `apps/` (19,669 lines) | `LoCalc.exe`, `LoNotepad.exe`, `LoTaskMgr.exe`, `LoCmd.exe` — real Win32 GUI/console apps; `LoCmd.exe` verified running under Wine |
+| LoOS Browser | `crates/loos-shell/src/apps/browser.rs` | tabs, history, bookmarks (persisted), HTML+CSS subset, local files/`loos://` pages, local search; under `./loos qemu` live HTTP(S) via a host web bridge (TLS on the host, no guest sockets). Rust unit tests + `tests/shell/browser_test.c` + `tests/boot/browser_qemu.py`; Firefox/Gecko is planned in [BROWSER.md](BROWSER.md) |
 | Executive object model | `crates/loos-kernel` | generation-safe handles, process/thread/event objects, named namespaces, security descriptors, and first syscall dispatcher; five host tests pass |
 | Registry hive | `crates/loos-registry` | bounded `regf`/`hbin` load/save, key/value API, standard list-cell parsing, and three round-trip/corruption tests |
 
