@@ -25,7 +25,7 @@ to run, so do the volume.
 
 ## The rules (non-negotiable)
 
-1. **Write real, working code.** No stubs, no "educational only", no
+1. **Write real, working code.** Ship complete implementations, not stubs or
    placeholders — unless the task *is* to produce a stub.
 2. **Read the original source freely; don't 1:1 copy unless there is genuinely
    no other way.** When you do copy, comment the exact source and add a
