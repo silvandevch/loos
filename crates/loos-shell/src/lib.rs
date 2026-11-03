@@ -8,9 +8,12 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+pub mod apphost;
 pub mod apps;
 pub mod backend;
+pub mod backend_mem;
 pub mod compositor;
+pub mod desktop;
 pub mod draw;
 pub mod ffi;
 pub mod font;
@@ -20,6 +23,8 @@ pub mod font_data;
 pub mod installer;
 pub mod inventory;
 pub mod launcher;
+pub mod look;
+pub mod looks_ui;
 pub mod notify;
 pub mod perms;
 pub mod raster;

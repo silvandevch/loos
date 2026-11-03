@@ -125,7 +125,9 @@ setting|Appearance|settings:appearance|theme dark light accent scale dpi wallpap
 setting|Compatibility|settings:compat|windows version 7 10 11 shim\n\
 setting|Accounts|settings:accounts|users sign-in password\n\
 setting|Accessibility|settings:accessibility|contrast narrator keyboard magnifier motion\n\
-setting|Display|settings:display|resolution monitors scale dpi\n";
+setting|Display|settings:display|resolution monitors scale dpi\n\
+setting|Looks|settings:looks|theme preset style dock tiler classic dark light layout desktop\n\
+setting|Behavior|settings:behavior|tiling gap focus follows mouse night light shortcuts keys\n";
 
 pub fn defaults(inv: &mut ShellInventory) {
     parse(inv, DEFAULTS);
@@ -202,8 +204,8 @@ mod tests {
         let inv = Box::leak(Box::new(unsafe { core::mem::zeroed::<ShellInventory>() }));
         init(inv);
         defaults(inv);
-        assert_eq!(inv.n, 14);
-        let apps = inv.item[..14].iter().filter(|i| i.kind == ITEM_APP).count();
+        assert_eq!(inv.n, 16);
+        let apps = inv.item[..16].iter().filter(|i| i.kind == ITEM_APP).count();
         assert_eq!(apps, 5);
         assert_eq!(&inv.item[4].name[..12], b"LoOS Browser");
     }

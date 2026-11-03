@@ -362,7 +362,7 @@ pub fn apply(s: &ThemeSpec, c: &mut Compositor) {
     c.set_style(&st);
 }
 
-fn key_for(prefix: &[u8], name: &[u8]) -> [u8; 48] {
+pub(crate) fn key_for(prefix: &[u8], name: &[u8]) -> [u8; 48] {
     let mut k = [0u8; 48];
     let mut n = 0;
     while n < k.len() - 1 && n < prefix.len() && prefix[n] != 0 {

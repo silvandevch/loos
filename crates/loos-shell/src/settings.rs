@@ -20,7 +20,9 @@ pub const PG_APPEARANCE: i32 = 4;
 pub const PG_ACCESS: i32 = 5;
 pub const PG_ACCOUNTS: i32 = 6;
 pub const PG_PERSONALIZE: i32 = 7;
-pub const PG_COUNT: usize = 8;
+pub const PG_LOOKS: i32 = 8;
+pub const PG_BEHAVIOR: i32 = 9;
+pub const PG_COUNT: usize = 10;
 
 const MEM_MAX_APPS: usize = 32;
 const MEM_MAX_RULES: usize = 64;
@@ -50,6 +52,8 @@ pub static settings_page_name: [CStrPtr; PG_COUNT] = [
     CStrPtr(b"Accessibility\0".as_ptr() as *const c_char),
     CStrPtr(b"Accounts\0".as_ptr() as *const c_char),
     CStrPtr(b"Personalize\0".as_ptr() as *const c_char),
+    CStrPtr(b"Looks\0".as_ptr() as *const c_char),
+    CStrPtr(b"Behavior\0".as_ptr() as *const c_char),
 ];
 const PAGE_NAMES: [&[u8]; PG_COUNT] = [
     b"Privacy\0",
@@ -60,8 +64,10 @@ const PAGE_NAMES: [&[u8]; PG_COUNT] = [
     b"Accessibility\0",
     b"Accounts\0",
     b"Personalize\0",
+    b"Looks\0",
+    b"Behavior\0",
 ];
-const PAGE_IDS: [&[u8]; PG_COUNT] = [b"privacy", b"firewall", b"permissions", b"updates", b"appearance", b"accessibility", b"accounts", b"personalize"];
+const PAGE_IDS: [&[u8]; PG_COUNT] = [b"privacy", b"firewall", b"permissions", b"updates", b"appearance", b"accessibility", b"accounts", b"personalize", b"looks", b"behavior"];
 
 #[no_mangle]
 pub static settings_accents: [u32; 6] = [0xFF3B_82F6, 0xFF8B_5CF6, 0xFF10_B981, 0xFFF5_9E0B, 0xFFEF_4444, 0xFFEC_4899];
@@ -97,7 +103,7 @@ pub struct ShellSettings {
     pub changes: i32,
 }
 
-fn bytes0(a: &[u8]) -> &[u8] {
+pub(crate) fn bytes0(a: &[u8]) -> &[u8] {
     let n = a.iter().position(|&b| b == 0).unwrap_or(a.len());
     &a[..n]
 }
@@ -107,11 +113,11 @@ fn put(dst: &mut [u8], src: &[u8]) {
     let n = src.len().min(dst.len() - 1);
     dst[..n].copy_from_slice(&src[..n]);
 }
-fn be<'a>(s: &ShellSettings) -> &'a ShellBackend { unsafe { &*s.be } }
+pub(crate) fn be<'a>(s: &ShellSettings) -> &'a ShellBackend { unsafe { &*s.be } }
 fn comp<'a>(s: &ShellSettings) -> Option<&'a mut crate::compositor::Compositor> {
     if s.comp.is_null() { None } else { Some(unsafe { &mut *s.comp }) }
 }
-fn num_str(out: &mut [u8], mut v: u32) -> usize {
+pub(crate) fn num_str(out: &mut [u8], mut v: u32) -> usize {
     let mut tmp = [0u8; 12];
     let mut n = 0;
     if v == 0 { tmp[0] = b'0'; n = 1; }
@@ -216,12 +222,12 @@ pub fn net_state(s: &ShellSettings) -> i32 {
     if s.nconns > 0 { NET_ACTIVE } else { NET_IDLE }
 }
 
-fn changed(s: &mut ShellSettings) {
+pub(crate) fn changed(s: &mut ShellSettings) {
     s.changes += 1;
     apply(s);
 }
 
-fn cfg_toggle(s: &mut ShellSettings, u: &mut UiCtx, r: Rect, label: &[u8], key: &[u8], def: bool) {
+pub(crate) fn cfg_toggle(s: &mut ShellSettings, u: &mut UiCtx, r: Rect, label: &[u8], key: &[u8], def: bool) {
     let b = be(s);
     let mut v = crate::backend::cfg_bool(b, key, def);
     if ui::toggle(u, r, label, &mut v) {
@@ -548,7 +554,7 @@ pub fn quick(s: &mut ShellSettings, action: i32, value: u32) {
     }
 }
 
-fn pers_slider(u: &mut UiCtx, x: i32, y: i32, w: i32, label: &[u8], v: &mut i32, lo: i32, hi: i32) -> bool {
+pub(crate) fn pers_slider(u: &mut UiCtx, x: i32, y: i32, w: i32, label: &[u8], v: &mut i32, lo: i32, hi: i32) -> bool {
     let mut txt = [0u8; 48];
     let mut n = 0;
     for &c in bytes0(label) { txt[n] = c; n += 1; }
@@ -775,6 +781,8 @@ pub fn frame(s: &mut ShellSettings, u: &mut UiCtx, w: i32, h: i32) {
         PG_ACCESS => page_access(s, u, c),
         PG_ACCOUNTS => page_accounts(s, u, c),
         PG_PERSONALIZE => page_personalize(s, u, c),
+        PG_LOOKS => crate::looks_ui::page_looks(s, u, c),
+        PG_BEHAVIOR => crate::looks_ui::page_behavior(s, u, c),
         _ => {}
     }
 }
