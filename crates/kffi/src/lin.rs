@@ -9,39 +9,41 @@ use core::arch::asm;
 use loos_lin::fs::MemFs;
 use loos_lin::mem::{UserMem, PROT_EXEC, PROT_WRITE};
 use loos_lin::sys::{Delivery, LinSystem, Pid, Sys, TState};
+use loos_win32k::{Hwnd, WS_OVERLAPPEDWINDOW, WS_VISIBLE};
 
+#[derive(Clone, Copy)]
 #[repr(C, align(16))]
-struct UFrame {
-    gpr: [u64; 16],
-    vector: u64,
-    error: u64,
-    rip: u64,
-    cs: u64,
-    rflags: u64,
-    rsp: u64,
-    ss: u64,
-    cr3: u64,
-    _pad: u64,
-    fx: [u8; 512],
+pub(crate) struct UFrame {
+    pub(crate) gpr: [u64; 16],
+    pub(crate) vector: u64,
+    pub(crate) error: u64,
+    pub(crate) rip: u64,
+    pub(crate) cs: u64,
+    pub(crate) rflags: u64,
+    pub(crate) rsp: u64,
+    pub(crate) ss: u64,
+    pub(crate) cr3: u64,
+    pub(crate) _pad: u64,
+    pub(crate) fx: [u8; 512],
 }
 
 extern "C" {
-    fn run_user(f: *mut UFrame) -> u64;
+    pub(crate) fn run_user(f: *mut UFrame) -> u64;
     fn kalloc(size: u64, align: u64) -> *mut u8;
     fn serial_putc(c: i8);
     fn serial_puts(s: *const u8);
     fn serial_dec(v: u64);
-    fn time_us() -> u64;
-    fn user_init();
+    pub(crate) fn time_us() -> u64;
+    pub(crate) fn user_init();
 }
 
 const P: u64 = 1;
 const W: u64 = 2;
 const U: u64 = 4;
 const NX: u64 = 1 << 63;
-const MSR_FS_BASE: u32 = 0xC000_0100;
+pub(crate) const MSR_FS_BASE: u32 = 0xC000_0100;
 
-fn say(s: &str) {
+pub(crate) fn say(s: &str) {
     for b in s.bytes() {
         // SAFETY: serial_putc is plain port I/O.
         unsafe { serial_putc(b as i8) };
@@ -66,20 +68,20 @@ fn read_cr3() -> u64 {
     v
 }
 
-fn read_cr2() -> u64 {
+pub(crate) fn read_cr2() -> u64 {
     let v: u64;
     // SAFETY: reading CR2 is side-effect free.
     unsafe { asm!("mov {}, cr2", out(reg) v, options(nomem, nostack)) };
     v
 }
 
-unsafe fn wrmsr(msr: u32, v: u64) {
+pub(crate) unsafe fn wrmsr(msr: u32, v: u64) {
     // SAFETY: caller passes a valid MSR.
     unsafe { asm!("wrmsr", in("ecx") msr, in("eax") v as u32, in("edx") (v >> 32) as u32, options(nomem, nostack)) };
 }
 
 /// Build a PML4 mapping every page of `mem` as user memory; entry 511 (kernel image) is shared.
-fn build_pml4(mem: &UserMem) -> u64 {
+pub(crate) fn build_pml4(mem: &UserMem) -> u64 {
     // SAFETY: tables come from kalloc (identity mapped); indices are masked to 0..512.
     unsafe {
         let pml4 = new_table();
@@ -125,6 +127,8 @@ struct Lin {
     sys: LinSystem<MemFs>,
     pml4: BTreeMap<Pid, (u64, u64)>,
     last: Pid,
+    desk: alloc::rc::Rc<core::cell::RefCell<loos_win32k::Win32k>>,
+    wayland_windows: BTreeMap<u32, Hwnd>,
 }
 
 impl Lin {
@@ -152,6 +156,32 @@ impl Lin {
         let ids = self.sys.thread_ids();
         let runnable = |s: &LinSystem<MemFs>, t: Pid| s.thread(t).is_some_and(|t| t.state == TState::Runnable);
         ids.iter().copied().find(|&t| t > self.last && runnable(&self.sys, t)).or_else(|| ids.iter().copied().find(|&t| runnable(&self.sys, t)))
+    }
+
+    fn present_wayland(&mut self) {
+        for frame in self.sys.take_wayland_frames() {
+            let hwnd = if let Some(&h) = self.wayland_windows.get(&frame.surface) {
+                h
+            } else {
+                let mut desk = self.desk.borrow_mut();
+                let Ok(h) = desk.create_window_ex(
+                    0,
+                    "LooSLinux",
+                    core::str::from_utf8(&frame.title).unwrap_or("Wayland application"),
+                    WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                    40,
+                    40,
+                    frame.width as i32,
+                    frame.height as i32,
+                    0,
+                    0,
+                    0,
+                ) else { continue };
+                self.wayland_windows.insert(frame.surface, h);
+                h
+            };
+            self.desk.borrow_mut().import_window_pixels(hwnd, frame.width as i32, frame.height as i32, &frame.pixels);
+        }
     }
 
     /// Run until process `main` ends. Returns its wait status (exit code << 8, or signal number).
@@ -228,6 +258,7 @@ impl Lin {
                     Sys::ProcessExit(st) if pid == main => status = Some(st),
                     _ => {}
                 }
+                self.present_wayland();
             } else {
                 let cr2 = read_cr2();
                 let fixed = vector == 14 && self.sys.process_mut(pid).is_some_and(|p| p.mem.handle_fault(cr2));
@@ -259,9 +290,18 @@ impl Lin {
 }
 
 /// Boot entry: `cmd` is `path,arg1,arg2,...`; the root filesystem is the tar in `initrd`.
+/// When `back` is supplied, the composed Linux desktop is presented into that
+/// kernel video backbuffer at the supplied dimensions before returning.
 /// Returns the program's wait status (`exit << 8`), or a negative value on setup failure.
 #[no_mangle]
-pub unsafe extern "C" fn loos_lin_boot(initrd: *const u8, len: usize, cmd: *const u8) -> i32 {
+pub unsafe extern "C" fn loos_lin_boot(
+    initrd: *const u8,
+    len: usize,
+    cmd: *const u8,
+    back: *mut u32,
+    width: i32,
+    height: i32,
+) -> i32 {
     // SAFETY: initrd/len describe the boot module; cmd is NUL terminated.
     let (tar, cmd) = unsafe {
         user_init();
@@ -272,7 +312,7 @@ pub unsafe extern "C" fn loos_lin_boot(initrd: *const u8, len: usize, cmd: *cons
         (if initrd.is_null() { &[][..] } else { core::slice::from_raw_parts(initrd, len) }, String::from_utf8_lossy(core::slice::from_raw_parts(cmd, n)).into_owned())
     };
     let mut fs = MemFs::new();
-    for d in ["/bin", "/usr/bin", "/lib", "/lib64", "/etc", "/tmp", "/dev", "/proc", "/home"] {
+    for d in ["/bin", "/usr/bin", "/lib", "/lib64", "/etc", "/tmp", "/dev", "/proc", "/home", "/run", "/run/user", "/run/user/1000"] {
         fs.add_dir(d);
     }
     let files = fs.load_tar(tar);
@@ -283,10 +323,19 @@ pub unsafe extern "C" fn loos_lin_boot(initrd: *const u8, len: usize, cmd: *cons
     let argv: Vec<String> = cmd.split(',').map(String::from).collect();
     let mut sys = LinSystem::new(fs);
     sys.stdin_eof = true;
-    // liblooswin: Linux programs reach the LoOS window system through bridge syscalls (compositing hook TBD).
-    let desk = alloc::rc::Rc::new(core::cell::RefCell::new(loos_win32k::Win32k::new(1024, 768)));
-    sys.set_bridge(alloc::boxed::Box::new(loos_lin::bridge::Win32Bridge::new(desk)));
-    let env = [String::from("PATH=/bin:/usr/bin"), String::from("HOME=/home"), String::from("TERM=linux")];
+    // liblooswin: Linux programs reach the LoOS window system through bridge syscalls.
+    let screen_w = width.max(1);
+    let screen_h = height.max(1);
+    let desk = alloc::rc::Rc::new(core::cell::RefCell::new(loos_win32k::Win32k::new(screen_w, screen_h)));
+    sys.set_bridge(alloc::boxed::Box::new(loos_lin::bridge::Win32Bridge::new(desk.clone())));
+    let env = [
+        String::from("PATH=/bin:/usr/bin"),
+        String::from("HOME=/home"),
+        String::from("TERM=linux"),
+        String::from("XDG_RUNTIME_DIR=/run/user/1000"),
+        String::from("WAYLAND_DISPLAY=wayland-0"),
+        String::from("GDK_BACKEND=wayland"),
+    ];
     let pid = match sys.spawn(&argv[0], &argv, &env) {
         Ok(p) => p,
         Err(e) => {
@@ -297,8 +346,24 @@ pub unsafe extern "C" fn loos_lin_boot(initrd: *const u8, len: usize, cmd: *cons
             return -1;
         }
     };
-    let mut lin = Lin { sys, pml4: BTreeMap::new(), last: 0 };
+    let mut lin = Lin { sys, pml4: BTreeMap::new(), last: 0, desk: desk.clone(), wayland_windows: BTreeMap::new() };
     let st = lin.run(pid);
+    // Compose the Win32 bridge's desktop into the real kernel video backbuffer.
+    // The Linux GUI corpus paints a known green client rectangle; report its
+    // pixels so the headless QEMU proof checks rendering, not just syscalls.
+    let pixels = (screen_w as usize).saturating_mul(screen_h as usize);
+    let frame = if back.is_null() {
+        &mut []
+    } else {
+        // SAFETY: the kernel owns a writable `width * height` ARGB backbuffer.
+        unsafe { core::slice::from_raw_parts_mut(back, pixels) }
+    };
+    desk.borrow_mut().compose(frame);
+    let green = frame.iter().filter(|&&p| p == 0xff00_c800).count();
+    say("lin: gui composed green pixels ");
+    // SAFETY: serial output.
+    unsafe { serial_dec(green as u64) };
+    say("\n");
     // SAFETY: NUL-terminated literal.
     unsafe { serial_puts(b"lin: program finished, status \0".as_ptr()) };
     unsafe { serial_dec(st as u32 as u64) };

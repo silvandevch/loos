@@ -135,6 +135,26 @@ pub trait FileSystem {
         let _ = path;
         Err(VfsError::Unsupported)
     }
+    /// Resizes a regular file, preserving bytes below the new length.
+    fn truncate(&mut self, path: &str, len: u64) -> Result<(), VfsError> {
+        let _ = (path, len);
+        Err(VfsError::Unsupported)
+    }
+    /// Creates a directory with the supplied POSIX mode.
+    fn mkdir(&mut self, path: &str, mode: u32) -> Result<(), VfsError> {
+        let _ = (path, mode);
+        Err(VfsError::Unsupported)
+    }
+    /// Removes a regular file or an empty directory.
+    fn remove(&mut self, path: &str, directory: bool) -> Result<(), VfsError> {
+        let _ = (path, directory);
+        Err(VfsError::Unsupported)
+    }
+    /// Creates a symbolic link.
+    fn symlink(&mut self, target: &str, path: &str) -> Result<(), VfsError> {
+        let _ = (target, path);
+        Err(VfsError::Unsupported)
+    }
     /// Atomically renames `from` over `to` (replacing it). btrfs backends map this to a CoW rename.
     fn rename(&mut self, from: &str, to: &str) -> Result<(), VfsError> {
         let _ = (from, to);
@@ -389,6 +409,46 @@ impl MountManager {
         }
         let vi = self.mounts[index].volume_index;
         self.volumes[vi].backend.create_file(&subpath)
+    }
+
+    /// Resizes a regular file while enforcing the mount's read-only state.
+    pub fn truncate(&mut self, path: &str, len: u64) -> Result<(), VfsError> {
+        let (index, subpath) = self.resolve(path)?;
+        if self.mounts[index].info.read_only {
+            return Err(VfsError::Fs(FsError::ReadOnly));
+        }
+        let vi = self.mounts[index].volume_index;
+        self.volumes[vi].backend.truncate(&subpath, len)
+    }
+
+    /// Creates a directory while enforcing the mount's read-only state.
+    pub fn mkdir(&mut self, path: &str, mode: u32) -> Result<(), VfsError> {
+        let (index, subpath) = self.resolve(path)?;
+        if self.mounts[index].info.read_only {
+            return Err(VfsError::Fs(FsError::ReadOnly));
+        }
+        let vi = self.mounts[index].volume_index;
+        self.volumes[vi].backend.mkdir(&subpath, mode)
+    }
+
+    /// Removes a regular file or empty directory while enforcing mount policy.
+    pub fn remove(&mut self, path: &str, directory: bool) -> Result<(), VfsError> {
+        let (index, subpath) = self.resolve(path)?;
+        if self.mounts[index].info.read_only {
+            return Err(VfsError::Fs(FsError::ReadOnly));
+        }
+        let vi = self.mounts[index].volume_index;
+        self.volumes[vi].backend.remove(&subpath, directory)
+    }
+
+    /// Creates a symbolic link while enforcing the mount's read-only state.
+    pub fn symlink(&mut self, target: &str, path: &str) -> Result<(), VfsError> {
+        let (index, subpath) = self.resolve(path)?;
+        if self.mounts[index].info.read_only {
+            return Err(VfsError::Fs(FsError::ReadOnly));
+        }
+        let vi = self.mounts[index].volume_index;
+        self.volumes[vi].backend.symlink(target, &subpath)
     }
 
     /// Renames within one mount (replacing the destination atomically).

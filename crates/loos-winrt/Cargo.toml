@@ -1,0 +1,14 @@
+[package]
+name = "loos-winrt"
+description = "LoOS Windows process runtime: PE64 loader, import binding to kernel syscall stubs, kernel32/ntdll syscall layer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+loos-lin = { path = "../loos-lin" }
+loos-win32k = { path = "../loos-win32k" }
+
+[lints]
+workspace = true

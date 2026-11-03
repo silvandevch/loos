@@ -7,7 +7,11 @@ use alloc::vec::Vec;
 use core::net::{IpAddr, Ipv4Addr};
 use loos_compositor::d3d11::{Context, Format, SwapChain, SwapEffect};
 use loos_compositor::Compositor;
-use loos_drivers::hw::{DmaArena, Mmio};
+use core::cell::UnsafeCell;
+use loos_compositor::SurfaceId;
+use loos_drivers::e1000::E1000;
+use loos_drivers::gpu::{BochsVga, Gpu};
+use loos_drivers::hw::{DmaArena, Mmio, Nic};
 use loos_drivers::storage::BlockDev;
 use loos_drivers::xhci::{Kind, Xhci};
 use loos_kernel::smss::{Launcher, Outcome, SmConfig, Smss};
@@ -211,26 +215,315 @@ pub unsafe extern "C" fn loos_xhci_probe(mmio: u64, dma_virt: *mut u8, dma_phys:
     devs.len() as i32
 }
 
-/// Brings up an NVMe controller; returns the namespace size in sectors (0 on failure).
-///
-/// # Safety
-/// Same contract as [`loos_xhci_probe`] with `dma_len >= loos_drivers::nvme::ARENA_BYTES`. The C NVMe driver
-/// must not own this controller.
-#[no_mangle]
-pub unsafe extern "C" fn loos_nvme_probe(mmio: u64, dma_virt: *mut u8, dma_phys: u64, dma_len: u64) -> u64 {
-    let dma = RawDma { virt: dma_virt, phys: dma_phys, len: dma_len as usize };
-    loos_drivers::nvme::Nvme::new(RawMmio(mmio as *mut u8), dma).map_or(0, |n| n.sectors())
+// ---------------------------------------------------------------------------------- boot-time services
+
+/// Single-CPU boot-time global (same discipline as `EXEC` in lib.rs).
+struct Global<T>(UnsafeCell<Option<T>>);
+// SAFETY: only touched from the BSP main loop.
+unsafe impl<T> Sync for Global<T> {}
+impl<T> Global<T> {
+    const fn new() -> Self {
+        Global(UnsafeCell::new(None))
+    }
+    #[allow(clippy::mut_from_ref)]
+    fn get(&self) -> &mut Option<T> {
+        // SAFETY: see the Sync impl.
+        unsafe { &mut *self.0.get() }
+    }
 }
 
-/// Brings up an AHCI HBA; returns the number of SATA disks found.
+struct Desktop {
+    comp: Compositor,
+    surface: SurfaceId,
+}
+static DESKTOP: Global<Desktop> = Global::new();
+
+/// Presents the rectangle `(x, y, w, h)` of the shell's `back` buffer (`bw` x `bh`, 0xAARRGGBB) to the
+/// scan-out buffer through the compositor. Returns 0 on success, -1 when the caller must blit itself
+/// (unsupported pixel layout or no memory).
 ///
 /// # Safety
-/// Same contract with `dma_len >= loos_drivers::ahci::PORT_REGION` per disk. The C AHCI driver must not own it.
+/// `back` points at `bw * bh` pixels; `screen` at `bh` rows of `pitch` bytes of 32-bit BGRX scan-out memory.
 #[no_mangle]
-pub unsafe extern "C" fn loos_ahci_probe(mmio: u64, dma_virt: *mut u8, dma_phys: u64, dma_len: u64) -> i32 {
-    let dma = RawDma { virt: dma_virt, phys: dma_phys, len: dma_len as usize };
-    loos_drivers::ahci::Ahci::new(RawMmio(mmio as *mut u8), dma).map_or(-1, |a| a.disks().len() as i32)
+pub unsafe extern "C" fn loos_comp_present(back: *const u32, bw: i32, bh: i32, x: i32, y: i32, w: i32, h: i32, screen: *mut u8, pitch: u32) -> i32 {
+    let d = DESKTOP.get();
+    if d.is_none() {
+        let mut comp = Compositor::new(bw, bh);
+        let Ok(surface) = comp.create_surface(0, 0, bw, bh) else { return -1 };
+        let _ = comp.set_opaque(surface, true);
+        *d = Some(Desktop { comp, surface });
+    }
+    let d = d.as_mut().unwrap();
+    if d.comp.size() != (bw, bh) {
+        return -1;
+    }
+    // SAFETY: per the function contract.
+    let src = unsafe { core::slice::from_raw_parts(back, (bw * bh) as usize) };
+    let r = loos_compositor::Rect::new(x, y, w, h);
+    if d.comp.commit(d.surface, src, Some(r)).is_err() {
+        return -1;
+    }
+    // SAFETY: scan-out memory is `bh` rows of `pitch` bytes; compose writes only damaged rows inside it.
+    let out = unsafe { core::slice::from_raw_parts_mut(screen.cast::<u32>(), (pitch as usize / 4) * bh as usize) };
+    d.comp.compose(out, pitch as usize / 4);
+    0
 }
 
-#[allow(dead_code)]
-fn _keep(_: Vec<u8>) {}
+struct NetState {
+    stack: Stack,
+    nic: E1000<RawMmio, RawDma>,
+}
+static NET: Global<NetState> = Global::new();
+
+/// Brings up an e1000 NIC, wires it to the TCP/IP stack and configures `ip/24` with default gateway `gw`.
+/// Returns 0, or a negative error.
+///
+/// # Safety
+/// Same contract as [`loos_xhci_probe`] with `dma_len >= loos_drivers::e1000::ARENA_BYTES`; the arena must stay valid forever.
+#[no_mangle]
+pub unsafe extern "C" fn loos_net_attach_e1000(mmio: u64, dma_virt: *mut u8, dma_phys: u64, dma_len: u64, ip: u32, gw: u32) -> i32 {
+    let dma = RawDma { virt: dma_virt, phys: dma_phys, len: dma_len as usize };
+    let Ok(nic) = E1000::new(RawMmio(mmio as *mut u8), dma) else { return -1 };
+    let mut stack = Stack::new();
+    let me = IpAddr::V4(Ipv4Addr::from(ip));
+    let idx = stack.add_iface(nic.mac(), &[(me, 24)]);
+    stack.add_route(loos_net::route::Route { dst: IpAddr::V4(Ipv4Addr::UNSPECIFIED), prefix: 0, gw: Some(IpAddr::V4(Ipv4Addr::from(gw))), iface: idx, metric: 100 });
+    *NET.get() = Some(NetState { stack, nic });
+    0
+}
+
+/// Moves frames between the NIC and the stack and runs stack timers. Cheap when no NIC is attached.
+#[no_mangle]
+pub extern "C" fn loos_net_poll(now_ms: u64) {
+    let Some(n) = NET.get() else { return };
+    n.stack.poll(now_ms);
+    let mut buf = [0u8; 2048];
+    for _ in 0..32 {
+        let Some(len) = n.nic.recv(&mut buf) else { break };
+        n.stack.rx(1, &buf[..len]);
+    }
+    while let Some((_, f)) = n.stack.pop_tx() {
+        let _ = n.nic.send(&f);
+    }
+}
+
+/// Sends an ICMP echo request to `ip` (host order) and returns true once the reply for `seq` has arrived.
+#[no_mangle]
+pub extern "C" fn loos_net_ping(ip: u32, seq: u16, send: i32, now_ms: u64) -> i32 {
+    let Some(n) = NET.get() else { return -1 };
+    n.stack.poll(now_ms); // the stack's clock must be current before queuing anything time-stamped
+    let dst = IpAddr::V4(Ipv4Addr::from(ip));
+    if send != 0 {
+        let _ = n.stack.ping(dst, 0x4c4f, seq, b"LoOS");
+        return 0;
+    }
+    while let Some((from, id, s)) = n.stack.ping_reply() {
+        if from == dst && id == 0x4c4f && s == seq {
+            return 1;
+        }
+    }
+    0
+}
+
+static GPU: Global<BochsVga<RawMmio>> = Global::new();
+
+/// Probes a Bochs/QEMU VGA adapter (`mmio` = BAR2, dispi registers at +0x500). Returns the number of modes
+/// it can set (0 if it is not a dispi adapter).
+///
+/// # Safety
+/// `mmio` must be the mapped BAR.
+#[no_mangle]
+pub unsafe extern "C" fn loos_gpu_probe(mmio: u64) -> u32 {
+    match BochsVga::new(RawMmio(mmio as *mut u8), 0x500) {
+        Ok(g) => {
+            let n = g.modes().len() as u32;
+            *GPU.get() = Some(g);
+            n
+        }
+        Err(_) => 0,
+    }
+}
+
+/// Sets `w`x`h` on the probed adapter (two stacked pages). Returns 0 or -1.
+#[no_mangle]
+pub extern "C" fn loos_gpu_set_mode(w: u32, h: u32) -> i32 {
+    match GPU.get() {
+        Some(g) => i32::from(g.set_mode(loos_drivers::gpu::Mode { w, h }).is_err()) * -1,
+        None => -1,
+    }
+}
+
+
+// ---------------------------------------------------------------------------------- block controllers
+
+type AhciCtl = loos_drivers::ahci::Ahci<RawMmio, RawDma>;
+type NvmeCtl = loos_drivers::nvme::Nvme<RawMmio, RawDma>;
+static AHCI: Global<Vec<AhciCtl>> = Global::new();
+static NVME: Global<Vec<NvmeCtl>> = Global::new();
+
+fn copy_model(model: &str, out: *mut u8, cap: u32) {
+    let n = model.len().min(cap.saturating_sub(1) as usize);
+    // SAFETY: caller guarantees `out` has `cap` writable bytes.
+    unsafe {
+        core::ptr::copy_nonoverlapping(model.as_ptr(), out, n);
+        *out.add(n) = 0;
+    }
+}
+
+/// Brings up an AHCI HBA. Returns its controller index, or -1. The arena must be `PORT_REGION` bytes per possible
+/// disk (4 KiB aligned) and stay valid forever.
+///
+/// # Safety
+/// `mmio` is the mapped ABAR; `dma_*` describe the arena.
+#[no_mangle]
+pub unsafe extern "C" fn loos_ahci_attach(mmio: u64, dma_virt: *mut u8, dma_phys: u64, dma_len: u64) -> i32 {
+    let dma = RawDma { virt: dma_virt, phys: dma_phys, len: dma_len as usize };
+    let Ok(c) = loos_drivers::ahci::Ahci::new(RawMmio(mmio as *mut u8), dma) else { return -1 };
+    let v = AHCI.get().get_or_insert_with(Vec::new);
+    v.push(c);
+    v.len() as i32 - 1
+}
+
+/// Disk count of an attached AHCI controller.
+#[no_mangle]
+pub extern "C" fn loos_ahci_disks(ctl: i32) -> i32 {
+    AHCI.get().as_ref().and_then(|v| v.get(ctl as usize)).map_or(0, |c| c.disks().len() as i32)
+}
+
+/// Capacity (512-byte sectors) and model of one AHCI disk. Returns 0 on success.
+///
+/// # Safety
+/// `model` must have `cap` writable bytes; `sectors` must be writable.
+#[no_mangle]
+pub unsafe extern "C" fn loos_ahci_info(ctl: i32, disk: i32, sectors: *mut u64, model: *mut u8, cap: u32) -> i32 {
+    let Some(d) = AHCI.get().as_ref().and_then(|v| v.get(ctl as usize)).and_then(|c| c.disks().get(disk as usize)) else { return -1 };
+    // SAFETY: per contract.
+    unsafe { *sectors = d.sectors };
+    copy_model(&d.model, model, cap);
+    0
+}
+
+/// Reads or writes `n` 512-byte sectors. Returns 0 or -1.
+///
+/// # Safety
+/// `buf` must be `n * 512` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn loos_ahci_rw(ctl: i32, disk: i32, lba: u64, n: u32, buf: *mut u8, write: i32) -> i32 {
+    let Some(c) = AHCI.get().as_mut().and_then(|v| v.get_mut(ctl as usize)) else { return -1 };
+    let Some(mut d) = c.disk(disk as usize) else { return -1 };
+    // SAFETY: per contract.
+    let b = unsafe { core::slice::from_raw_parts_mut(buf, n as usize * 512) };
+    let r = if write != 0 { d.write(lba, b) } else { d.read(lba, b) };
+    i32::from(r.is_err()) * -1
+}
+
+/// Brings up an NVMe controller (namespace 1). Returns its controller index, or -1.
+///
+/// # Safety
+/// `dma_len >= loos_drivers::nvme::ARENA_BYTES`; the arena stays valid forever.
+#[no_mangle]
+pub unsafe extern "C" fn loos_nvme_attach(mmio: u64, dma_virt: *mut u8, dma_phys: u64, dma_len: u64) -> i32 {
+    let dma = RawDma { virt: dma_virt, phys: dma_phys, len: dma_len as usize };
+    let Ok(c) = loos_drivers::nvme::Nvme::new(RawMmio(mmio as *mut u8), dma) else { return -1 };
+    let v = NVME.get().get_or_insert_with(Vec::new);
+    v.push(c);
+    v.len() as i32 - 1
+}
+
+/// Namespace capacity in units of the namespace's own sector size, that size, and the model string.
+///
+/// # Safety
+/// `model` must have `cap` writable bytes; `sectors` and `sector_size` must be writable.
+#[no_mangle]
+pub unsafe extern "C" fn loos_nvme_info(ctl: i32, sectors: *mut u64, sector_size: *mut u32, model: *mut u8, cap: u32) -> i32 {
+    let Some(c) = NVME.get().as_ref().and_then(|v| v.get(ctl as usize)) else { return -1 };
+    // SAFETY: per contract.
+    unsafe {
+        *sectors = c.sectors();
+        *sector_size = c.sector_size();
+    }
+    copy_model(&c.model, model, cap);
+    0
+}
+
+/// Reads or writes `n` namespace sectors. Returns 0 or -1.
+///
+/// # Safety
+/// `buf` must be `n * sector_size` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn loos_nvme_rw(ctl: i32, lba: u64, n: u32, buf: *mut u8, write: i32) -> i32 {
+    let Some(c) = NVME.get().as_mut().and_then(|v| v.get_mut(ctl as usize)) else { return -1 };
+    // SAFETY: per contract.
+    let b = unsafe { core::slice::from_raw_parts_mut(buf, n as usize * c.sector_size() as usize) };
+    let r = if write != 0 { c.write(lba, b) } else { c.read(lba, b) };
+    i32::from(r.is_err()) * -1
+}
+
+/// The kernel's network stack as the Winsock layer sees it.
+pub(crate) struct KNet;
+
+impl KNet {
+    /// A handle on the stack if a NIC has been attached.
+    pub(crate) fn present() -> bool {
+        NET.get().is_some()
+    }
+}
+
+impl loos_winrt::ws2::NetOps for KNet {
+    fn poll(&mut self, now_ms: u64) {
+        loos_net_poll(now_ms);
+    }
+    fn tcp_connect(&mut self, ip: [u8; 4], port: u16) -> Option<usize> {
+        NET.get().as_mut()?.stack.tcp_connect(IpAddr::V4(Ipv4Addr::from(ip)), port).ok()
+    }
+    fn tcp_state(&mut self, h: usize) -> loos_winrt::ws2::TcpState {
+        use loos_winrt::ws2::TcpState as T;
+        let Some(n) = NET.get().as_mut() else { return T::Failed };
+        match n.stack.tcp_state(h) {
+            Some(State::SynSent | State::SynRcvd) => T::Connecting,
+            Some(State::Closed) | None => if n.stack.tcp_failure(h).is_some() { T::Failed } else { T::Closed },
+            Some(State::Listen) => T::Connecting,
+            Some(_) => T::Established,
+        }
+    }
+    fn tcp_send(&mut self, h: usize, data: &[u8]) -> Option<usize> {
+        NET.get().as_mut()?.stack.tcp_send(h, data).ok()
+    }
+    fn tcp_recv(&mut self, h: usize, buf: &mut [u8]) -> usize {
+        NET.get().as_mut().and_then(|n| n.stack.tcp_recv(h, buf).ok()).unwrap_or(0)
+    }
+    fn tcp_eof(&mut self, h: usize) -> bool {
+        NET.get().as_mut().is_some_and(|n| n.stack.tcp_eof(h))
+    }
+    fn tcp_readable(&mut self, h: usize) -> bool {
+        // A listener is readable when a connection waits; a stream when data is queued.
+        NET.get().as_mut().is_some_and(|n| n.stack.tcp_pending(h))
+    }
+    fn tcp_close(&mut self, h: usize) {
+        if let Some(n) = NET.get().as_mut() {
+            let _ = n.stack.tcp_close(h);
+        }
+    }
+    fn tcp_listen(&mut self, port: u16) -> Option<usize> {
+        NET.get().as_mut()?.stack.tcp_listen(port).ok()
+    }
+    fn tcp_accept(&mut self, l: usize) -> Option<usize> {
+        NET.get().as_mut()?.stack.tcp_accept(l)
+    }
+    fn udp_bind(&mut self, port: u16) -> Option<usize> {
+        NET.get().as_mut()?.stack.udp_bind(port).ok()
+    }
+    fn udp_send(&mut self, h: usize, ip: [u8; 4], port: u16, data: &[u8]) -> bool {
+        NET.get().as_mut().is_some_and(|n| n.stack.udp_send(h, IpAddr::V4(Ipv4Addr::from(ip)), port, data).is_ok())
+    }
+    fn udp_recv(&mut self, h: usize) -> Option<([u8; 4], u16, Vec<u8>)> {
+        let (ip, port, d) = NET.get().as_mut()?.stack.udp_recv(h)?;
+        match ip {
+            IpAddr::V4(v) => Some((v.octets(), port, d)),
+            IpAddr::V6(_) => None,
+        }
+    }
+    fn dns_server(&self) -> [u8; 4] {
+        [10, 0, 2, 3]
+    }
+}

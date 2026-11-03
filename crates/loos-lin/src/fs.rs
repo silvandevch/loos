@@ -232,6 +232,13 @@ impl MemFs {
     pub fn add_dir(&mut self, path: &str) {
         self.add(path, Node::Dir, 0o755);
     }
+    /// Every regular file as `(absolute path, contents)`.
+    pub fn files(&self) -> impl Iterator<Item = (&str, &[u8])> {
+        self.ents.iter().filter_map(|(p, e)| match &e.node {
+            Node::File(d) => Some((p.as_str(), d.as_slice())),
+            _ => None,
+        })
+    }
     /// Whole-file read helper.
     pub fn file(&self, path: &str) -> Option<&[u8]> {
         match &self.ents.get(path)?.node {

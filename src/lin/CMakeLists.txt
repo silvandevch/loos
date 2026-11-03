@@ -1,0 +1,6 @@
+if(NOT LOOS_FREESTANDING_BUILD AND UNIX)
+    add_library(looswin_preload SHARED liblooswin_preload.c)
+    target_compile_options(looswin_preload PRIVATE ${LOOS_C_WARNINGS} -fvisibility=hidden)
+    target_link_libraries(looswin_preload PRIVATE dl)
+    set_target_properties(looswin_preload PROPERTIES OUTPUT_NAME looswin)
+endif()

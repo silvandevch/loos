@@ -21,5 +21,7 @@ pub mod fs;
 pub mod loader;
 pub mod mem;
 pub mod sys;
+pub mod vfs;
+pub mod wayland;
 
 pub use sys::{Delivery, LinSystem, Regs, Sys};

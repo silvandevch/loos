@@ -45,6 +45,22 @@ apps on Linux with MinGW-w64. Neither cross target runs the host CTest suites.
 
 See [BUILD.md](BUILD.md) for the build requirements and current target status.
 
+The Linux syscall diagnostic table is generated from
+`tools/linux_syscalls.tab`:
+
+```bash
+python3 tools/gen_linux_syscalls.py
+python3 tests/lin/check_syscalls.py
+```
+
+Linux rootfs images can be packed from a directory, or populated from an
+uncompressed Debian `data.tar` without executing package scripts:
+
+```bash
+python3 tools/lin-rootfs-pack.py pack ROOT initrd.tar
+python3 tools/lin-rootfs-pack.py unpack-deb package.deb ROOT
+```
+
 The compatibility runner is `tests/compat/run.py`; validate/list registered
 cases with `python3 tests/compat/run.py --list`. Runtime runs require a LoOS
 launcher, for example `python3 tests/compat/run.py --era 10 --launcher

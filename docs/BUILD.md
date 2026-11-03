@@ -31,6 +31,25 @@ suites, plus the compatibility runner when Python is available.
 When standard Wine DLL paths are present, the PE test also checks those real
 binaries.
 
+Build and runtime state defaults to `/tmp/opencode/loos-out` and
+`/tmp/opencode/loos-runtime`, keeping locks, Unix sockets, incremental
+artifacts, and logs off exFAT source volumes. Override `OUT_ROOT` or
+`LOOS_LOCAL_ROOT` when using a native Linux filesystem.
+
+If ordinary source reads still return `Input/output error`, the exFAT volume
+needs host-side repair. Stop processes using the workspace, unmount it, run a
+read-only check first, then repair and remount:
+
+```bash
+sudo umount /run/media/silvan/DATA/LoOS
+sudo fsck.exfat -n /dev/sda1
+sudo fsck.exfat -p /dev/sda1
+udisksctl mount -b /dev/sda1
+```
+
+The container build environment does not expose `/dev/sda1`, so it cannot run
+that repair itself.
+
 The `kernel-clang` preset compiles the current freestanding kernel libraries;
 it does not produce a bootable image yet. It compiles with `-nostdinc` against
 the freestanding headers in `cmake/freestanding/include` (plus Clang's builtin

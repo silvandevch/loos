@@ -3,7 +3,7 @@
 #   build.sh [outdir] [--module NAME=PATH ...] [--cmdline TEXT]
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd); root=$here/../..
-out=$root/out/boot
+out=${LOOS_BOOT_OUT:-/tmp/opencode/loos-boot}
 if [ $# -gt 0 ] && [[ $1 != --* ]]; then out=$1; shift; fi
 mkdir -p "$out"
 cc=${CC:-clang}

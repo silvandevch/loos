@@ -11,3 +11,4 @@ pub mod control;
 pub mod deps;
 pub mod resolver;
 pub mod version;
+pub mod archive;

@@ -2,7 +2,7 @@
 # Boots LoOS under QEMU and runs the freestanding Linux test program (tests/lin/lbox.c) in ring 3 from a tar initrd.
 set -u
 here=$(cd "$(dirname "$0")" && pwd); root=$here/..
-out=${1:-$root/out/boot}; mkdir -p "$out"
+out=${1:-${LOOS_BOOT_OUT:-/tmp/opencode/loos-boot}}; mkdir -p "$out"
 clang --target=x86_64-linux-gnu -static -nostdlib -O2 -ffreestanding -fno-stack-protector -fno-pic -mno-red-zone \
     "$root/tests/lin/lbox.c" -o "$out/lbox" 2>/dev/null || exit 1
 tarf=$out/lin-initrd.tar

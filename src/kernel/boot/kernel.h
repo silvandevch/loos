@@ -145,6 +145,6 @@ uint64_t vm_virt_to_phys(const struct loos_bootinfo *bi, const void *p);
 
 /* user.c + usermode.S + crates/kffi/src/lin.rs: ring 3 and the Linux subsystem */
 void user_init(void);
-int loos_lin_boot(const uint8_t *initrd, size_t len, const char *cmd);        /* runs "path,arg,arg" from the tar initrd; exit status */
+int loos_lin_boot(const uint8_t *initrd, size_t len, const char *cmd, uint32_t *back, int32_t w, int32_t h); /* runs Linux GUI apps from the tar initrd */
 void kgdt_load(void);
 #endif

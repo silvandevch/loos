@@ -620,6 +620,15 @@ impl Stack {
         self.tcp.get(h).map(|s| s.tcb.state)
     }
 
+    /// True when `h` has bytes to read, or (for a listener) an established connection to accept.
+    pub fn tcp_pending(&self, h: usize) -> bool {
+        match self.tcp.get(h) {
+            Some(s) if s.listen_port.is_some() => self.tcp.iter().any(|c| c.parent == Some(h) && !c.accepted && !matches!(c.tcb.state, State::SynRcvd | State::Listen)),
+            Some(s) => s.tcb.readable() > 0,
+            None => false,
+        }
+    }
+
     /// True when the peer closed and everything was read.
     pub fn tcp_eof(&self, h: usize) -> bool {
         self.tcp.get(h).is_some_and(|s| s.tcb.eof())

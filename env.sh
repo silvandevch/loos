@@ -3,7 +3,7 @@
 #
 # Two roots keep disk use friendly:
 #   SRC_ROOT  the big source tree + patchkit  -> fast internal disk (NVMe)
-#   OUT_ROOT  build output, ISOs, VM disks    -> external DATA drive (355G free)
+#   OUT_ROOT  build output, ISOs, VM disks    -> local Linux filesystem by default
 #
 # Override either by exporting the variable, or by writing a small
 # .loosrc (next to this file) with lines like:
@@ -13,11 +13,18 @@
 
 export LOOS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Keep runtime/build state on a native Linux filesystem. The source tree may
+# live on exFAT, where Unix sockets, locks, and some metadata operations are
+# unsupported and can surface as EIO after a dirty disconnect.
+export LOOS_LOCAL_ROOT="${LOOS_LOCAL_ROOT:-/tmp/opencode/loos-runtime}"
+
 # ---- config file (optional) -------------------------------------------------
 if [ -f "$LOOS_ROOT/.loosrc" ]; then
     # shellcheck disable=SC1091
     . "$LOOS_ROOT/.loosrc"
 fi
+
+mkdir -p "$LOOS_LOCAL_ROOT"
 
 # ---- external DATA drive ----------------------------------------------------
 export LOOS_DATA="${LOOS_DATA:-/run/media/silvan/DATA}"
@@ -32,8 +39,14 @@ if [ -z "${SRC_ROOT:-}" ]; then
     fi
 fi
 export SRC_ROOT
-# Output: big and disposable -> DATA by default.
-export OUT_ROOT="${OUT_ROOT:-$LOOS_DATA/loos/out}"
+# Output: big and disposable -> local Linux filesystem by default.
+# exFAT cannot safely host Unix locks/sockets and is prone to EIO after a dirty
+# disconnect. Keep disposable Linux build output local unless explicitly moved.
+export OUT_ROOT="${OUT_ROOT:-/tmp/opencode/loos-out}"
+if [ -d "$OUT_ROOT" ] && [ "$(stat -f -c %T "$OUT_ROOT" 2>/dev/null || true)" = exfat ]; then
+    OUT_ROOT="$LOOS_LOCAL_ROOT/out"
+    export OUT_ROOT
+fi
 
 export NT_SRC="${NT_SRC:-$SRC_ROOT/srv03rtm}"        # SDXROOT source tree
 export PATCHKIT="${PATCHKIT:-$SRC_ROOT/patchkit}"    # openxp/patchkit (amd64 branch)
@@ -50,13 +63,13 @@ export ANIKA_REPO="https://github.com/mrcxlinux/srv03rtm-anika"
 export ANIKA_BRANCH="main"
 
 # ---- workspace subdirs ------------------------------------------------------
-export CERTS_DIR="$LOOS_ROOT/certs"
-export SCRIPTS_DIR="$LOOS_ROOT/scripts"
-export MISSING_DIR="$LOOS_ROOT/missing"
-export LOGS_DIR="$LOOS_ROOT/logs"
-export BACKUP_DIR="$LOOS_ROOT/backups"
+export CERTS_DIR="${CERTS_DIR:-$LOOS_LOCAL_ROOT/certs}"
+export SCRIPTS_DIR="${SCRIPTS_DIR:-$LOOS_ROOT/scripts}"
+export MISSING_DIR="${MISSING_DIR:-$LOOS_LOCAL_ROOT/missing}"
+export LOGS_DIR="${LOGS_DIR:-$LOOS_LOCAL_ROOT/logs}"
+export BACKUP_DIR="${BACKUP_DIR:-$LOOS_LOCAL_ROOT/backups}"
 
-mkdir -p "$NT_OUT" "$CERTS_DIR" "$MISSING_DIR" "$LOOS_ROOT/build" "$LOGS_DIR" "$BACKUP_DIR"
+mkdir -p "$NT_OUT" "$CERTS_DIR" "$MISSING_DIR" "$LOOS_LOCAL_ROOT/build" "$LOGS_DIR" "$BACKUP_DIR"
 
 # ---- helpers ----------------------------------------------------------------
 log()  { printf '\033[1;36m[%s]\033[0m %s\n' "$(date +%H:%M:%S)" "$*"; }

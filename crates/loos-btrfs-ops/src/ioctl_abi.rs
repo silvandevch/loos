@@ -21,6 +21,7 @@ pub const IOCTLS: &[(&str, u32)] = &[
     ("BTRFS_IOC_FILE_EXTENT_SAME", 0xc0189436),
     ("BTRFS_IOC_FORGET_DEV", 0x50009405),
     ("BTRFS_IOC_FS_INFO", 0x8400941f),
+    ("BTRFS_IOC_GET_CSUMS", 0xc0209442),
     ("BTRFS_IOC_GET_DEV_STATS", 0xc4089434),
     ("BTRFS_IOC_GET_FEATURES", 0x80189439),
     ("BTRFS_IOC_GET_FSLABEL", 0x81009431),
@@ -50,6 +51,7 @@ pub const IOCTLS: &[(&str, u32)] = &[
     ("BTRFS_IOC_SET_FEATURES", 0x40309439),
     ("BTRFS_IOC_SET_FSLABEL", 0x41009432),
     ("BTRFS_IOC_SET_RECEIVED_SUBVOL", 0xc0c89425),
+    ("BTRFS_IOC_SHUTDOWN", 0x8004587d),
     ("BTRFS_IOC_SNAP_CREATE", 0x50009401),
     ("BTRFS_IOC_SNAP_CREATE_V2", 0x50009417),
     ("BTRFS_IOC_SNAP_DESTROY", 0x5000940f),
@@ -60,6 +62,7 @@ pub const IOCTLS: &[(&str, u32)] = &[
     ("BTRFS_IOC_SUBVOL_CREATE_V2", 0x50009418),
     ("BTRFS_IOC_SUBVOL_GETFLAGS", 0x80089419),
     ("BTRFS_IOC_SUBVOL_SETFLAGS", 0x4008941a),
+    ("BTRFS_IOC_SUBVOL_SYNC_WAIT", 0x40109441),
     ("BTRFS_IOC_SYNC", 0x00009408),
     ("BTRFS_IOC_TRANS_END", 0x00009407),
     ("BTRFS_IOC_TRANS_START", 0x00009406),
@@ -137,6 +140,7 @@ pub mod layout {
         pub const FLAGS: usize = 16;
         pub const EXTENT_THRESH: usize = 24;
         pub const COMPRESS_TYPE: usize = 28;
+        pub const COMPRESS: usize = 28;
         pub const UNUSED: usize = 32;
     }
     pub mod btrfs_ioctl_dev_info_args {
@@ -145,7 +149,8 @@ pub mod layout {
         pub const UUID: usize = 8;
         pub const BYTES_USED: usize = 24;
         pub const TOTAL_BYTES: usize = 32;
-        pub const UNUSED: usize = 40;
+        pub const FSID: usize = 40;
+        pub const UNUSED: usize = 56;
         pub const PATH: usize = 3072;
     }
     pub mod btrfs_ioctl_dev_replace_args {
@@ -205,6 +210,21 @@ pub mod layout {
         pub const GENERATION: usize = 56;
         pub const METADATA_UUID: usize = 64;
         pub const RESERVED: usize = 80;
+    }
+    pub mod btrfs_ioctl_get_csums_args {
+        pub const SIZE_OF: usize = 32;
+        pub const OFFSET: usize = 0;
+        pub const LENGTH: usize = 8;
+        pub const BUF_SIZE: usize = 16;
+        pub const FLAGS: usize = 24;
+        pub const BUF: usize = 32;
+    }
+    pub mod btrfs_ioctl_get_csums_entry {
+        pub const SIZE_OF: usize = 24;
+        pub const OFFSET: usize = 0;
+        pub const LENGTH: usize = 8;
+        pub const TYPE: usize = 16;
+        pub const RESERVED: usize = 20;
     }
     pub mod btrfs_ioctl_get_dev_stats {
         pub const SIZE_OF: usize = 1032;
@@ -391,6 +411,12 @@ pub mod layout {
         pub const FLAGS: usize = 0;
         pub const TOTAL_BYTES: usize = 8;
         pub const USED_BYTES: usize = 16;
+    }
+    pub mod btrfs_ioctl_subvol_wait {
+        pub const SIZE_OF: usize = 16;
+        pub const SUBVOLID: usize = 0;
+        pub const MODE: usize = 8;
+        pub const COUNT: usize = 12;
     }
     pub mod btrfs_ioctl_timespec {
         pub const SIZE_OF: usize = 16;

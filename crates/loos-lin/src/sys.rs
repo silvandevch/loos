@@ -9,9 +9,12 @@ const ENOTCONN: i64 = 107;
 use crate::fs::{normalize, resolve, Kind, LinFs, Stat};
 use crate::loader;
 use crate::mem::*;
+use crate::wayland::{Frame as WaylandFrame, Server as WaylandServer, SharedFd};
 use core::cell::RefCell;
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::rc::Rc;
+use core::net::{IpAddr, Ipv4Addr};
+use loos_net::stack::Stack;
 
 /// Process/thread id (one shared id space, as in Linux).
 pub type Pid = u32;
@@ -154,6 +157,10 @@ struct Sock {
     peer_closed: bool,
     rx: VecDeque<u8>,
     closed: bool,
+    udp: Option<usize>,
+    datagram: bool,
+    rights: VecDeque<Vec<FileRef>>,
+    wayland: Option<WaylandServer>,
 }
 
 struct Pipe {
@@ -244,6 +251,8 @@ pub struct LinSystem<F: LinFs> {
     rng: u64,
     wakeq: Vec<Pid>,
     deferred: Vec<(Pid, Option<Pid>, u32)>,
+    /// Optional LoOS network stack used by AF_INET datagram sockets.
+    net: Option<Stack>,
 }
 
 fn err<T>(e: i64) -> Result<T, i64> {
@@ -258,7 +267,7 @@ impl<F: LinFs> LinSystem<F> {
             procs: BTreeMap::new(),
             threads: BTreeMap::new(),
             pipes: Vec::new(),
-            socks: Vec::new(),
+            socks: vec![Sock { key: Some("unix:/run/user/1000/wayland-0".into()), listening: true, ..Sock::default() }],
             next_id: 100,
             now_ns: 0,
             console_out: Vec::new(),
@@ -268,12 +277,38 @@ impl<F: LinFs> LinSystem<F> {
             rng: 0x9E37_79B9_7F4A_7C15,
             wakeq: Vec::new(),
             deferred: Vec::new(),
+            net: None,
         }
     }
 
     /// Install the liblooswin bridge.
     pub fn set_bridge(&mut self, b: Box<dyn Bridge>) {
         self.bridge = Some(b);
+    }
+    /// Attaches the configured LoOS network stack to Linux AF_INET sockets.
+    pub fn attach_net(&mut self, stack: Stack) {
+        self.net = Some(stack);
+    }
+    /// Polls the attached network stack. The kernel calls this from its timer/NIC loop.
+    pub fn poll_net(&mut self, now_ms: u64) {
+        if let Some(net) = self.net.as_mut() {
+            net.poll(now_ms);
+        }
+        let udp_socks: Vec<usize> = self.socks.iter().enumerate().filter_map(|(i, s)| s.udp.map(|_| i)).collect();
+        for i in udp_socks {
+            self.wake_where(|t| matches!(t.state, TState::Blocked { wait: Wait::Sock(q), .. } if q == i));
+        }
+        self.drain();
+    }
+    /// Takes frames committed by Wayland clients for compositor presentation.
+    pub fn take_wayland_frames(&mut self) -> Vec<WaylandFrame> {
+        let mut out = Vec::new();
+        for socket in &mut self.socks {
+            if let Some(server) = socket.wayland.as_mut() {
+                out.extend(server.take_frames());
+            }
+        }
+        out
     }
     /// Process by pid.
     pub fn process(&self, pid: Pid) -> Option<&Process> {
@@ -337,6 +372,11 @@ impl<F: LinFs> LinSystem<F> {
     fn release(&mut self, f: FileRef) {
         if Rc::strong_count(&f) == 1 {
             if let FKind::Sock(i) = f.borrow().kind {
+                if let Some(h) = self.socks[i].udp.take() {
+                    if let Some(net) = self.net.as_mut() {
+                        net.udp_close(h);
+                    }
+                }
                 self.socks[i].closed = true;
                 if let Some(pe) = self.socks[i].peer {
                     self.socks[pe].peer_closed = true;
@@ -657,6 +697,7 @@ impl<F: LinFs> LinSystem<F> {
             "/dev/zero" => return Ok(dev(5)),
             "/dev/urandom" | "/dev/random" => return Ok(dev(9)),
             "/dev/tty" | "/dev/console" => return Ok(dev(11)),
+            "/run/user/1000/wayland-0" => return Ok(Stat { ino: 17, kind: Kind::Fifo, mode: 0o777, size: 0, nlink: 1, uid: 1000, gid: 1000, mtime: 0 }),
             _ => {}
         }
         if let Some(d) = self.gen_proc(p, path) {
@@ -884,8 +925,19 @@ impl<F: LinFs> LinSystem<F> {
                 return Ok(self.block(tid, Wait::Sock(pe), nr, a, None, true));
             }
             let n = room.min(data.len());
-            self.socks[pe].rx.extend(&data[..n]);
-            self.wake_where(|t| matches!(t.state, TState::Blocked { wait: Wait::Sock(q), .. } if q == pe));
+            let wayland_events = if let Some(server) = self.socks[pe].wayland.as_mut() {
+                server.receive(&data[..n]).map_err(|_| EPROTO)?;
+                Some(server.take_events())
+            } else {
+                None
+            };
+            if let Some(events) = wayland_events {
+                self.socks[i].rx.extend(events);
+                self.wake_where(|t| matches!(t.state, TState::Blocked { wait: Wait::Sock(q), .. } if q == i));
+            } else {
+                self.socks[pe].rx.extend(&data[..n]);
+                self.wake_where(|t| matches!(t.state, TState::Blocked { wait: Wait::Sock(q), .. } if q == pe));
+            }
             return Ok(Sys::Ret(n as i64));
         }
         let (off, kind) = {
@@ -987,6 +1039,7 @@ impl<F: LinFs> LinSystem<F> {
                     self.do_write(p, tid, nr, a, &f, a[1], a[2], Some(a[3]))
                 }
             }
+            46 | 47 => self.msg_socket(p, tid, nr, a),
             19 | 20 => {
                 // readv / writev
                 let f = self.fd(p, a[0] as i32)?;
@@ -1557,6 +1610,15 @@ impl<F: LinFs> LinSystem<F> {
                 ok(0)
             }
             74 | 75 | 73 | 90 | 91 | 92 | 93 | 94 | 268 | 306 | 266 => ok(0), // fsync, flock, chmod/chown family
+            319 => {
+                let _name = p.mem.read_cstr(a[0], 256)?;
+                let path = format!("/tmp/.loos-memfd-{}-{}", p.pid, self.next_id);
+                self.next_id = self.next_id.wrapping_add(1);
+                self.fs.create(&path, 0o600)?;
+                let fd = self.alloc_fd(p, 0)?;
+                p.fds.insert(fd, FdEnt { file: self.new_fd(FKind::Reg(path), a[1] as u32), cloexec: false });
+                ok(fd as i64)
+            }
             // identity
             39 | 186 => ok(if nr == 39 { p.pid } else { tid } as i64),
             110 => ok(p.ppid as i64),
@@ -1710,13 +1772,24 @@ impl<F: LinFs> LinSystem<F> {
                 Ok(format!("unix:{}", String::from_utf8_lossy(&raw[..end])))
             }
             2 if len >= 8 => {
-                if !(b[4] == 127 || b[4..8] == [0, 0, 0, 0]) {
-                    return err(101); // ENETUNREACH: only loopback until the net stack is attached
-                }
-                Ok(format!("inet:{}", u16::from_be_bytes([b[2], b[3]])))
+                Ok(format!("inet:{}.{}.{}.{}:{}", b[4], b[5], b[6], b[7], u16::from_be_bytes([b[2], b[3]])))
             }
             _ => err(97),
         }
+    }
+
+    fn inet_key(key: &str) -> Result<(Ipv4Addr, u16), i64> {
+        let rest = key.strip_prefix("inet:").ok_or(EAFNOSUPPORT)?;
+        let (ip, port) = rest.rsplit_once(':').ok_or(EINVAL)?;
+        let mut oct = [0u8; 4];
+        let mut n = 0;
+        for part in ip.split('.') {
+            if n == 4 { return err(EINVAL); }
+            oct[n] = part.parse().map_err(|_| EINVAL)?;
+            n += 1;
+        }
+        if n != 4 { return err(EINVAL); }
+        Ok((Ipv4Addr::from(oct), port.parse().map_err(|_| EINVAL)?))
     }
 
     fn put_sockaddr(mem: &mut UserMem, key: &str, addr: u64, lenp: u64) -> Result<(), i64> {
@@ -1724,10 +1797,16 @@ impl<F: LinFs> LinSystem<F> {
             return Ok(());
         }
         let mut b = vec![0u8; 16];
-        if let Some(port) = key.strip_prefix("inet:") {
+        if let Some(rest) = key.strip_prefix("inet:") {
+            let (ip, port) = rest.rsplit_once(':').ok_or(EINVAL)?;
+            let mut oct = [0u8; 4];
+            for (i, v) in ip.split('.').enumerate() {
+                if i >= 4 { return err(EINVAL); }
+                oct[i] = v.parse().map_err(|_| EINVAL)?;
+            }
             b[0] = 2;
-            b[2..4].copy_from_slice(&port.parse::<u16>().unwrap_or(0).to_be_bytes());
-            b[4..8].copy_from_slice(&[127, 0, 0, 1]);
+            b[2..4].copy_from_slice(&port.parse::<u16>().map_err(|_| EINVAL)?.to_be_bytes());
+            b[4..8].copy_from_slice(&oct);
         } else {
             b = vec![0u8; 2 + key.len().saturating_sub(5) + 1];
             b[0] = 1;
@@ -1737,6 +1816,103 @@ impl<F: LinFs> LinSystem<F> {
         let cap = mem.read_u32(lenp)? as usize;
         mem.write(addr, &b[..b.len().min(cap)])?;
         mem.write_u32(lenp, b.len() as u32)
+    }
+
+    fn msg_socket(&mut self, p: &mut Process, tid: Pid, nr: u64, a: [u64; 6]) -> Result<Sys, i64> {
+        let f = self.fd(p, a[0] as i32)?;
+        let si = match f.borrow().kind {
+            FKind::Sock(i) => i,
+            _ => return err(ENOTSOCK),
+        };
+        let msg = a[1];
+        let iov = p.mem.read_u64(msg + 16)?;
+        let iovlen = p.mem.read_u64(msg + 24)?;
+        if iovlen == 0 || iovlen > 1024 {
+            return err(EINVAL);
+        }
+        let base = p.mem.read_u64(iov)?;
+        let len = p.mem.read_u64(iov + 8)?.min(1 << 20) as usize;
+        if nr == 46 {
+            let data = p.mem.read_vec(base, len)?;
+            let control = p.mem.read_u64(msg + 32)?;
+            let control_len = p.mem.read_u64(msg + 40)?.min(1 << 20) as usize;
+            let mut rights = Vec::new();
+            if control != 0 && control_len != 0 {
+                let c = p.mem.read_vec(control, control_len)?;
+                let clen = c.get(..8).map(|b| u64::from_ne_bytes(b.try_into().unwrap()) as usize).unwrap_or(0);
+                let level = c.get(8..12).map(|b| i32::from_ne_bytes(b.try_into().unwrap())).unwrap_or(0);
+                let ty = c.get(12..16).map(|b| i32::from_ne_bytes(b.try_into().unwrap())).unwrap_or(0);
+                if clen >= 20 && level == 1 && ty == 1 {
+                    let n = (clen - 16) / 4;
+                    for j in 0..n {
+                        rights.push(self.fd(p, i32::from_ne_bytes(c[16 + j * 4..20 + j * 4].try_into().unwrap()))?);
+                    }
+                }
+            }
+            let pe = self.socks[si].peer.ok_or(ENOTCONN)?;
+            if self.socks[pe].wayland.is_some() {
+                let mut shared = Vec::new();
+                for r in rights {
+                    let path = match &r.borrow().kind {
+                        FKind::Reg(path) => path.clone(),
+                        _ => return err(EINVAL),
+                    };
+                    let st = self.fs.lstat(&path)?;
+                    let mut bytes = vec![0u8; st.size.min(64 << 20) as usize];
+                    let n = self.fs.read(&path, 0, &mut bytes)?;
+                    bytes.truncate(n);
+                    shared.push(SharedFd { data: bytes });
+                }
+                let events = {
+                    let server = self.socks[pe].wayland.as_mut().unwrap();
+                    server.receive_with_fds(&data, &shared).map_err(|_| EPROTO)?;
+                    server.take_events()
+                };
+                self.socks[si].rx.extend(events);
+            } else {
+                self.socks[pe].rx.extend(&data);
+                self.socks[pe].rights.push_back(rights);
+            }
+            let wake = if self.socks[pe].wayland.is_some() { si } else { pe };
+            self.wake_where(|t| matches!(t.state, TState::Blocked { wait: Wait::Sock(q), .. } if q == wake));
+            return Ok(Sys::Ret(data.len() as i64));
+        }
+
+        if self.socks[si].rx.is_empty() {
+            if self.socks[si].peer_closed || self.socks[si].peer.is_none() {
+                return Ok(Sys::Ret(0));
+            }
+            if f.borrow().flags & 0o4000 != 0 {
+                return err(EAGAIN);
+            }
+            return Ok(self.block(tid, Wait::Sock(si), nr, a, None, true));
+        }
+        let n = len.min(self.socks[si].rx.len());
+        let mut bytes = vec![0u8; n];
+        for b in &mut bytes {
+            *b = self.socks[si].rx.pop_front().unwrap();
+        }
+        p.mem.write(base, &bytes)?;
+        let control = p.mem.read_u64(msg + 32)?;
+        let control_len = p.mem.read_u64(msg + 40)? as usize;
+        if let Some(rights) = self.socks[si].rights.pop_front() {
+            if control == 0 || control_len < 16 + rights.len() * 4 {
+                return err(EMSGSIZE);
+            }
+            let clen = 16 + rights.len() * 4;
+            let mut c = vec![0u8; (clen + 3) & !3];
+            c[..8].copy_from_slice(&(clen as u64).to_ne_bytes());
+            c[8..12].copy_from_slice(&1i32.to_ne_bytes());
+            c[12..16].copy_from_slice(&1i32.to_ne_bytes());
+            for (j, r) in rights.into_iter().enumerate() {
+                let fd = self.alloc_fd(p, 0)?;
+                p.fds.insert(fd, FdEnt { file: r, cloexec: false });
+                c[16 + j * 4..20 + j * 4].copy_from_slice(&(fd as i32).to_ne_bytes());
+            }
+            p.mem.write(control, &c)?;
+            p.mem.write_u64(msg + 40, c.len() as u64)?;
+        }
+        Ok(Sys::Ret(n as i64))
     }
 
     fn sys_socket(&mut self, p: &mut Process, tid: Pid, nr: u64, a: [u64; 6]) -> Result<Sys, i64> {
@@ -1760,11 +1936,15 @@ impl<F: LinFs> LinSystem<F> {
                 if dom != 1 && dom != 2 {
                     return err(97);
                 }
-                if ty != 1 {
-                    return err(93); // EPROTONOSUPPORT: stream sockets only
+                if ty != 1 && ty != 2 {
+                    return err(93); // EPROTONOSUPPORT
+                }
+                if ty == 2 && self.net.is_none() {
+                    return err(93); // EPROTONOSUPPORT until a LoOS stack is attached
                 }
                 self.socks.push(Sock::default());
                 let i = self.socks.len() - 1;
+                self.socks[i].datagram = ty == 2;
                 Ok(Sys::Ret(new_sock(self, p, i, a[1] & 0o2000000 != 0, a[1] & 0o4000 != 0)?))
             }
             53 => {
@@ -1786,8 +1966,19 @@ impl<F: LinFs> LinSystem<F> {
             49 => {
                 let (i, _) = sid(self, p, a[0])?;
                 let key = Self::sock_key(&mut p.mem, a[1], a[2])?;
+                if key.starts_with("inet:") {
+                    let (ip, _) = Self::inet_key(&key)?;
+                    if !ip.is_loopback() && self.net.is_none() {
+                        return err(101);
+                    }
+                }
                 if self.socks.iter().any(|s| s.key.as_deref() == Some(key.as_str()) && !s.closed) {
                     return err(98); // EADDRINUSE
+                }
+                if self.socks[i].datagram {
+                    let (_, port) = Self::inet_key(&key)?;
+                    let Some(net) = self.net.as_mut() else { return err(100) };
+                    self.socks[i].udp = Some(net.udp_bind(port).map_err(|_| 98)?);
                 }
                 self.socks[i].key = Some(key);
                 Ok(Sys::Ret(0))
@@ -1806,6 +1997,12 @@ impl<F: LinFs> LinSystem<F> {
                     return err(106); // EISCONN
                 }
                 let key = Self::sock_key(&mut p.mem, a[1], a[2])?;
+                if key.starts_with("inet:") {
+                    let (ip, _) = Self::inet_key(&key)?;
+                    if !ip.is_loopback() && self.net.is_none() {
+                        return err(101);
+                    }
+                }
                 let Some(l) = self.socks.iter().position(|s| s.listening && !s.closed && s.key.as_deref() == Some(key.as_str())) else {
                     return err(111); // ECONNREFUSED
                 };
@@ -1814,8 +2011,12 @@ impl<F: LinFs> LinSystem<F> {
                 }
                 self.socks.push(Sock::default());
                 let srv = self.socks.len() - 1;
+                self.socks[srv].key = Some(key.clone());
                 self.socks[srv].peer = Some(i);
                 self.socks[i].peer = Some(srv);
+                if key == "unix:/run/user/1000/wayland-0" {
+                    self.socks[srv].wayland = Some(WaylandServer::new());
+                }
                 self.socks[l].backlog.push_back(srv);
                 self.wake_where(|t| matches!(t.state, TState::Blocked { wait: Wait::Sock(q), .. } if q == l));
                 Ok(Sys::Ret(0))
@@ -1840,8 +2041,34 @@ impl<F: LinFs> LinSystem<F> {
                 Ok(Sys::Ret(new_sock(self, p, srv, fl & 0o2000000 != 0, fl & 0o4000 != 0)?))
             }
             44 | 45 => {
-                // sendto / recvfrom: connected stream sockets only
+                // sendto / recvfrom: stream sockets plus LoOS-backed AF_INET datagrams
                 let f = self.fd(p, a[0] as i32)?;
+                let si = match f.borrow().kind { FKind::Sock(i) => i, _ => return err(ENOTSOCK) };
+                if self.socks[si].udp.is_some() {
+                    let h = self.socks[si].udp.unwrap();
+                    if nr == 44 {
+                        let key = Self::sock_key(&mut p.mem, a[4], a[5])?;
+                        let (dst, port) = Self::inet_key(&key)?;
+                        let data = p.mem.read_vec(a[1], a[2].min(1 << 20) as usize)?;
+                        let Some(net) = self.net.as_mut() else { return err(100) };
+                        net.udp_send(h, IpAddr::V4(dst), port, &data).map_err(|_| 101)?;
+                        return Ok(Sys::Ret(data.len() as i64));
+                    }
+                    let Some(net) = self.net.as_mut() else { return err(100) };
+                    let Some((from, port, data)) = net.udp_recv(h) else {
+                        if f.borrow().flags & 0o4000 != 0 { return err(EAGAIN); }
+                        return Ok(self.block(tid, Wait::Sock(si), nr, a, None, true));
+                    };
+                    let n = data.len().min(a[2] as usize);
+                    p.mem.write(a[1], &data[..n])?;
+                    if nr == 45 && a[4] != 0 {
+                        if let IpAddr::V4(ip) = from {
+                            let key = format!("inet:{}.{}.{}.{}:{}", ip.octets()[0], ip.octets()[1], ip.octets()[2], ip.octets()[3], port);
+                            Self::put_sockaddr(&mut p.mem, &key, a[4], a[5])?;
+                        }
+                    }
+                    return Ok(Sys::Ret(n as i64));
+                }
                 if nr == 44 { self.do_write(p, tid, nr, a, &f, a[1], a[2], None) } else { self.do_read(p, tid, nr, a, &f, a[1], a[2], None) }
             }
             48 => {
@@ -2115,20 +2342,4 @@ fn rlimit(res: u32) -> (u64, u64) {
     }
 }
 
-/// Linux x86-64 syscall numbers by name (for diagnostics/strace-style tracing).
-pub fn syscall_name(nr: u64) -> &'static str {
-    match nr {
-        0 => "read", 1 => "write", 2 => "open", 3 => "close", 4 => "stat", 5 => "fstat", 6 => "lstat", 7 => "poll", 8 => "lseek",
-        9 => "mmap", 10 => "mprotect", 11 => "munmap", 12 => "brk", 13 => "rt_sigaction", 14 => "rt_sigprocmask", 15 => "rt_sigreturn",
-        16 => "ioctl", 17 => "pread64", 18 => "pwrite64", 19 => "readv", 20 => "writev", 21 => "access", 22 => "pipe", 24 => "sched_yield",
-        25 => "mremap", 28 => "madvise", 32 => "dup", 33 => "dup2", 35 => "nanosleep", 39 => "getpid", 56 => "clone", 57 => "fork",
-        58 => "vfork", 59 => "execve", 60 => "exit", 61 => "wait4", 62 => "kill", 63 => "uname", 72 => "fcntl", 79 => "getcwd",
-        80 => "chdir", 89 => "readlink", 96 => "gettimeofday", 97 => "getrlimit", 99 => "sysinfo", 131 => "sigaltstack", 158 => "arch_prctl",
-        186 => "gettid", 200 => "tkill", 201 => "time", 202 => "futex", 204 => "sched_getaffinity", 217 => "getdents64", 218 => "set_tid_address",
-        228 => "clock_gettime", 230 => "clock_nanosleep", 231 => "exit_group", 234 => "tgkill", 257 => "openat", 262 => "newfstatat",
-        267 => "readlinkat", 273 => "set_robust_list", 292 => "dup3", 293 => "pipe2", 302 => "prlimit64", 318 => "getrandom", 332 => "statx",
-        334 => "rseq", 435 => "clone3", 439 => "faccessat2",
-        n if (BRIDGE_BASE..BRIDGE_BASE + 0x1_0000).contains(&n) => "looswin",
-        _ => "?",
-    }
-}
+include!("syscalls_generated.rs");

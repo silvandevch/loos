@@ -194,9 +194,33 @@ The differentiator: Linux apps can use the **LoOS/Win32 API**.
 | L3 dynamic | host's unmodified `ld-linux`/`libc.so.6`/`/usr/bin/true` load: entry in interp, AT_BASE, libc `mmap`ed from a real fd with exact bytes, glibc startup probes (`arch_prctl`, `set_tid_address`, `rseq`→ENOSYS) |
 | L5 threads/signals | `clone` (thread + fork), `futex` (WAIT/WAKE/REQUEUE/CMP_REQUEUE/WAKE_OP/BITSET, timeouts), `exit` clears tid + wakes joiners, `wait4`, `execve`, signals: `rt_sigaction/procmask/sigaltstack/kill/tgkill`, Linux `rt_sigframe`, `rt_sigreturn`, EINTR, default actions |
 | L6 bridge | `bridge.rs`: syscalls `0x4C4F0000+n` drive `loos-win32k` (create/show/draw/text/events/destroy) |
+| Linux GUI apps | `src/lin/liblooswin.h` public bridge ABI; `crates/loos-lin/src/wayland.rs` implements the tested registry/xdg-shell wire core; standard app launch still requires the socket/ancillary-fd compositor transport |
 
 Also: `MAP_SHARED` (shared buffers survive fork), `CLONE_VM` without `CLONE_THREAD` (vfork/posix_spawn) aliases parent memory until `execve`, and AF_UNIX/AF_INET(loopback) stream sockets (`socket/bind/listen/connect/accept4/socketpair/shutdown/getsockname`).
-Limits: file-backed `MAP_SHARED` is not written back; datagram sockets and non-loopback addresses fail (`EPROTONOSUPPORT`/`ENETUNREACH`) until the net stack is attached; no vDSO yet.
+`crates/loos-lin::vfs::VfsLinFs` now adapts the native `MountManager` to `LinFs`, so persistent Linux paths can use the mounted LoOS filesystem. The adapter delegates stat/read/write/create/truncate/mkdir/remove/rename/list/readlink/symlink and maps VFS errors to Linux errno. `crates/dpkg::archive` safely unpacks uncompressed `data.tar` members without running maintainer scripts; compressed payloads wait for the offline decoder wiring. Generated `/proc` and `/dev` entries continue to be supplied by `LinSystem`.
+
+The first Linux corpus case is recorded in `tests/lin/corpus.json` and can be
+run with `python3 tests/lin/run_corpus.py`; it boots the ring-3 `lbox` test and
+requires QEMU and the kernel build inputs.
+
+`src/lin/liblooswin_preload.c` builds `liblooswin.so`, a syscall-only bridge
+client for unmodified Linux processes. Use `tools/lin-preload.sh` to emit the
+`LD_PRELOAD` assignment after the host build; it has no host-network or GUI
+fallback when run outside LoOS.
+
+`tools/lin-rootfs-pack.py` provides the L4 rootfs boundary: deterministic USTAR
+packing and safe uncompressed `.deb` `data.tar` extraction. It rejects absolute
+and parent-traversing paths, device nodes, and compressed archives, and never
+runs maintainer scripts.
+
+Wayland support is now split at a real protocol boundary: Lin exposes the
+synthetic `/run/user/1000/wayland-0` AF_UNIX endpoint, handles `sendmsg`/
+`recvmsg` `SCM_RIGHTS`, imports `memfd_create` + `wl_shm` buffers, and exposes
+committed frames to Win32k for framebuffer composition. The protocol core is
+covered by `crates/loos-lin/tests/wayland.rs`; an unmodified egui/winit app
+still requires an end-to-end QEMU run to validate its full dependency set.
+
+Limits: file-backed `MAP_SHARED` is not written back; AF_INET datagrams use the attached LoOS stack after `LinSystem::attach_net`/`poll_net`, while stream sockets and non-loopback operation without an attached stack fail (`EPROTONOSUPPORT`/`ENETUNREACH`); no vDSO yet.
 **Not yet wired to the kernel entry** (`src/kernel/boot`): the `syscall` path for Linux
 threads must call `LinSystem::syscall` and the user-mode switch must honour `Sys` results.
 

@@ -175,8 +175,11 @@ Exit criteria:
 
 - GTK3 (and the glib/pango/harfbuzz/fontconfig/freetype stack) running on a
   Lin X11 server or a Wayland compositor.
-- **X11 served on the LoOS compositor** (Lin L7) is the smallest first step;
-  Wayland follows.
+- **X11 served on the LoOS compositor** (Lin L7) remains a later compatibility
+  path; the first standard Linux GUI path is the Wayland slice below.
+- Lin now has the first Wayland transport slice: a synthetic `wayland-0`
+  endpoint, `SCM_RIGHTS`/memfd handling, wl_shm import, and Win32k frame
+  presentation. Full eframe/GTK validation remains an end-to-end app gate.
 - Clipboard, cursor, keyboard layout, HiDPI, and window resize.
 
 Exit criteria:

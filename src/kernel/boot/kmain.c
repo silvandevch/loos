@@ -20,15 +20,57 @@ static uint32_t crc32(const uint8_t *p, uint64_t n)
 
 
 /* Rust subsystems (crates/kffi/src/sys.rs) */
+extern uint32_t loos_win_boot(const uint8_t *initrd, size_t len);
+extern int32_t loos_win_gui(const uint8_t *initrd, size_t len, const char *image, uint32_t *back, int32_t w, int32_t h, const char *keys, const char *open, const char *save);
+static struct video *gui_vid;
+void gui_present(void) { video_present(gui_vid, 0, 0, gui_vid->w, gui_vid->h); }
+static void cmdline_word(const char *v, char *out, size_t cap)    /* copies the value up to the next space */
+{
+    size_t i = 0; if (v) while (v[i] && v[i] != ' ' && i + 1 < cap) { out[i] = v[i]; i++; }
+    out[i] = 0;
+}
 extern uint32_t loos_smss_selftest(void);
 extern uint32_t loos_comp_selftest(void);
 extern uint32_t loos_net_selftest(void);
 extern int32_t loos_xhci_probe(uint64_t mmio, void *dma_virt, uint64_t dma_phys, uint64_t dma_len, uint32_t *out);
+extern int32_t loos_net_attach_e1000(uint64_t mmio, void *dma_virt, uint64_t dma_phys, uint64_t dma_len, uint32_t ip, uint32_t gw);
+extern void loos_net_poll(uint64_t now_ms);
+extern int32_t loos_net_ping(uint32_t ip, uint16_t seq, int32_t send, uint64_t now_ms);
+extern uint32_t loos_gpu_probe(uint64_t mmio);
 #define XHCI_ARENA 0x40000u
+#define E1000_ARENA 0x11000u
 static void report_selftest(const char *name, uint32_t got, uint32_t want)
 {
     serial_puts(name); serial_puts(got == want ? ": ok (" : ": FAILED (");
     serial_hex(got); serial_puts(")\n");
+}
+static void net_gpu_probe(void)
+{
+    static struct pci_dev devs[64];
+    int n = pci_scan(devs, 64);
+    for (int i = 0; i < n; i++) {
+        uint64_t size = 0, bar;
+        if (devs[i].class_code == 0x03 && devs[i].vendor == 0x1234 && devs[i].device == 0x1111) {   /* Bochs / QEMU std VGA */
+            bar = pci_bar(&devs[i], 2, &size);
+            if (!bar || vm_map_mmio(bar, size ? size : 0x1000) < 0) continue;
+            serial_puts("gpu: bochs vga, modes "); serial_dec(loos_gpu_probe(bar)); serial_puts("\n");
+        }
+        if (devs[i].class_code == 0x02 && devs[i].vendor == 0x8086 && devs[i].device == 0x100e) {   /* e1000 */
+            bar = pci_bar(&devs[i], 0, &size);
+            if (!bar || !size || vm_map_mmio(bar, size) < 0) continue;
+            pci_enable(&devs[i]);
+            void *dma = kalloc(E1000_ARENA, 4096);
+            if (!dma) continue;
+            memset(dma, 0, E1000_ARENA);
+            if (loos_net_attach_e1000(bar, dma, (uint64_t)(uintptr_t)dma, E1000_ARENA, 0x0a00020fu, 0x0a000202u) < 0) { serial_puts("net: e1000 init failed\n"); continue; }
+            int ok = 0;
+            for (uint32_t t0 = time_ms(), last = t0 - 1000; !ok && time_ms() - t0 < 4000;) {   /* link may take a moment: re-ask */
+                if (time_ms() - last >= 500) { last = time_ms(); loos_net_ping(0x0a000202u, 1, 1, time_ms()); }
+                loos_net_poll(time_ms()); ok = loos_net_ping(0x0a000202u, 1, 0, time_ms());
+            }
+            serial_puts("net: e1000 10.0.2.15/24, ping 10.0.2.2 "); serial_puts(ok == 1 ? "reply\n" : "NO REPLY\n");
+        }
+    }
 }
 static void usb_probe(void)
 {
@@ -157,7 +199,33 @@ void kmain(const struct loos_bootinfo *bi)
         const uint8_t *rd = 0; size_t rdlen = 0;
         for (uint32_t i = 0; i < bi->module_count; i++)
             if (!strncmp(bi->modules[i].name, "initrd", 6)) { rd = (const uint8_t *)(uintptr_t)bi->modules[i].phys; rdlen = bi->modules[i].size; }
-        loos_lin_boot(rd, rdlen, lin_cmd);
+        loos_lin_boot(rd, rdlen, lin_cmd, have_video ? vid.back : 0, have_video ? vid.w : 0, have_video ? vid.h : 0);
+        if (have_video) video_present(&vid, 0, 0, vid.w, vid.h);
+        if (cmdline_get(bi, "loos.lin.stop")) {
+            serial_puts("lin: gui proof complete\n");
+            outb(0xf4, 0x10);
+            for (;;) __asm__ volatile("hlt");
+        }
+    }
+    if (cmdline_get(bi, "loos.gui") && have_video) {
+        if (cmdline_get(bi, "loos.net")) net_gpu_probe();                    /* bring the e1000 up before the program starts */             /* one Windows GUI program from the winroot initrd on the framebuffer */
+        const uint8_t *rd = 0; size_t rdlen = 0;
+        for (uint32_t i = 0; i < bi->module_count; i++)
+            if (!strncmp(bi->modules[i].name, "winroot", 7)) { rd = (const uint8_t *)(uintptr_t)bi->modules[i].phys; rdlen = bi->modules[i].size; }
+        char image[64], keys[256], gopen[128], gsave[128];
+        cmdline_word(cmdline_get(bi, "loos.gui"), image, sizeof image);
+        cmdline_word(cmdline_get(bi, "loos.gui.keys"), keys, sizeof keys);
+        cmdline_word(cmdline_get(bi, "loos.gui.open"), gopen, sizeof gopen);
+        cmdline_word(cmdline_get(bi, "loos.gui.save"), gsave, sizeof gsave);
+        gui_vid = &vid;
+        loos_win_gui(rd, rdlen, image, vid.back, vid.w, vid.h, keys, gopen, gsave);
+    }
+    if (cmdline_get(bi, "loos.win")) {                          /* session manager + real PE processes from the initrd (Windows/System32 images) */
+        const uint8_t *rd = 0; size_t rdlen = 0;
+        for (uint32_t i = 0; i < bi->module_count; i++)
+            if (!strncmp(bi->modules[i].name, "winroot", 7)) { rd = (const uint8_t *)(uintptr_t)bi->modules[i].phys; rdlen = bi->modules[i].size; }
+        uint32_t wr = loos_win_boot(rd, rdlen);
+        serial_puts(wr == 0x1f ? "win: smss ok (" : "win: smss FAILED ("); serial_hex(wr); serial_puts(")\n");
     }
 
     int wx = check_wx(bi);
@@ -180,6 +248,7 @@ void kmain(const struct loos_bootinfo *bi)
     report_selftest("compositor", loos_comp_selftest(), 0xf);
     report_selftest("net", loos_net_selftest(), 0xf);
     usb_probe();
+    net_gpu_probe();
 
     /* ---- disks, installer and login ---- */
     serial_puts("disks: "); serial_dec((uint64_t)ndisks); serial_puts("\n");

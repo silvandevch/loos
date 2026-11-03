@@ -89,6 +89,7 @@ dependencies = [
  "loos-net",
  "loos-shell",
  "loos-win32k",
+ "loos-winrt",
 ]
 
 [[package]]
@@ -111,6 +112,9 @@ version = "0.1.0"
 name = "loos-lin"
 version = "0.1.0"
 dependencies = [
+ "loos-fs",
+ "loos-net",
+ "loos-vfs",
  "loos-win32k",
 ]
 
@@ -183,6 +187,14 @@ dependencies = [
 [[package]]
 name = "loos-winget"
 version = "0.1.0"
+
+[[package]]
+name = "loos-winrt"
+version = "0.1.0"
+dependencies = [
+ "loos-lin",
+ "loos-win32k",
+]
 
 [[package]]
 name = "miniz_oxide"

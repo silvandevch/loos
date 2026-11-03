@@ -19,6 +19,10 @@ struct AhciModel {
     present: bool,
 }
 
+thread_local! {
+    static FLUSHES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl AhciModel {
     fn new(mem: Mem, disk: Disk, present: bool) -> Self {
         let mut regs = HashMap::new();
@@ -33,7 +37,6 @@ impl AhciModel {
         let hdr = self.mem.rd(clb, 16);
         let flags = u32::from_le_bytes(hdr[0..4].try_into().unwrap());
         assert_eq!(flags & 0x1f, 5, "CFL");
-        assert_eq!(flags >> 16, 1, "one PRDT entry");
         let ctba = u64::from_le_bytes(hdr[8..16].try_into().unwrap());
         let t = self.mem.rd(ctba, 0x90);
         assert_eq!((t[0], t[1]), (0x27, 0x80), "H2D FIS with C bit");
@@ -42,7 +45,13 @@ impl AhciModel {
         let dba = u64::from_le_bytes(t[0x80..0x88].try_into().unwrap());
         let dbc = (u32::from_le_bytes(t[0x8c..0x90].try_into().unwrap()) & 0x3f_ffff) as usize + 1;
         let mut tfd = 0x50;
+        if t[2] == 0xea {
+            assert_eq!(flags >> 16, 0, "flush has no PRDT");
+        } else {
+            assert_eq!(flags >> 16, 1, "one PRDT entry");
+        }
         match t[2] {
+            0xea => FLUSHES.with(|f| f.set(f.get() + 1)),
             0xec => {
                 let mut id = vec![0u8; 512];
                 let sectors = self.disk.borrow().len() as u64 / 512;
@@ -130,6 +139,7 @@ fn ahci_identify_read_write() {
     assert_eq!(big, d.borrow()[100 * 512..400 * 512]);
     let w = pattern(512 * 200, 99);
     dev.write(1000, &w).unwrap();
+    assert_eq!(FLUSHES.with(|f| f.get()), 1, "write ends with FLUSH CACHE EXT");
     assert_eq!(w, d.borrow()[1000 * 512..1200 * 512]);
     let mut back = vec![0u8; w.len()];
     dev.read(1000, &mut back).unwrap();
@@ -246,6 +256,9 @@ impl NvmeModel {
                     }
                     op => panic!("admin opcode {op:#x}"),
                 }
+            } else if e[0] == 0 {
+                assert_eq!(e[4], 1, "flush nsid");
+                self.ios += 1000;
             } else {
                 self.ios += 1;
                 let slba = u64::from(cdw(0)) | u64::from(cdw(1)) << 32;

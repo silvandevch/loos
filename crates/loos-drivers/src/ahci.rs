@@ -32,6 +32,7 @@ const SIG_ATA: u32 = 0x0000_0101;
 const ATA_IDENTIFY: u8 = 0xec;
 const ATA_READ48: u8 = 0x25;
 const ATA_WRITE48: u8 = 0x35;
+const ATA_FLUSH48: u8 = 0xea;
 
 /// Arena bytes used per port: command structures (4 KiB) + 64 KiB bounce buffer.
 pub const PORT_REGION: usize = 0x1_1000;
@@ -125,7 +126,7 @@ impl<M: Mmio, D: DmaArena> Ahci<M, D> {
         wait(|| m.read32(pb + P_TFD) & (TFD_BSY | TFD_DRQ) == 0)?;
         let ctba = self.dma.phys(region + 0x500);
         // Command header (slot 0): CFL=5 dwords, W, one PRDT entry.
-        let hdr: u32 = 5 | if write { 1 << 6 } else { 0 } | (1 << 16);
+        let hdr: u32 = 5 | if write { 1 << 6 } else { 0 } | (u32::from(bytes > 0) << 16);
         let mut h = [0u8; 16];
         h[0..4].copy_from_slice(&hdr.to_le_bytes());
         h[8..12].copy_from_slice(&(ctba as u32).to_le_bytes());
@@ -148,7 +149,9 @@ impl<M: Mmio, D: DmaArena> Ahci<M, D> {
         let data = self.dma.phys(region + DATA_OFF);
         t[0x80..0x84].copy_from_slice(&(data as u32).to_le_bytes());
         t[0x84..0x88].copy_from_slice(&((data >> 32) as u32).to_le_bytes());
-        t[0x8c..0x90].copy_from_slice(&((bytes as u32 - 1) & 0x3f_ffff).to_le_bytes());
+        if bytes > 0 {
+            t[0x8c..0x90].copy_from_slice(&((bytes as u32 - 1) & 0x3f_ffff).to_le_bytes());
+        }
         self.dma.write(region + 0x500, &t);
         self.dma.barrier();
         self.m.write32(pb + P_CI, 1);
@@ -205,6 +208,9 @@ impl<M: Mmio, D: DmaArena> Ahci<M, D> {
             }
             done += n;
             cur += n as u64;
+        }
+        if write {
+            self.issue(port, region, ATA_FLUSH48, 0, 0, false, 0)?; // FLUSH CACHE EXT: data must be on the medium when write() returns
         }
         Ok(())
     }

@@ -159,11 +159,36 @@ impl Win32k {
 
     /// `GetDC(hwnd)` — client-area DC.
     pub fn get_dc(&mut self, h: Hwnd) -> Result<Hdc, Win32kError> {
+        if h == 0 {
+            // GetDC(NULL): the screen; a memory DC serves measuring and font selection.
+            return Ok(self.create_compatible_dc());
+        }
         if !self.is_window(h) {
             return self.fail(Win32kError::InvalidWindow);
         }
         Ok(self.new_dc(DcKind::Window(h)))
     }
+    /// The window a window DC draws into.
+    pub fn dc_window(&self, dc: Hdc) -> Option<Hwnd> {
+        match self.dcs.get(&dc) {
+            Some(Dc { kind: DcKind::Window(h), .. }) => Some(*h),
+            _ => None,
+        }
+    }
+
+    /// Copies a `w` x `h` 0xAARRGGBB image into the top-left of a window's client area (OpenGL `SwapBuffers`).
+    pub fn present_pixels(&mut self, h: Hwnd, w: i32, hh: i32, px: &[u32]) {
+        let Some(win) = self.wins.get_mut(&h) else { return };
+        let (cw, ch) = (win.cw, win.ch);
+        for y in 0..hh.min(ch) {
+            let n = w.min(cw) as usize;
+            let (s, d) = ((y * w) as usize, (y * cw) as usize);
+            if s + n <= px.len() && d + n <= win.bmp.len() {
+                win.bmp[d..d + n].copy_from_slice(&px[s..s + n]);
+            }
+        }
+    }
+
     /// `ReleaseDC`.
     pub fn release_dc(&mut self, _h: Hwnd, dc: Hdc) -> bool {
         self.dcs.remove(&dc).is_some()
@@ -441,6 +466,21 @@ impl Win32k {
     /// Pixels of a window's client bitmap (0xAARRGGBB) — for tests/screenshots.
     pub fn window_pixels(&self, h: Hwnd) -> Option<(&[u32], i32, i32)> {
         self.wins.get(&h).map(|w| (w.bmp.as_slice(), w.cw, w.ch))
+    }
+
+    /// Imports a Wayland wl_shm frame into a window client surface.
+    pub fn import_window_pixels(&mut self, h: Hwnd, width: i32, height: i32, pixels: &[u32]) -> bool {
+        if width <= 0 || height <= 0 || pixels.len() < (width as usize).saturating_mul(height as usize) {
+            return false;
+        }
+        let Some(w) = self.wins.get_mut(&h) else { return false };
+        w.cw = width;
+        w.ch = height;
+        w.bmp.clear();
+        w.bmp.extend_from_slice(&pixels[..(width as usize) * (height as usize)]);
+        w.invalid = Some(Rect::new(0, 0, width, height));
+        w.erase = false;
+        true
     }
 }
 

@@ -23,6 +23,7 @@ loos-win32k = { path = "../loos-win32k" }
 loos-drivers = { path = "../loos-drivers" }
 loos-net = { path = "../loos-net" }
 loos-compositor = { path = "../loos-compositor" }
+loos-winrt = { path = "../loos-winrt" }
 
 [lints]
 workspace = true

@@ -132,3 +132,14 @@ fn d3d11_formats_and_copies() {
     assert_eq!(Texture2D::new(0, 4, Format::B8G8R8A8), Err(hr::E_INVALIDARG));
     assert!(SwapChain::new(&mut Compositor::new(8, 8), 0, 0, 4, 4, Format::B8G8R8A8, 0, SwapEffect::Discard).is_err());
 }
+
+#[test]
+fn covered_regions_skip_background_fill() {
+    let mut c = Compositor::new(8, 8);
+    let id = solid(&mut c, 0, 0, 8, 8, 0xff102030);
+    c.set_opaque(id, true).unwrap();
+    let (w, h) = c.size();
+    let mut out = vec![0xdead_beef; (w * h) as usize];
+    c.compose(&mut out, w as usize);
+    assert!(out.iter().all(|&p| p == 0x102030), "surface pixels written, no background pass");
+}

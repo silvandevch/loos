@@ -87,6 +87,75 @@ fn static_proc(k: &mut Win32k, h: Hwnd, msg: u32, w: usize, l: isize) -> isize {
     k.def_window_proc(h, msg, w, l)
 }
 
+/// EN_CHANGE notification code.
+pub const EN_CHANGE: u32 = 0x0300;
+const LINE_H: i32 = 16;
+
+/// Multi-line `Edit`: the text lives in the window title. Appends typed characters, handles Backspace/Enter.
+fn edit_proc(k: &mut Win32k, h: Hwnd, msg: u32, w: usize, l: isize) -> isize {
+    match msg {
+        WM_ERASEBKGND => 1,
+        WM_PAINT => {
+            if let Ok(ps) = k.begin_paint(h) {
+                let (text, cr) = (k.get_window_text(h).unwrap_or_default(), k.get_client_rect(h).unwrap_or_default());
+                let white = k.create_solid_brush(rgb(255, 255, 255));
+                k.fill_rect(ps.hdc, cr, white);
+                k.delete_object(white);
+                k.set_bk_mode(ps.hdc, 1);
+                let mut lines = 0;
+                for (i, line) in text.split('\n').enumerate() {
+                    let y = 2 + i as i32 * LINE_H;
+                    k.draw_text(ps.hdc, line.trim_end_matches('\r'), Rect::new(3, y, cr.right, y + LINE_H), DT_LEFT | DT_SINGLELINE);
+                    lines = i as i32;
+                }
+                if k.focus == h {
+                    let last = text.rsplit('\n').next().unwrap_or("").chars().count() as i32;
+                    let pen = k.create_pen(1, rgb(0, 0, 0));
+                    let old = k.select_object(ps.hdc, pen);
+                    let (x, y) = (3 + last * 7, 2 + lines * LINE_H);
+                    k.move_to(ps.hdc, x, y);
+                    k.line_to(ps.hdc, x, y + LINE_H - 2);
+                    k.select_object(ps.hdc, old);
+                    k.delete_object(pen);
+                }
+                k.end_paint(h, &ps);
+            }
+            0
+        }
+        WM_LBUTTONDOWN => {
+            k.set_focus(h);
+            0
+        }
+        WM_SETTEXT => {
+            k.invalidate_rect(h, None, false).ok();
+            1
+        }
+        WM_SETFOCUS | WM_KILLFOCUS => {
+            k.invalidate_rect(h, None, false).ok();
+            0
+        }
+        WM_CHAR => {
+            let mut text = k.get_window_text(h).unwrap_or_default();
+            match w as u32 {
+                8 => {
+                    text.pop();
+                }
+                13 => text.push('\n'),
+                c if c >= 32 => text.extend(char::from_u32(c)),
+                _ => return 0,
+            }
+            if let Some(win) = k.wins.get_mut(&h) {
+                win.title = text;
+            }
+            k.invalidate_rect(h, None, false).ok();
+            let (parent, id) = (k.get_parent(h).unwrap_or(0), k.get_id(h).unwrap_or(0) as usize);
+            k.post_message(parent, WM_COMMAND, id | (EN_CHANGE as usize) << 16, h as isize).ok();
+            0
+        }
+        _ => k.def_window_proc(h, msg, w, l),
+    }
+}
+
 fn dialog_proc(k: &mut Win32k, h: Hwnd, msg: u32, w: usize, l: isize) -> isize {
     match msg {
         WM_COMMAND => {
@@ -106,7 +175,7 @@ fn dialog_proc(k: &mut Win32k, h: Hwnd, msg: u32, w: usize, l: isize) -> isize {
 impl Win32k {
     pub(crate) fn init_controls(&mut self) {
         let face = COLOR_BTNFACE as u32 + 1;
-        for (name, p, bg, extra) in [("Button", button_proc as NativeProc, face, 1), ("Static", static_proc, face, 0), ("#32770", dialog_proc, face, 0)] {
+        for (name, p, bg, extra) in [("Button", button_proc as NativeProc, face, 1), ("Static", static_proc, face, 0), ("msctls_statusbar32", static_proc, face, 0), ("Edit", edit_proc, 0, 0), ("SysTabControl32", static_proc, face, 0), ("SysListView32", static_proc, face, 0), ("SysTreeView32", static_proc, face, 0), ("ToolbarWindow32", static_proc, face, 0), ("ComboBox", static_proc, face, 0), ("ListBox", static_proc, face, 0), ("ScrollBar", static_proc, face, 0), ("msctls_progress32", static_proc, face, 0), ("msctls_trackbar32", static_proc, face, 0), ("tooltips_class32", static_proc, face, 0), ("RichEdit20W", edit_proc, 0, 0), ("#32770", dialog_proc, face, 0)] {
             self.register_class(WndClass { name: name.into(), style: 0, proc_: Proc::Native(p), background: bg, wnd_extra: extra }).ok();
         }
     }

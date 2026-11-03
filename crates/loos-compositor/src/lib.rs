@@ -325,9 +325,14 @@ impl Compositor {
     pub fn compose(&mut self, out: &mut [u32], stride: usize) -> Vec<Rect> {
         let regions = core::mem::take(&mut self.damage);
         for r in &regions {
-            for y in r.y..r.y + r.h {
-                let row = &mut out[y as usize * stride + r.x as usize..][..r.w as usize];
-                row.fill(self.background);
+            // An opaque, fully opaque-opacity surface covering the region makes the background fill invisible work
+            // (and a visible flash when `out` is the scan-out buffer).
+            let covered = self.surfaces.iter().any(|s| s.visible && s.opaque && s.opacity == 255 && s.bounds().intersect(r) == *r);
+            if !covered {
+                for y in r.y..r.y + r.h {
+                    let row = &mut out[y as usize * stride + r.x as usize..][..r.w as usize];
+                    row.fill(self.background);
+                }
             }
             for s in self.surfaces.iter().filter(|s| s.visible) {
                 let o = s.bounds().intersect(r);

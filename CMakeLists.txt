@@ -31,6 +31,7 @@ endif()
 # ---- Rust crates behind a C ABI (hosted builds) ----
 if(NOT LOOS_FREESTANDING_BUILD AND NOT WIN32)
     add_subdirectory(src/rust)
+    add_subdirectory(src/lin)
 endif()
 
 # ---- filesystems ----

@@ -8,6 +8,9 @@ publish.workspace = true
 
 [dependencies]
 loos-win32k = { path = "../loos-win32k" }
+loos-vfs = { path = "../loos-vfs" }
+loos-net = { path = "../loos-net" }
+loos-fs = { path = "../loos-fs" }
 
 [lints]
 workspace = true

@@ -77,6 +77,8 @@ int shellhost_run(const struct loos_bootinfo *bi, struct video *v, int test_mode
 
 void shellhost_set_config(const char *text) { g_accounts_text = text; }
 
+extern void loos_net_poll(uint64_t now_ms);
+
 void shellhost_loop(struct video *v)
 {
     ps2_init();
@@ -84,7 +86,7 @@ void shellhost_loop(struct video *v)
     uint32_t last_clock = 0;
     int h = 0, m = 0, s = 0;
     rtc_time(&h, &m, &s);
-    for (;;) { host_frame(v, &last_clock, &h, &m); __asm__ volatile("pause"); }
+    for (;;) { host_frame(v, &last_clock, &h, &m); loos_net_poll(time_ms()); __asm__ volatile("pause"); }
 }
 
 /* installer: returns 1 if the user asked to try LoOS live, 0 never (the installer ends by rebooting) */

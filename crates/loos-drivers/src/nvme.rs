@@ -177,6 +177,10 @@ impl<M: Mmio, D: DmaArena> Nvme<M, D> {
             done += n;
             cur += n as u64;
         }
+        if write {
+            let e = self.sqe(0, 1, 0, 0, [0; 6]); // Flush: data must be on the medium when write() returns
+            Self::submit(&mut self.m, &mut self.dma, &mut self.io, &e)?;
+        }
         Ok(())
     }
 }

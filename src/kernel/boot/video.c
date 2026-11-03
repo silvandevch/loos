@@ -12,13 +12,20 @@ int video_init(struct video *v, const struct loos_bootinfo *bi)
     return v->back ? 0 : -1;
 }
 
+extern int32_t loos_comp_present(const uint32_t *back, int32_t bw, int32_t bh, int32_t x, int32_t y, int32_t w, int32_t h, volatile uint8_t *screen, uint32_t pitch);
+
+/* The desktop goes through the Rust compositor when the scan-out is BGRX and there is memory for its surface. */
+static int comp_state;                                  /* 0 unknown, 1 on, -1 off */
+
 void video_present(const struct video *v, int x, int y, int w, int h)
 {
+    if (comp_state == 0) comp_state = (!v->rgbx && kalloc_free() > (uint64_t)v->w * v->h * 4 + (4u << 20)) ? 1 : -1;
     if (x < 0) { w += x; x = 0; }
     if (y < 0) { h += y; y = 0; }
     if (x + w > v->w) w = v->w - x;
     if (y + h > v->h) h = v->h - y;
     if (w <= 0 || h <= 0) return;
+    if (comp_state > 0 && loos_comp_present(v->back, v->w, v->h, x, y, w, h, v->screen, v->pitch) == 0) return;
     for (int yy = y; yy < y + h; yy++) {
         const uint32_t *src = v->back + (uint64_t)yy * (uint64_t)v->w + x;
         volatile uint32_t *dst = (volatile uint32_t *)(v->screen + (uint64_t)yy * v->pitch) + x;
