@@ -18,3 +18,7 @@ DHCPv6/SLAAC. DHCPv4/DNS/firewall live in `src/net/` (C) and sit on top of the U
 
 Tests: `cargo test -p loos-net` — loopback TCP echo (v4+v6, 300 kB), two hosts on a simulated wire
 with ARP/NDP, 1-in-7 frame loss transfer, routing, ICMP/UDP.
+
+## Kernel integration
+`crates/kffi/src/sys.rs` runs `loos_net_selftest` at boot (loopback ICMP echo, UDP, TCP echo); `kmain.c` prints
+`net: ok`. NIC glue (e1000/virtio-net poll loop feeding `Stack::rx`/`pop_tx`) is the next step.
