@@ -14,6 +14,10 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
+pub mod service;
+#[cfg(feature = "vfs")]
+pub mod vfs_store;
+
 const BASE_BLOCK: usize = 0x1000;
 const HBIN_HEADER: usize = 0x20;
 const MAX_HIVE: usize = 64 * 1024 * 1024;
@@ -129,6 +133,8 @@ pub enum Error {
     Unsupported,
     /// The requested output exceeds the supported hive size.
     TooLarge,
+    /// The backing store failed (I/O error, read-only volume).
+    Io,
 }
 
 impl core::fmt::Display for Error {
@@ -140,6 +146,7 @@ impl core::fmt::Display for Error {
             Self::Exists => "registry key or value already exists",
             Self::Unsupported => "unsupported registry hive structure",
             Self::TooLarge => "registry hive too large",
+            Self::Io => "registry storage I/O error",
         })
     }
 }

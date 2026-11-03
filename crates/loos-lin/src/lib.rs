@@ -1,0 +1,25 @@
+//! LoOS Linux subsystem ("Lin"): run unmodified x86-64 Linux ELF binaries natively.
+//!
+//! * [`loader`] — L0 ELF loader (static, PIE, `PT_INTERP`, `#!`), auxv/stack construction.
+//! * [`sys`] — L1/L5 Linux syscall table: files, mm, time, pipes, `clone`/`futex`,
+//!   signals (handler frames, `rt_sigreturn`), fork/exec/wait.
+//! * [`bridge`] — L6 `liblooswin`: Linux programs drive LoOS windows via syscalls.
+//! * [`fs`] — Linux view over the LoOS VFS (btrfs `\Lin`), plus an in-memory fs.
+//!
+//! The crate is a host-testable model of the kernel service; the kernel's `syscall`
+//! entry for Linux-flavoured threads calls [`sys::LinSystem::syscall`] and uses the
+//! returned [`sys::Sys`] to decide how to resume the thread. See `docs/LINUX-COMPAT.md`.
+#![no_std]
+extern crate alloc;
+#[allow(unused_imports)]
+use alloc::{boxed::Box, format, string::{String, ToString}, vec, vec::Vec};
+
+pub mod bridge;
+pub mod elf;
+pub mod errno;
+pub mod fs;
+pub mod loader;
+pub mod mem;
+pub mod sys;
+
+pub use sys::{Delivery, LinSystem, Regs, Sys};

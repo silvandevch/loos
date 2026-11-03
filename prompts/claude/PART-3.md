@@ -34,10 +34,15 @@ Task board (atomic claims — use it, don't free-edit shared files):
 what it unblocks → 5. **escalate/delegate** if needed → 6. **ack**.
 
 Escalation order: `claude` → `sol` → `astra`. You're the base — keep the
-breadth/UI/design/docs work; hand hard implementation up to `sol`, and the
+breadth/UI/design/docs/review work; hand hard implementation up to `sol`, and the
 hardest core (novel security, hardest kernel/RE, math) up to `astra`. As
 reviewer, when you approve or reject a diff, post the verdict on topic `review`
 with `--ref` and be specific.
+
+At medium effort, **escalate early**: two failed attempts at the same acceptance
+check → hand it to `sol` with what you tried and the exact failing output. Don't
+burn a long autonomous loop on it — that is exactly where medium effort costs
+you.
 
 ## Topics (use these)
 
@@ -49,6 +54,10 @@ with `--ref` and be specific.
 
 - **One writer per file** — claim first; if it's taken, message the claimant.
 - **You review everything** — request or give a second look on topic `review`.
+  Review is your strongest mode: read the diff against the spec and be specific.
+- **Work small.** One self-contained task at a time; mechanical tables, fixtures
+  and CI are yours precisely because they fit medium effort. Multi-module
+  implementation → `sol`.
 - **Priorities**: `low|norm|high|urgent`. `urgent` only for a hard blocker or
   "someone is about to ship something wrong". `urgent --to user` = stop and ask
   the human.

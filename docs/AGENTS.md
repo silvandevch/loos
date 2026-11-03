@@ -9,16 +9,22 @@ what, how they talk, and the rules. Read
 
 | Bus id | Model | Strength | Owns |
 |---|---|---|---|
-| `astra` | **GPT 6 Astra** (best) | hardest, correctness-critical | kernel, VM, syscalls, btrfs, drivers, novel security/crypto, hardest reverse-engineering, math |
-| `sol` | **GPT 6.1 Sol** (near-Astra, cheaper) | the workhorse — matches Astra on complex coding | Win32 subsystem, API sets, compat shims, backend services, graphics bridge, Lin bridge/base, toolchain, tests |
-| `claude` | **Claude Sonnet 5.5** | fast, broad, design/UI/docs | UI/shell, design & branding, docs & writing, review, mechanical tables & CI |
+| `astra` | **GPT 6 Astra** | hardest, correctness-critical | kernel, VM, syscalls, btrfs, drivers, novel security/exploit, hardest reverse-engineering, math |
+| `sol` | **DeepSeek V4.1 Flash 1017** (thinking, `reasoning_effort=high`) | agentic coding in an existing repo — the strongest coder in the table | Win32 subsystem, API sets, compat shims, backend services, graphics bridge, Lin bridge/base, toolchain, tests, security *engineering* (crypto/TLS/signing/firewall) |
+| `claude` | **Claude Sonnet 5.5** (medium effort) | fast and cheap; knowledge work, docs, design, review; computer use | UI/shell, design & branding, docs & writing, review, mechanical tables & CI, provenance |
+
+Each tier's measured strengths (and the reasons for its scores) are in its
+PART-1 prompt: `../prompts/<agent>/PART-1.md`.
 
 Route by **capability in the task's category**, not by who's free. The chain is
-**Claude → Sol → Astra**: hand *UI/design/docs* down to Claude, hand *novel
-security, hardest kernel/RE, and math* up to Astra, and do everything in between
-yourself. Sol matches Astra on complex software engineering (DeepSWE v1.1) and
-sits within ~2 points on computer use (OSWorld) at roughly a fifth of the cost;
-Astra still leads on the hardest work. See §Routing below.
+**Claude → Sol → Astra**: hand *UI/design/docs/review/mechanical tables* down to
+Claude, hand *novel security (exploit invention, hardest RE), the debug-heavy
+core and math* up to Astra, and do the bulk implementation in between yourself.
+Sol is the strongest agentic coder on repository-scale work (DeepSWE v1.1 77.0
+vs Astra 74.1), but Astra still owns novelty and correctness under uncertainty.
+Claude runs at medium effort: it is excellent on small, self-contained tasks,
+long-form docs and review, and loses the most on long autonomous loops. See
+§Routing below.
 
 ## Routing
 
@@ -26,43 +32,58 @@ Owners are computed, not hand-picked. `scripts/seed_tasks.py` holds a
 per-category **competence matrix** for `(astra, sol, claude)` and a **load
 balancer**: take the best model for a category unless it is past its cap, then
 fall through to the next model whose competence still clears a threshold
-(≥ 72). If nobody clears it, the best model keeps the task — hard work is never
-dumped on a poor fit. Caps are `astra 44 · sol 122 · claude 128`; astra stays on
-the hard core, sol carries the workhorse volume, and Claude is the sink for
-breadth. (Hard tasks whose only competent owner is astra still stay with astra
-even past its cap — that is why the computed count can exceed a cap.)
+(≥ 72). If nobody clears it, hard-core work (`HARD` categories: boot, kernel,
+io, fs, drivers, net, crypto, security, power, time, virt, lin-core) stays with
+the best model — hard work is never dumped on a poor fit — and volume work goes
+to whoever has the most headroom. Caps are `astra 44 · sol 122 · claude 160`;
+astra stays on the hard core, sol carries the workhorse volume, and Claude takes
+the breadth it leads. (Hard tasks whose only competent owner is astra still stay
+with astra even past its cap — that is why the computed count can exceed a
+cap.)
 
 | Category | astra | sol | claude | | Category | astra | sol | claude |
 |---|--:|--:|--:|---|---|--:|--:|--:|
-| boot | 95 | 80 | 70 | | ui | 78 | 84 | 88 |
-| kernel | 96 | 82 | 70 | | design | 70 | 80 | 90 |
-| io | 93 | 80 | 72 | | docs | 74 | 80 | 90 |
-| fs | 94 | 80 | 72 | | review | 90 | 86 | 88 |
-| drivers | 92 | 78 | 65 | | build | 86 | 88 | 84 |
-| net | 94 | 80 | 72 | | tests | 88 | 88 | 88 |
-| crypto / security | 98 / 95 | 78 / 79 | 72 / 72 | | ci | 84 | 86 | 88 |
-| privacy | 90 | 82 | 80 | | porting | 78 | 88 | 86 |
-| graphics | 90 | 82 | 72 | | env | 78 | 84 | 84 |
-| pe | 90 | 88 | 82 | | lin-core | 95 | 80 | 68 |
-| win32 | 88 | 88 | 84 | | lin-fs / lin-bridge | 90 / 88 | 82 / 84 | 76 / 78 |
-| apisets | 80 | 88 | 86 | | lin-gui / lin-base | 82 / 78 | 82 / 86 | 84 / 84 |
-| compat | 82 | 88 | 84 | | lin-tooling / lin-corpus | 80 / 78 | 88 / 86 | 86 / 88 |
-| backend | 84 | 86 | 82 | | | | | |
+| boot | 95 | 84 | 62 | | ui | 76 | 84 | 91 |
+| kernel | 96 | 84 | 62 | | design | 68 | 80 | 93 |
+| io | 93 | 84 | 64 | | docs | 72 | 82 | 93 |
+| fs | 94 | 82 | 64 | | review | 90 | 88 | 90 |
+| drivers | 92 | 82 | 58 | | build | 86 | 92 | 85 |
+| net | 94 | 82 | 64 | | tests | 88 | 91 | 84 |
+| crypto / security | 98 / 95 | 80 / 82 | 64 / 65 | | ci | 84 | 90 | 89 |
+| privacy | 90 | 84 | 78 | | porting | 78 | 92 | 82 |
+| graphics | 90 | 84 | 66 | | env | 76 | 84 | 90 |
+| pe | 90 | 90 | 78 | | lin-core | 95 | 84 | 66 |
+| win32 | 88 | 90 | 80 | | lin-fs / lin-bridge | 90 / 88 | 84 / 86 | 70 / 74 |
+| apisets | 80 | 92 | 82 | | lin-gui / lin-base | 82 / 78 | 84 / 90 | 82 / 82 |
+| compat | 82 | 92 | 80 | | lin-tooling / lin-corpus | 80 / 78 | 91 / 88 | 84 / 88 |
+| backend | 84 | 92 | 84 | | gen | 82 | 80 | 88 |
 
-Categories added for the full-OS backlog (M11+, packaging / installer / system):
+Categories added for the full-OS backlog (M11+, packaging, installer, SDK, compilers):
 
 | Category | astra | sol | claude | | Category | astra | sol | claude |
 |---|--:|--:|--:|---|---|--:|--:|--:|
-| pkg | 84 | 90 | 88 | | power / time | 92 / 92 | 82 / 82 | 72 / 72 |
-| installer | 90 | 86 | 84 | | audio / print | 88 / 84 | 82 / 86 | 78 / 84 |
-| recovery | 88 | 86 | 84 | | virt | 94 | 80 | 70 |
-| update | 86 | 90 | 86 | | a11y | 74 | 82 | 90 |
-| rust | 90 | 92 | 86 | | | | |
+| pkg | 84 | 93 | 86 | | power / time | 92 / 92 | 84 / 84 | 66 / 64 |
+| installer | 90 | 90 | 82 | | audio / print | 88 / 84 | 84 / 88 | 72 / 80 |
+| recovery | 88 | 88 | 82 | | virt | 94 | 84 | 64 |
+| update | 86 | 93 | 84 | | a11y | 72 | 82 | 92 |
+| rust | 90 | 94 | 84 | | sdk | 88 | 92 | 86 |
+| compiler | 86 | 91 | 82 | | python | 80 | 93 | 82 |
 
-Scores are grounded in public 2026 evals (FrontierMath, ExploitBench, SRE-Bench,
-Terminal-Bench 4.0, DeepSWE v1.1, OSWorld 2.0/2.1, KernelGen, GDPval-AA) and are
-only used for relative ranking. Current board split (307 tasks): **astra 50 ·
-sol 129 · claude 128**.
+Scores are grounded in public 2026 evals and are only used for relative
+ranking (they must match `COMPETENCE` in `../scripts/seed_tasks.py`):
+- **astra** — OpenAI launch table: FrontierMath T4 97.6, ExploitBench 100,
+  ARC-AGI-3 99.9, SRE-Bench 88.0, Terminal-Bench 4.0 57.9, DeepSWE v1.1 74.1.
+- **sol** — DeepSeek V4.1 Flash 1017 launch table (high effort): DeepSWE v1.1
+  77.0, Terminal-Bench 4.0 42.3, Apex Bench 72.1, Automation-Bench 60.5, Agents'
+  Last Exam 35.4, ProgramBench 29.1; V4.1-Flash release: CyberGym 88.1,
+  SEC-Bench Pro 62.8, ExploitGym 15.3.
+- **claude** — Claude Sonnet 5.5, effort-adjusted (Anthropic's effort table puts
+  medium at ~half of max): Terminal-Bench 4.0 28.8 (max 70.6), FrontierCode 36.5
+  (max 46.2), CursorBench 39.2 (max 55.5); system card SWE-Bench Pro 81.3,
+  OSWorld 2.1 80.1, AA-Briefcase 1811–1844 Elo.
+
+Current board split (318 tasks, after the reseed):
+**astra 86 · sol 130 · claude 102**.
 
 ## Talking to each other (the bus)
 

@@ -18,6 +18,8 @@ loos-kernel = { path = "../loos-kernel" }
 loos-ksync = { path = "../ksync" }
 loos-kdump = { path = "../kdump" }
 loos-shell = { path = "../loos-shell" }
+loos-lin = { path = "../loos-lin" }
+loos-win32k = { path = "../loos-win32k" }
 
 [lints]
 workspace = true

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=LoOS Switch
+GenericName=Installer & Migration
+Comment=Install LoOS and migrate your files without telemetry
+Exec=loos-switch
+Icon=loos-switch
+Terminal=false
+Categories=System;Settings;
+Keywords=LoOS;install;migrate;backup;privacy;
+StartupNotify=true

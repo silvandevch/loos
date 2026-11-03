@@ -16,7 +16,7 @@ no accounts, no phone-home. Runs Windows applications. Native filesystem is
 | 3 | [LAYOUT.md](LAYOUT.md) | Where every file lives on disk (and how to stay low-space). |
 | 4 | [BUILD.md](BUILD.md) | How to build, step by step (Wine **and** Windows VM). |
 | 5 | [TOOLS.md](TOOLS.md) | Every command/tool, what it does, examples. |
-| 6 | [AGENTS.md](AGENTS.md) | How Astra + Claude + Sol work here (simple rules). |
+| 6 | [AGENTS.md](AGENTS.md) | How Astra + Sol + Claude work here (simple rules). |
 | 7 | [SOURCE-POLICY.md](SOURCE-POLICY.md) | What code we may use and how. **Not** clean-room. |
 | 8 | [BRANDING.md](BRANDING.md) | LoOS branding; how to rebrand your decompiled apps. |
 | 9 | [BTRFS.md](BTRFS.md) | btrfs as the native FS (NTFS is not used). |

@@ -29,6 +29,7 @@ Full detail: `docs/AGENT-WORKSPACE.md`.
 | Linux compat | `docs/LINUX-COMPAT.md` |
 | can I use this code? | `docs/SOURCE-POLICY.md` |
 | routing / who does what | `docs/AGENTS.md` §Routing |
+| what you're best at | `docs/AGENTS.md` §The agents (Sol row) |
 | cost/budget | `docs/BUDGET.md` |
 
 Your deep specs live in `prompts/spec/` (prose interface facts). `docs/` is the

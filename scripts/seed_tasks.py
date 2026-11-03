@@ -15,11 +15,22 @@ on the hard core instead of drowning it in volume.
 Competence is grounded in public 2026 evals (numbers rounded to a 0–100 scale):
   astra  — FrontierMath T4 97.6, ExploitBench 100, SRE-Bench 88.0, ARC-AGI-3
            99.9, Terminal-Bench 57.9, DeepSWE 74.1, KernelGen leader.
-  sol    — DeepSWE 74.1 (≈astra at ~1/5 cost), OSWorld within 2.1 pts of astra,
-           ExploitBench 99.7 stable / 21.5 novel, SEC-Bench 78.8, KernelGen
-           "substantially above GPT-6 Sol" (below astra).
-  claude — Terminal-Bench 4.0 70.6, GDPval-AA 1844 (≈Opus) , FrontierCode 46.2,
-           CursorBench 55.5, strong scoped bug-fixing, docs/slides/design/review.
+  sol    — DeepSeek V4.1 Flash 1017 at `reasoning_effort=high` (as run in
+           DeepSeek Harness). DeepSeek's own table: DeepSWE v1.1 77.0 (best in
+           the table, above GPT-5.6 Sol, Claude Opus 5 and Astra's 74.1),
+           Terminal-Bench 4.0 42.3 (above GPT-5.6 Sol's 39.9), Apex Bench 72.1,
+           Automation-Bench 60.5, Agents' Last Exam 35.4, Chartography 83.0.
+           V4.1-Flash release: CyberGym 88.1, SEC-Bench Pro 62.8, Terminal-Bench
+           2.1 90.6 / 3.0 30.0, HLE 42.6 (text 44.0), Codeforces 3471. Weak:
+           ExploitGym 15.3, ProgramBench 29.1, NL2Repo 68.2. RL: "wish-driven"
+           end-to-end project builds; 1M context.
+  claude — Claude Sonnet 5.5 at `medium` effort (Claude Code / app default).
+           Effort table puts medium at roughly half of the max score: Terminal-Bench 4.0
+           28.8 (max 70.6, high 43.0), FrontierCode 1.1 36.5 (max 46.2, high
+           49.4), CursorBench 4.0 39.2 (max 55.5); AA Intelligence Index 40.7
+           (high 46.7). System card: SWE-Bench Pro 81.3, SWE-Bench Multilingual
+           90.3, AA-Briefcase/GDPval-AA 1811-1844 Elo (knowledge work), OSWorld
+           2.1 80.1, docs/slides/design/review. Cheap + fast; needs a tight spec.
 
 Idempotent: a task whose title already exists is left alone (but its owner is
 reconciled with the computed plan). Dependencies resolve to real task ids.
@@ -40,70 +51,85 @@ MODELS = ("astra", "sol", "claude")
 # Per-category competence, ordered as MODELS. 0–100. Grounded in the evals
 # summarised above; used only for relative ranking + the load balancer.
 COMPETENCE: dict[str, tuple[int, int, int]] = {
-    # hard core — astra's home turf
-    "boot":        (95, 80, 70),
-    "kernel":      (96, 82, 70),
-    "io":          (93, 80, 72),
-    "fs":          (94, 80, 72),
-    "drivers":     (92, 78, 65),
-    "net":         (94, 80, 72),
-    "crypto":      (98, 78, 72),
-    "security":    (95, 79, 72),
-    "privacy":     (90, 82, 80),
-    "graphics":    (90, 82, 72),
-    # Win32 / subsystem — sol matches astra on general coding & computer use
-    "pe":          (90, 88, 82),
-    "win32":       (88, 88, 84),
-    "apisets":     (80, 88, 86),
-    "compat":      (82, 88, 84),
-    "backend":     (84, 86, 82),
-    # breadth / UI / writing — claude's edge
-    "ui":          (78, 84, 88),
-    "design":      (70, 80, 90),
-    "docs":        (74, 80, 90),
-    "review":      (90, 86, 88),
+    # hard core — astra's home turf. sol moves up on the syscall/VFS/kernel-object
+    # tier (DeepSWE 77.0, TB 42.3) but the novel/debug-heavy paths stay astra's.
+    "boot":        (95, 84, 62),
+    "kernel":      (96, 84, 62),
+    "io":          (93, 84, 64),
+    "fs":          (94, 82, 64),
+    "drivers":     (92, 82, 58),
+    "net":         (94, 82, 64),
+    "crypto":      (98, 80, 64),
+    "security":    (95, 82, 65),
+    "privacy":     (90, 84, 78),
+    "graphics":    (90, 84, 66),
+    # Win32 / subsystem — sol's core: strongest agentic coder in the table
+    "pe":          (90, 90, 78),
+    "win32":       (88, 90, 80),
+    "apisets":     (80, 92, 82),
+    "compat":      (82, 92, 80),
+    "backend":     (84, 92, 84),
+    # breadth / UI / writing / review — claude's edge (at medium it needs a
+    # tight, self-contained scope; see the note in PART-1 for `claude`)
+    "ui":          (76, 84, 91),
+    "design":      (68, 80, 93),
+    "docs":        (72, 82, 93),
+    "review":      (90, 88, 90),
     # tooling / volume
-    "build":       (86, 88, 84),
-    "tests":       (88, 88, 88),
-    "ci":          (84, 86, 88),
-    "porting":     (78, 88, 86),
-    "env":         (78, 84, 84),
+    "build":       (86, 92, 85),
+    "tests":       (88, 91, 84),
+    "ci":          (84, 90, 89),
+    "porting":     (78, 92, 82),
+    # mechanical codegen — agents' last exam 35.4 is sol's weakest row
+    "gen":         (82, 80, 88),
+    # env — computer use: OSWorld 80.1 vs Astra 72.6
+    "env":         (76, 84, 90),
     # Lin (native Linux compat)
-    "lin-core":    (95, 80, 68),
-    "lin-fs":      (90, 82, 76),
-    "lin-bridge":  (88, 84, 78),
-    "lin-gui":     (82, 82, 84),
-    "lin-base":    (78, 86, 84),
-    "lin-tooling": (80, 88, 86),
-    "lin-corpus":  (78, 86, 88),
+    "lin-core":    (95, 84, 66),
+    "lin-fs":      (90, 84, 70),
+    "lin-bridge":  (88, 86, 74),
+    "lin-gui":     (82, 84, 82),
+    "lin-base":    (78, 90, 82),
+    "lin-tooling": (80, 91, 84),
+    "lin-corpus":  (78, 88, 88),
     # full-OS breadth (M11+): drivers, subsystems, services, packaging, install
-    "pkg":         (84, 90, 88),
-    "installer":   (90, 86, 84),
-    "recovery":    (88, 86, 84),
-    "update":      (86, 90, 86),
-    "power":       (92, 82, 72),
-    "time":        (92, 82, 72),
-    "audio":       (88, 82, 78),
-    "print":       (84, 86, 84),
-    "virt":        (94, 80, 70),
-    "a11y":        (74, 82, 90),
+    "pkg":         (84, 93, 86),
+    "installer":   (90, 90, 82),
+    "recovery":    (88, 88, 82),
+    "update":      (86, 93, 84),
+    "power":       (92, 84, 66),
+    "time":        (92, 84, 64),
+    "audio":       (88, 84, 72),
+    "print":       (84, 88, 80),
+    "virt":        (94, 84, 64),
+    "a11y":        (72, 82, 92),
     # Rust-first language policy (docs/LANGUAGE.md)
-    "rust":        (90, 92, 86),
+    "rust":        (90, 94, 84),
     # SDK / compilers / Python (docs/API.md, TOOLCHAINS.md, PYTHON.md)
-    "sdk":         (88, 90, 86),
-    "compiler":    (86, 90, 86),
-    "python":      (80, 90, 84),
+    "sdk":         (88, 92, 86),
+    "compiler":    (86, 91, 82),
+    "python":      (80, 93, 82),
 }
 
-# Load caps. Astra is deliberately capped so the load balancer offloads
-# everything it isn't uniquely best at; claude is the sink (uncapped).
-CAP = {"astra": 44, "sol": 122, "claude": 128}
+# Load caps. astra is capped so the load balancer offloads the work it is only
+# a few points ahead on (sol: V4.1 Flash's best-in-table coding; claude: review/
+# design/docs); sol carries the workhorse volume and claude the breadth/UI/docs.
+# Hard-core work still stays with astra past its cap (see HARD in plan_owners).
+# With the current backlog the split comes out ~astra 82 · sol 122 · claude 91.
+CAP = {"astra": 44, "sol": 122, "claude": 160}
 THRESHOLD = 72  # a fallback model must be at least this good to take a task
 
 
 def _rank(cat: str) -> list[tuple[str, int]]:
     scores = COMPETENCE[cat]
-    return sorted(zip(MODELS, scores), key=lambda kv: kv[1], reverse=True)
+    order = {m: i for i, m in enumerate(MODELS)}
+    return sorted(zip(MODELS, scores), key=lambda kv: (-kv[1], order[kv[0]]))
+
+
+# The hard, correctness-critical core: if nobody else clears the threshold the
+# task still belongs to astra even if astra is past its cap.
+HARD = {"boot", "kernel", "io", "fs", "drivers", "net", "crypto", "security",
+        "power", "time", "virt", "lin-core"}
 
 
 def plan_owners(tasks):
@@ -121,16 +147,20 @@ def plan_owners(tasks):
             chosen = best
         else:
             # Best model is capped: hand off to the next model that is still
-            # good enough (>= threshold) and has room. If nobody clears the
-            # threshold, keep the best model rather than ship a poor fit —
-            # hard tasks stay with the model that can actually do them.
+            # good enough (>= threshold) and has room.
             chosen = None
             for model, score in ranked[1:]:
                 if score >= THRESHOLD and load[model] < CAP[model]:
                     chosen = model
                     break
             if chosen is None:
-                chosen = best
+                # Nobody else clears the threshold. Hard core work stays with
+                # the best model even past its cap (never dump it on a poor
+                # fit); volume work goes to whoever has the most headroom.
+                if cat in HARD:
+                    chosen = best
+                else:
+                    chosen = min(MODELS, key=lambda m: load[m] - CAP[m])
         owners[key] = chosen
         load[chosen] += 1
     return owners
@@ -225,6 +255,8 @@ TASKS = [
     ("rust-win32", "win32: subsystem surface as Rust extern C crates", "rust", "low", ["M5", "rust-workspace"], ""),
     ("rust-apps", "apps: new LoOS apps in Rust (windows crate)", "rust", "low", ["M6", "rust-workspace"], ""),
     ("keep-c", "docs: record modules that stay C and why (FFI/asm/unsafe-heavy)", "docs", "norm", [], "docs/LANGUAGE.md"),
+    # ---- hand-added work (not part of the seed backlog) ----
+    ("rust-comp-slice", "graphics: port the compositor + display-path slice (comp backend modules) from C to Rust", "rust", "high", ["rust-comp", "comp"], "one batched request; docs/LANGUAGE.md"),
 
     # ---- LoOS API / SDK (docs/API.md) ----
     ("sdk-api", "sdk: LoOS public API (loos.h + per-subsystem headers, opaque-handle ABI)", "sdk", "high", [], "docs/API.md"),

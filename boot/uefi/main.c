@@ -89,6 +89,47 @@ static void *read_file(const char *path, uint64_t *size_out)
     return buf;
 }
 
+/* Reads the currently executing image using the FilePath node of its
+ * loaded-image device path. This lets a local install-stage loader live at
+ * \EFI\LoOS\BOOTX64.EFI without overwriting Windows' fallback loader. */
+static void *read_file_wide(CHAR16 *path, uint64_t *size_out)
+{
+    EFI_FILE_PROTOCOL *f;
+    if (EFI_ERROR(root->Open(root, &f, path, EFI_FILE_MODE_READ, 0))) return 0;
+    uint64_t size = 0;
+    if (EFI_ERROR(f->SetPosition(f, ~0ull)) || EFI_ERROR(f->GetPosition(f, &size)) || EFI_ERROR(f->SetPosition(f, 0)) || size == 0) {
+        f->Close(f);
+        return 0;
+    }
+    void *buf = alloc_pages(size + 1, EfiLoaderData, 0);
+    if (!buf) { f->Close(f); return 0; }
+    UINTN got = size;
+    EFI_STATUS st = f->Read(f, &got, buf);
+    f->Close(f);
+    if (EFI_ERROR(st) || got != size) return 0;
+    *size_out = size;
+    return buf;
+}
+
+static void *read_own_file(EFI_LOADED_IMAGE_PROTOCOL *li, uint64_t *size_out)
+{
+    if (li && li->FilePath) {
+        const uint8_t *dp = (const uint8_t *)li->FilePath;
+        for (int guard = 0; guard < 32; guard++) {
+            if (dp[0] == 0x7f && dp[1] == 0xff) break;
+            uint16_t len = (uint16_t)(dp[2] | (uint16_t)dp[3] << 8);
+            if (len < 4) break;
+            if (dp[0] == 4 && dp[1] == 4) {                       /* MEDIA_DEVICE_PATH / FILEPATH_DEVICE_PATH */
+                void *p = read_file_wide((CHAR16 *)(dp + 4), size_out);
+                if (p) return p;
+                break;
+            }
+            dp += len;
+        }
+    }
+    return read_file("\\EFI\\BOOT\\BOOTX64.EFI", size_out);   /* fallback for older firmware */
+}
+
 /* ---- BOOT.CFG ---- */
 struct cfg_module { char name[16]; char path[128]; };
 static char cfg_kernel[128];
@@ -237,7 +278,7 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *st)
     for (const char *p = env.cmdline; *p; p++) if ((p == env.cmdline || p[-1] == ' ') && !memcmp(p, "installer", 9) && (p[9] == 0 || p[9] == ' ')) installer = 1;
     if (installer) {
         uint64_t esz, kz;
-        void *efi = read_file("\\EFI\\BOOT\\BOOTX64.EFI", &esz), *k2 = read_file(cfg_kernel, &kz);
+        void *efi = read_own_file(li, &esz), *k2 = read_file(cfg_kernel, &kz);
         if (!efi || !k2) die("cannot read the files the installer needs");
         if (env.nfiles + 3 > LADER_MAX) die("too many boot modules for an installer");
         struct loader_file *f = &env.files[env.nfiles++];

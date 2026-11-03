@@ -32,3 +32,18 @@ reachable stale cells.
 The Win32 `advapi32` layer will map `HKEY_*` roots and `REG_*` types onto this
 model. Hive transaction logging and registry security descriptors are separate
 follow-up work; the base hive remains parseable and writable without them.
+
+
+## Registry service and btrfs persistence (`service.rs`, `vfs_store.rs`)
+
+`Registry<S: HiveStorage>` unifies hives into one namespace: `HKLM`→`MACHINE\{SYSTEM,SOFTWARE,SAM,SECURITY}`,
+`HKU`→`USER\<sid>`, `HKCU`→`USER\<current_user>`, `HKCR`→`MACHINE\SOFTWARE\Classes`.
+Longest-mount routing, `create/delete_key`, typed value get/set, enumeration, `load_hive`/`unload_hive`
+(per-user `NTUSER.DAT`). A corrupt hive fails `open` (never silently replaced).
+
+Persistence (`--features vfs`): `VfsStorage` writes `<name>.new`, flushes, then `rename`s over the
+old file (CoW-atomic on btrfs; `loos-vfs` gained `FileSystem::create_file`/`rename` and
+`MountManager::{create_file,rename,flush_path}`, default `Unsupported`). Shrinking hives leave no
+stale tail. Tests: `cargo test -p loos-registry --features vfs`.
+
+`create_file`/`rename` are implemented for the FAT adapter (`FatAdapter`, tested against `mkfs.fat`; rename replaces the destination). There is no btrfs `FileSystem` adapter yet (`loos-btrfs*` expose a reader and planners only), so hive persistence on btrfs needs that adapter to implement these two methods.

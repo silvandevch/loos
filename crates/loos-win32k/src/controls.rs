@@ -1,0 +1,145 @@
+//! Standard window classes: `Button`, `Static`, the dialog class `#32770`, and `MessageBox`.
+
+#[allow(unused_imports)]
+use alloc::{boxed::Box, format, string::{String, ToString}, vec, vec::Vec};
+use crate::*;
+
+/// BN_CLICKED.
+pub const BN_CLICKED: u32 = 0;
+/// IDOK.
+pub const IDOK: i32 = 1;
+/// IDCANCEL.
+pub const IDCANCEL: i32 = 2;
+/// IDYES.
+pub const IDYES: i32 = 6;
+/// IDNO.
+pub const IDNO: i32 = 7;
+/// MB_OK.
+pub const MB_OK: u32 = 0;
+/// MB_OKCANCEL.
+pub const MB_OKCANCEL: u32 = 1;
+/// MB_YESNO.
+pub const MB_YESNO: u32 = 4;
+
+fn button_proc(k: &mut Win32k, h: Hwnd, msg: u32, w: usize, l: isize) -> isize {
+    match msg {
+        WM_PAINT => {
+            if let Ok(ps) = k.begin_paint(h) {
+                let (title, cw, ch, down) = (k.get_window_text(h).unwrap_or_default(), k.get_client_rect(h).unwrap_or_default(), 0, k.get_extra(h, 0).unwrap_or(0) == 1);
+                let _ = ch;
+                let face = k.create_solid_brush(sys_color(COLOR_BTNFACE));
+                k.fill_rect(ps.hdc, cw, face);
+                k.delete_object(face);
+                let (hi, lo) = if down { (rgb(64, 64, 64), rgb(255, 255, 255)) } else { (rgb(255, 255, 255), rgb(64, 64, 64)) };
+                for (c, a, b) in [(hi, (0, 0), (cw.right - 1, 0)), (hi, (0, 0), (0, cw.bottom - 1)), (lo, (0, cw.bottom - 1), (cw.right - 1, cw.bottom - 1)), (lo, (cw.right - 1, 0), (cw.right - 1, cw.bottom - 1))] {
+                    let pen = k.create_pen(1, c);
+                    let old = k.select_object(ps.hdc, pen);
+                    k.move_to(ps.hdc, a.0, a.1);
+                    k.line_to(ps.hdc, b.0, b.1);
+                    k.select_object(ps.hdc, old);
+                    k.delete_object(pen);
+                }
+                k.set_bk_mode(ps.hdc, 1);
+                let off = down as i32;
+                k.draw_text(ps.hdc, &title, Rect::new(off, off, cw.right + off, cw.bottom + off), DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                k.end_paint(h, &ps);
+            }
+            0
+        }
+        WM_LBUTTONDOWN => {
+            if k.is_window_enabled(h) {
+                k.set_capture(h);
+                k.set_extra(h, 0, 1).ok();
+                k.invalidate_rect(h, None, false).ok();
+            }
+            0
+        }
+        WM_LBUTTONUP => {
+            if k.get_extra(h, 0).unwrap_or(0) == 1 {
+                k.release_capture();
+                k.set_extra(h, 0, 0).ok();
+                k.invalidate_rect(h, None, false).ok();
+                let (x, y) = (lparam_x(l), lparam_y(l));
+                let cr = k.get_client_rect(h).unwrap_or_default();
+                if cr.contains(Point { x, y }) {
+                    let parent = k.get_parent(h).unwrap_or(0);
+                    let id = k.get_id(h).unwrap_or(0) as usize;
+                    k.post_message(parent, WM_COMMAND, id | (BN_CLICKED as usize) << 16, h as isize).ok();
+                }
+            }
+            0
+        }
+        _ => k.def_window_proc(h, msg, w, l),
+    }
+}
+
+fn static_proc(k: &mut Win32k, h: Hwnd, msg: u32, w: usize, l: isize) -> isize {
+    if msg == WM_PAINT {
+        if let Ok(ps) = k.begin_paint(h) {
+            let title = k.get_window_text(h).unwrap_or_default();
+            let cr = k.get_client_rect(h).unwrap_or_default();
+            k.set_bk_mode(ps.hdc, 1);
+            k.draw_text(ps.hdc, &title, cr, DT_LEFT | DT_SINGLELINE);
+            k.end_paint(h, &ps);
+        }
+        return 0;
+    }
+    k.def_window_proc(h, msg, w, l)
+}
+
+fn dialog_proc(k: &mut Win32k, h: Hwnd, msg: u32, w: usize, l: isize) -> isize {
+    match msg {
+        WM_COMMAND => {
+            k.results.insert(h, (w & 0xffff) as i32);
+            k.destroy_window(h).ok();
+            0
+        }
+        WM_CLOSE => {
+            k.results.insert(h, IDCANCEL);
+            k.destroy_window(h).ok();
+            0
+        }
+        _ => k.def_window_proc(h, msg, w, l),
+    }
+}
+
+impl Win32k {
+    pub(crate) fn init_controls(&mut self) {
+        let face = COLOR_BTNFACE as u32 + 1;
+        for (name, p, bg, extra) in [("Button", button_proc as NativeProc, face, 1), ("Static", static_proc, face, 0), ("#32770", dialog_proc, face, 0)] {
+            self.register_class(WndClass { name: name.into(), style: 0, proc_: Proc::Native(p), background: bg, wnd_extra: extra }).ok();
+        }
+    }
+
+    /// `MessageBox` (non-blocking form): shows a dialog and returns its handle. Poll
+    /// [`Win32k::message_box_result`]; the app's thread keeps pumping messages meanwhile.
+    pub fn message_box(&mut self, owner: Hwnd, text: &str, caption: &str, kind: u32) -> Result<Hwnd, Win32kError> {
+        let (sw, sh) = self.screen;
+        let (w, h) = (340, 150 + 24);
+        let dlg = self.create_window_ex(0, "#32770", caption, WS_CAPTION | WS_SYSMENU | WS_VISIBLE, (sw - w) / 2, (sh - h) / 2, w, h, 0, 0, 0)?;
+        self.wins.get_mut(&dlg).unwrap().owner = owner;
+        self.create_window_ex(0, "Static", text, WS_CHILD | WS_VISIBLE, 16, 20, 300, 40, dlg, 0, 0)?;
+        let buttons: &[(i32, &str)] = match kind & 0xF {
+            MB_OKCANCEL => &[(IDOK, "OK"), (IDCANCEL, "Cancel")],
+            MB_YESNO => &[(IDYES, "Yes"), (IDNO, "No")],
+            _ => &[(IDOK, "OK")],
+        };
+        let total = buttons.len() as i32 * 84 - 8;
+        for (i, (id, label)) in buttons.iter().enumerate() {
+            self.create_window_ex(0, "Button", label, WS_CHILD | WS_VISIBLE, (w - 4 - total) / 2 + i as i32 * 84, 70, 76, 26, dlg, *id as isize, 0)?;
+        }
+        if owner != 0 {
+            self.enable_window(owner, false).ok();
+        }
+        Ok(dlg)
+    }
+
+    /// Result of a finished message box (IDOK, ...); re-enables the owner. `None` while open.
+    pub fn message_box_result(&mut self, dlg: Hwnd, owner: Hwnd) -> Option<i32> {
+        let r = self.results.remove(&dlg)?;
+        if owner != 0 {
+            self.enable_window(owner, true).ok();
+        }
+        Some(r)
+    }
+}

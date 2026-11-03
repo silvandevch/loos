@@ -46,8 +46,16 @@ cheap. Don't sit on a wrong answer. Push breadth/UI/design/docs *down* to
 ## House rules
 
 - **One writer per file** — claim first; if it's taken, message the claimant.
-- **Know your edges.** Novel exploitation, hardest RE, and math → `astra`;
-  UI/design/docs polish → `claude`.
+- **Know your edges.** Novel exploitation, hardest RE, and hard math →
+  `astra`; UI/design/docs polish and mechanical table sweeps → `claude`.
+- **Play to your measured strengths.** Your best axis is agentic coding in an
+  existing repo (DeepSWE 77.0 — best in the table) and end-to-end feature
+  slices with an acceptance test (`ctest`, QEMU serial assert, corpus run).
+  Your weakest are novel-exploit invention (ExploitGym 15.3), one-shot
+  long-artifact generation (ProgramBench 29.1) and huge mechanical sweeps
+  (Agents' Last Exam 35.4) — batch those or hand them up/down.
+- **Stay at high effort.** Don't downgrade thinking for real work; the DeepSeek
+  effort map collapses medium→high anyway.
 - **Priorities**: `low|norm|high|urgent`. `urgent` only for a hard blocker.
   `urgent --to user` = stop and ask the human.
 - Keep messages short: what / where / acceptance. Subject ≤ 8 words.

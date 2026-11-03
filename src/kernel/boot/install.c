@@ -72,15 +72,19 @@ static void guid_to_bytes(const char *text, uint8_t out[16])        /* "8-4-4-4-
     for (int i = 0; i < 16; i++) out[i] = raw[order[i]];
 }
 
-static void cmdline_strip_word(char *cmd, size_t cap, const char *word)
+/* Drops every boot-time installer token (and any value attached to it) from
+ * the command line stored in the installed system. This is what prevents a
+ * one-time password from surviving on the installed ESP. */
+static void cmdline_strip_installer(char *cmd, size_t cap)
 {
-    size_t wl = strlen(word);
     char out[256]; size_t n = 0;
     for (size_t i = 0; cmd[i] && i < cap;) {
         size_t j = i; while (cmd[j] && cmd[j] != ' ' && j < cap) j++;
-        if (!(j - i == wl && memcmp(cmd + i, word, wl) == 0) && j > i && n + (j - i) + 2 < sizeof out) {
+        size_t len = j - i;
+        int installer = (len == 9 && !memcmp(cmd + i, "installer", 9)) || (len > 10 && !memcmp(cmd + i, "installer.", 10));
+        if (!installer && len && n + len + 2 < sizeof out) {
             if (n) out[n++] = ' ';
-            memcpy(out + n, cmd + i, j - i); n += j - i;
+            memcpy(out + n, cmd + i, len); n += len;
         }
         i = j; while (cmd[i] == ' ' && i < cap) i++;
     }
@@ -88,6 +92,8 @@ static void cmdline_strip_word(char *cmd, size_t cap, const char *word)
 }
 
 /* ---------------------------------------------------------------------------------------------- which disk is our media? */
+static int is_boot_media(struct blkdev *d);
+int install_is_boot_media(int disk) { return disk >= 0 && disk < blk_count() && is_boot_media(blk_get(disk)); }
 static int is_boot_media(struct blkdev *d)
 {
     static uint8_t sec[512 * 2];
@@ -217,8 +223,7 @@ static void build_installed_cfg(const char *media, char *out, size_t cap)
             const char *name = line + 7;
             keep = strncmp(name, "efi:", 4) && strncmp(name, "kernel.elf:", 11) && strncmp(name, "boot.cfg:", 9) && strncmp(name, "config:", 7);
         } else if (!strncmp(line, "cmdline=", 8)) {
-            cmdline_strip_word(line + 8, sizeof line - 8, "installer");
-            cmdline_strip_word(line + 8, sizeof line - 8, "installer.auto=1");
+            cmdline_strip_installer(line + 8, sizeof line - 8);
         }
         if (keep && line[0]) n += (size_t)snprintf(out + n, cap - n, "%s\n", line);
         p = *e ? e + 1 : e;
@@ -249,8 +254,7 @@ static bool be_begin(void *u, const inst_config *cfg, char *err, size_t cap)
             uint8_t *e = S.table + 248 + 40 * i;
             if (!memcmp(e, "bootimg", 8)) { memmove(e, e + 40, 40 * (nfiles - i - 1)); memset(S.table + 248 + 40 * (nfiles - 1), 0, 40); put32(S.table + 8, --nfiles); break; }
         }
-        cmdline_strip_word((char *)S.table + 16, 232, "installer");
-        cmdline_strip_word((char *)S.table + 16, 232, "installer.auto=1");
+        cmdline_strip_installer((char *)S.table + 16, 232);
         uint64_t end = CONFIG_LBA + CONFIG_SECTORS;
         for (uint32_t i = 0; i < nfiles; i++) {
             const uint8_t *e = S.table + 248 + 40 * i;

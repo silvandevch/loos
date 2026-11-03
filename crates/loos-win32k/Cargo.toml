@@ -1,0 +1,13 @@
+[package]
+name = "loos-win32k"
+description = "LoOS Win32 window manager + GDI (user32/gdi32 kernel side): windows, message queues, input, painting"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+loos-shell = { path = "../loos-shell" }
+
+[lints]
+workspace = true

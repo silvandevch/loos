@@ -14,16 +14,16 @@ truncation and cheap enough to re-paste.
 | Agent (bus id) | Model | Strong at | Paste |
 |---|---|---|---|
 | `astra` | **GPT 6 Astra** | kernel, VM, syscalls, btrfs, drivers, novel security, hardest RE, math — the hardest, correctness-critical work | `astra/PART-1.md`, `PART-2.md`, `PART-3.md` |
-| `sol` | **GPT 6.1 Sol** | the workhorse — Win32 subsystem, API sets, compat, backend, graphics bridge, Lin bridge/base, toolchain, tests; matches Astra on complex coding | `sol/PART-1.md`, `PART-2.md`, `PART-3.md` |
-| `claude` | **Claude Sonnet 5.5** | breadth — UI/shell, design & branding, docs & writing, review, mechanical tables & CI | `claude/PART-1.md`, `PART-2.md`, `PART-3.md` |
+| `sol` | **DeepSeek V4.1 Flash 1017** (thinking, high effort) | the workhorse and the strongest agentic coder on repo-scale work (DeepSWE v1.1 77.0) — Win32 subsystem, API sets, compat, backend, graphics bridge, Lin bridge/base, toolchain, tests, security engineering | `sol/PART-1.md`, `PART-2.md`, `PART-3.md` |
+| `claude` | **Claude Sonnet 5.5** (medium effort) | breadth on well-scoped work — UI/shell, design & branding, docs & writing, review, mechanical tables & CI, computer use | `claude/PART-1.md`, `PART-2.md`, `PART-3.md` |
 
 - **PART 1** — who you are, your tier, the rules.
 - **PART 2** — LoOS context, where you work, what to read.
 - **PART 3** — the bus and your workflow.
 
 Routing by category capability, not by who's free: **Claude → Sol → Astra.** Push
-breadth/UI/design/docs down to Claude; take novel security, hardest kernel/RE and
-math up to Astra. Owners are computed by `scripts/seed_tasks.py` from a
+breadth/UI/design/docs/review/mechanical tables down to Claude; take novel
+security (exploit invention), the debug-heavy core and math up to Astra. Owners are computed by `scripts/seed_tasks.py` from a
 competence matrix + load balancer — see [`../docs/AGENTS.md`](../docs/AGENTS.md) §Routing.
 
 ## How they talk (the bus)

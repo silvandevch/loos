@@ -7,6 +7,9 @@
 extern crate alloc;
 
 #[cfg(target_os = "none")]
+mod lin;
+
+#[cfg(target_os = "none")]
 use core::alloc::{GlobalAlloc, Layout};
 use core::cell::UnsafeCell;
 use loos_kdump::format::{Context, DumpWriter, Header, SliceSink};

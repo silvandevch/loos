@@ -130,6 +130,16 @@ pub trait FileSystem {
         let _ = (path, offset, data);
         Err(VfsError::Fs(FsError::ReadOnly))
     }
+    /// Creates (or truncates to empty) a regular file. Backends without mutation keep the default.
+    fn create_file(&mut self, path: &str) -> Result<(), VfsError> {
+        let _ = path;
+        Err(VfsError::Unsupported)
+    }
+    /// Atomically renames `from` over `to` (replacing it). btrfs backends map this to a CoW rename.
+    fn rename(&mut self, from: &str, to: &str) -> Result<(), VfsError> {
+        let _ = (from, to);
+        Err(VfsError::Unsupported)
+    }
     /// Flushes completed writes.
     fn flush(&mut self) -> Result<(), VfsError> {
         Ok(())
@@ -369,6 +379,37 @@ impl MountManager {
         self.volumes[volume_index]
             .backend
             .write(&subpath, offset, data)
+    }
+
+    /// Creates or truncates a regular file, enforcing the mount's read-only state.
+    pub fn create_file(&mut self, path: &str) -> Result<(), VfsError> {
+        let (index, subpath) = self.resolve(path)?;
+        if self.mounts[index].info.read_only {
+            return Err(VfsError::Fs(FsError::ReadOnly));
+        }
+        let vi = self.mounts[index].volume_index;
+        self.volumes[vi].backend.create_file(&subpath)
+    }
+
+    /// Renames within one mount (replacing the destination atomically).
+    pub fn rename(&mut self, from: &str, to: &str) -> Result<(), VfsError> {
+        let (i1, s1) = self.resolve(from)?;
+        let (i2, s2) = self.resolve(to)?;
+        if i1 != i2 {
+            return Err(VfsError::Unsupported);
+        }
+        if self.mounts[i1].info.read_only {
+            return Err(VfsError::Fs(FsError::ReadOnly));
+        }
+        let vi = self.mounts[i1].volume_index;
+        self.volumes[vi].backend.rename(&s1, &s2)
+    }
+
+    /// Flushes the volume holding `path`.
+    pub fn flush_path(&mut self, path: &str) -> Result<(), VfsError> {
+        let (index, _) = self.resolve(path)?;
+        let vi = self.mounts[index].volume_index;
+        self.volumes[vi].backend.flush()
     }
 
     /// Opens a path and records a busy handle against its mount.
@@ -663,6 +704,18 @@ pub mod adapters {
             Ok(self.fs.write_at(path, offset, data)?)
         }
 
+        fn create_file(&mut self, path: &str) -> Result<(), VfsError> {
+            Ok(self.fs.write_file(path, &[])?)
+        }
+
+        fn rename(&mut self, from: &str, to: &str) -> Result<(), VfsError> {
+            match self.fs.remove(to) {
+                Ok(()) | Err(loos_fs::FsError::NotFound) => {}
+                Err(e) => return Err(e.into()),
+            }
+            Ok(self.fs.rename(from, to)?)
+        }
+
         fn flush(&mut self) -> Result<(), VfsError> {
             Ok(self.fs.sync()?)
         }
@@ -889,5 +942,38 @@ mod tests {
             vfs.write("/cd/HELLO.TXT", 0, b"x").unwrap_err(),
             VfsError::Fs(FsError::ReadOnly)
         );
+    }
+}
+
+#[cfg(test)]
+mod fat_create_rename_tests {
+    extern crate std;
+    use super::adapters::FatAdapter;
+    use super::*;
+    use loos_fs::MemDev;
+
+    #[test]
+    fn fat_create_file_and_replace_rename() {
+        let img = std::env::temp_dir().join(std::format!("loos-vfs-fat-{}.img", std::process::id()));
+        let ok = std::process::Command::new("sh")
+            .args(["-c", &std::format!("truncate -s 8M {0} && mkfs.fat -F 16 {0} >/dev/null 2>&1", img.display())])
+            .status()
+            .is_ok_and(|s| s.success());
+        if !ok {
+            std::eprintln!("skip: mkfs.fat missing");
+            return;
+        }
+        let data = std::fs::read(&img).unwrap();
+        std::fs::remove_file(&img).ok();
+        let mut a = FatAdapter::mount(MemDev::from_image(data), 0).unwrap();
+        a.create_file("/hive.new").unwrap();
+        a.write("/hive.new", 0, b"new-image").unwrap();
+        a.create_file("/hive").unwrap();
+        a.write("/hive", 0, b"old-image-longer").unwrap();
+        a.rename("/hive.new", "/hive").unwrap();
+        let mut b = [0u8; 32];
+        let n = a.read("/hive", 0, &mut b).unwrap();
+        assert_eq!(&b[..n], b"new-image");
+        assert!(a.stat("/hive.new").is_err());
     }
 }

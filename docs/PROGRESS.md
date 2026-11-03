@@ -120,8 +120,13 @@ Task board: 100 tasks (see `./loos bus task ls`).
 
 ## Roster
 
-The third agent is **GPT 6.1 Sol** (`sol`) — near-Astra at ~⅕ the cost; it
-replaced GPT 6 Luna. Capability order is **astra > sol > claude**, with
-category-aware routing: owners are computed by `scripts/seed_tasks.py` from a
-competence matrix + load balancer (astra capped so it stays on the hard core).
-Board split: **astra 32 · sol 39 · claude 29**. See `docs/AGENTS.md` §Routing.
+The third agent is **Sol** (`sol`), now running on **DeepSeek V4.1 Flash 1017**
+(thinking, high effort) — the strongest agentic coder on repo-scale work
+(DeepSWE v1.1 77.0). It replaced **GPT 6.1 Sol**, which had replaced GPT 6 Luna;
+**Claude** runs **Claude Sonnet 5.5 at medium effort**. The order is no longer a
+single ladder — it is category-aware: Astra owns novelty and the hardest
+correctness-critical core, Sol owns most implementation and security
+engineering, Claude owns breadth/docs/review/mechanical tables. Owners are
+computed by `scripts/seed_tasks.py` from a competence matrix + load balancer.
+Board split: **astra 86 · sol 130 · claude 102** (318 tasks). See
+`docs/AGENTS.md` §Routing.

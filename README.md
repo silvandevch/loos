@@ -49,6 +49,21 @@ $OUT_ROOT/  (default /run/media/silvan/DATA/loos/out, external DATA)
   binaries.*/  loos.iso  loos.qcow2
 ```
 
+## LoOS Switch (installer + migration GUI)
+
+`migrationapp/` is a Rust GUI app for **Windows 10/11** and **Linux** that
+writes the verified LoOS installer payload to a USB/dedicated disk, stages a
+non-destructive UEFI setup loader, and copies user folders into a hashed,
+resumable migration bundle. It is offline by construction and has zero
+telemetry. See [`migrationapp/README.md`](migrationapp/README.md).
+
+```bash
+cd migrationapp
+./scripts/build-linux.sh
+./scripts/package-linux.sh      # dist/LoOS-Switch-*.AppImage
+./scripts/package-windows.sh    # dist/LoOS-Switch-*.exe
+```
+
 ## Quick start: build LoOS on Linux
 
 ```bash

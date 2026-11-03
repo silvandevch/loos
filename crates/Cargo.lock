@@ -79,7 +79,9 @@ dependencies = [
  "loos-kdump",
  "loos-kernel",
  "loos-ksync",
+ "loos-lin",
  "loos-shell",
+ "loos-win32k",
 ]
 
 [[package]]
@@ -99,6 +101,13 @@ name = "loos-ksync"
 version = "0.1.0"
 
 [[package]]
+name = "loos-lin"
+version = "0.1.0"
+dependencies = [
+ "loos-win32k",
+]
+
+[[package]]
 name = "loos-msi"
 version = "0.1.0"
 
@@ -116,6 +125,10 @@ version = "0.1.0"
 [[package]]
 name = "loos-registry"
 version = "0.1.0"
+dependencies = [
+ "loos-fs",
+ "loos-vfs",
+]
 
 [[package]]
 name = "loos-security"
@@ -148,6 +161,13 @@ dependencies = [
 [[package]]
 name = "loos-vt"
 version = "0.1.0"
+
+[[package]]
+name = "loos-win32k"
+version = "0.1.0"
+dependencies = [
+ "loos-shell",
+]
 
 [[package]]
 name = "loos-winget"

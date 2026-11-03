@@ -48,11 +48,13 @@ kgdt:
     .quad 0
     .quad 0x00af9a000000ffff            /* 0x08 kernel code */
     .quad 0x00cf92000000ffff            /* 0x10 kernel data */
+    .quad 0x00cff2000000ffff            /* 0x18 user data (selector 0x1b) */
+    .quad 0x00affa000000ffff            /* 0x20 user code 64-bit (selector 0x23) */
 .global kgdt_tss
 kgdt_tss:
-    .quad 0, 0                          /* 0x18 TSS, filled by trap_init */
+    .quad 0, 0                          /* 0x28 TSS, filled by trap_init */
 kgdt_ptr:
-    .word 5*8 - 1
+    .word 7*8 - 1
     .quad 0                             /* filled with the (slid) address of kgdt at entry */
 
 .section .bss

@@ -180,3 +180,44 @@ The differentiator: Linux apps can use the **LoOS/Win32 API**.
 - `docs/BTRFS.md` (the FS the Linux view sits on), `prompts/UI-SPEC.md` (the
   compositor X11/Wayland would target), `prompts/BACKEND-SPEC.md` (executive
   services Lin maps onto), `docs/COMPAT-APPS.md` (the corpus model).
+
+
+---
+
+## Implementation status (crate `crates/loos-lin`, host-tested)
+
+| Milestone | State |
+|---|---|
+| L0 ELF loader | `loader.rs`/`elf.rs`: ET_EXEC/ET_DYN, PT_INTERP, PT_PHDR/TLS/GNU_STACK, `#!` (4 levels), full bounds validation, Linux-exact stack + auxv (AT_PHDR/BASE/ENTRY/RANDOM/PLATFORM/EXECFN/...), growable stack, brk |
+| L1 syscalls | `sys.rs`: ~120 x86-64 numbers: file I/O (+ `/dev`, generated `/proc`), stat/statx, mmap/mremap/munmap/mprotect/brk, pipes, dup/fcntl/poll, getdents64, time, uname/sysinfo/prlimit, getrandom, errno convention |
+| L2 static binaries | hand-assembled static ELF runs entry→`write`→`exit_group` through loader+syscalls (test interpreter) |
+| L3 dynamic | host's unmodified `ld-linux`/`libc.so.6`/`/usr/bin/true` load: entry in interp, AT_BASE, libc `mmap`ed from a real fd with exact bytes, glibc startup probes (`arch_prctl`, `set_tid_address`, `rseq`→ENOSYS) |
+| L5 threads/signals | `clone` (thread + fork), `futex` (WAIT/WAKE/REQUEUE/CMP_REQUEUE/WAKE_OP/BITSET, timeouts), `exit` clears tid + wakes joiners, `wait4`, `execve`, signals: `rt_sigaction/procmask/sigaltstack/kill/tgkill`, Linux `rt_sigframe`, `rt_sigreturn`, EINTR, default actions |
+| L6 bridge | `bridge.rs`: syscalls `0x4C4F0000+n` drive `loos-win32k` (create/show/draw/text/events/destroy) |
+
+Also: `MAP_SHARED` (shared buffers survive fork), `CLONE_VM` without `CLONE_THREAD` (vfork/posix_spawn) aliases parent memory until `execve`, and AF_UNIX/AF_INET(loopback) stream sockets (`socket/bind/listen/connect/accept4/socketpair/shutdown/getsockname`).
+Limits: file-backed `MAP_SHARED` is not written back; datagram sockets and non-loopback addresses fail (`EPROTONOSUPPORT`/`ENETUNREACH`) until the net stack is attached; no vDSO yet.
+**Not yet wired to the kernel entry** (`src/kernel/boot`): the `syscall` path for Linux
+threads must call `LinSystem::syscall` and the user-mode switch must honour `Sys` results.
+
+
+## Kernel integration (ring 3) — done
+
+`./boot/lin_test.sh` boots LoOS in QEMU and runs `tests/lin/lbox.c` (a freestanding static x86-64 ELF) from a tar initrd
+in **ring 3** on the real kernel: `write/open/read/getdents64`, `brk/mmap/munmap`, demand stack growth via #PF, `fork` + pipe + `wait4`,
+`MAP_SHARED` across fork, signal handler + `rt_sigreturn`, `socketpair`, `nanosleep`, `fork`+`execve`, SSE math, `liblooswin` window calls.
+
+| Piece | Where |
+|---|---|
+| GDT: user data `0x18`, user code64 `0x20`, TSS moved to `0x28`; `TSS.rsp0` = trap stack | `entry.S`, `bugcheck.c` |
+| `SYSCALL`/`SYSRET` MSRs, SSE enable (CR0/CR4), per-CPU block via `swapgs` | `user.c`, `usermode.S` |
+| `run_user(frame)`: loads a full register frame + FPU state, switches CR3, `iretq`; returns on SYSCALL or ring-3 exception | `usermode.S` |
+| Exceptions from ring 3 diverted before `ktrap` (no bugcheck): #PF resolved by stack growth, else SIGSEGV/SIGILL/SIGFPE/... | `trap.S`, `lin.rs` |
+| User page tables built from the model: backing pages are page-aligned (`PageBuf`), so the CPU maps the very bytes `LinSystem` reads/writes; PML4[511] (kernel image) is shared, everything else is user-only. Rebuilt when `UserMem::version` changes | `lin.rs`, `mem.rs` |
+| Run loop: round-robin over runnable threads, signals delivered before resume, virtual clock follows `time_us`, deadlock detection | `crates/kffi/src/lin.rs` |
+| Boot: `loos.lin=/bin/prog,arg1,arg2` + module `initrd=<ustar tar>` becomes the root fs (`MemFs::load_tar`) | `kmain.c` |
+
+Limits: single CPU and cooperative (no timer preemption: a user thread that spins forever hangs the machine), console is the serial port,
+stdin is EOF, root fs is the initrd (a btrfs-backed `LinFs` still needs a btrfs write adapter), file-backed `MAP_SHARED` writes back on
+`msync`/`munmap`/exit. Real busybox/bash binaries were not available offline on the build host; they only need the same syscalls
+(drop them into the tar).

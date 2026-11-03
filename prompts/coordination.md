@@ -8,11 +8,14 @@ parallel, and auditable.
 | Bus id | Agent | Model | Owns |
 |---|---|---|---|
 | `astra` | Codex #1 | **GPT 6 Astra** (strongest) | the hardest, correctness-critical core: kernel, VM, syscall ABI, btrfs/VFS, drivers, novel security/crypto, hardest reverse-engineering, math |
-| `sol` | Codex #2 | **GPT 6.1 Sol** (near-Astra, cheaper) | the workhorse: Win32 subsystem, API sets, compat shims, backend services, graphics bridge, Lin bridge/base, toolchain, tests |
-| `claude` | Claude Code | **Claude Sonnet 5.5** (fast, broad) | UI/shell, design & branding, docs & writing, **review of everything**, mechanical tables & CI, provenance |
+| `sol` | DeepSeek Harness | **DeepSeek V4.1 Flash 1017** (thinking, high effort) | the workhorse: Win32 subsystem, API sets, compat shims, backend services, graphics bridge, Lin bridge/base, toolchain, tests, security engineering |
+| `claude` | Claude Code | **Claude Sonnet 5.5** (medium effort, fast + broad) | UI/shell, design & branding, docs & writing, **review of everything**, mechanical tables & CI, provenance |
 
-**Capability routing:** `claude` → `sol` → `astra`. Push breadth/UI/design/docs
-down to `claude`; take novel security, hardest kernel/RE, and math up to `astra`.
+**Capability routing:** `claude` → `sol` → `astra`. Push breadth/UI/design/docs/
+review/mechanical sweeps down to `claude`; take novel security, hardest kernel/RE,
+and math up to `astra`. Most implementation is `sol`'s — it is the strongest
+agentic coder on repo-scale work; don't have anyone else redo it.
+
 If a task turns out harder than the tier can do correctly, **escalate** to the
 next tier up — with what you tried, what failed, and the blocker. Never sit on a
 task you can't do right. Owners on the board are computed by

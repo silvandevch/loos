@@ -118,6 +118,14 @@ void kmain(const struct loos_bootinfo *bi)
     }
     if (bi->cmdline[0]) { serial_puts("cmdline: "); serial_puts(bi->cmdline); serial_puts("\n"); }
 
+    const char *lin_cmd = cmdline_get(bi, "loos.lin");          /* run a Linux program from the initrd: loos.lin=/bin/prog,arg,... */
+    if (lin_cmd && *lin_cmd) {
+        const uint8_t *rd = 0; size_t rdlen = 0;
+        for (uint32_t i = 0; i < bi->module_count; i++)
+            if (!strncmp(bi->modules[i].name, "initrd", 6)) { rd = (const uint8_t *)(uintptr_t)bi->modules[i].phys; rdlen = bi->modules[i].size; }
+        loos_lin_boot(rd, rdlen, lin_cmd);
+    }
+
     int wx = check_wx(bi);
     k_counter++;                                                 /* the write must succeed on the RW data page */
     if (have_video) splash_progress(38, "Memory protection");
@@ -150,12 +158,27 @@ void kmain(const struct loos_bootinfo *bi)
     serial_puts("install: media "); serial_puts(installer_mode ? "is installer" : accounts ? "is an installed system" : "is a live system"); serial_puts("\n");
 
     const char *auto_disk = cmdline_get(bi, "installer.auto");
-    if (auto_disk && installer_mode) {                              /* unattended install (automated tests) */
+    if (auto_disk && installer_mode) {                              /* unattended install (automated tests and LoOS Switch) */
         char user[32] = "tester", pass[64] = "correct horse9", host[32] = "loos-test";
         const char *v;
         if ((v = cmdline_get(bi, "installer.user"))) { int n = 0; while (v[n] && v[n] != ' ' && n < 31) { user[n] = v[n]; n++; } user[n] = 0; }
         if ((v = cmdline_get(bi, "installer.pass"))) { int n = 0; while (v[n] && v[n] != ' ' && n < 63) { pass[n] = v[n]; n++; } pass[n] = 0; }
-        install_unattended(cmdline_int(auto_disk), user, pass, host);
+        if ((v = cmdline_get(bi, "installer.host"))) { int n = 0; while (v[n] && v[n] != ' ' && n < 31) { host[n] = v[n]; n++; } host[n] = 0; }
+        int disk = cmdline_int(auto_disk);
+        /* Optional exact-size selector: never guesses a disk index when the
+         * app has a specific target in mind. */
+        const char *want_bytes = cmdline_get(bi, "installer.auto.bytes");
+        if (want_bytes) {
+            uint64_t want = 0; for (const char *p = want_bytes; *p >= '0' && *p <= '9'; p++) want = want * 10 + (uint64_t)(*p - '0');
+            int found = -1;
+            for (int i = 0; i < ndisks; i++) {
+                if (install_is_boot_media(i)) continue;
+                if (blk_get(i)->sectors * 512 == want) { if (found >= 0) { found = -1; break; } found = i; }
+            }
+            disk = found;
+            if (found < 0) { serial_puts("install: no unique non-media disk with the requested size\n"); for (;;) __asm__ volatile("hlt"); }
+        }
+        install_unattended(disk, user, pass, host);
         serial_puts("LoOS kernel: stage 0 done\n");
         outb(0xf4, 0x10);
         for (;;) __asm__ volatile("hlt");

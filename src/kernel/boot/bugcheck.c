@@ -9,6 +9,7 @@ struct ktrap_frame { uint64_t gpr[16], vector, error, rip, cs, rflags; };
 extern const uint64_t ktrap_stubs[32];
 extern char kstack_bottom[], kstack_top[], kstack_guard[];
 extern uint64_t kgdt_tss[2];
+uint64_t user_trap_stack_top(void);
 int64_t loos_kbugcheck_dump(uint8_t *out, size_t cap, uint32_t code, const uint64_t p[4], const struct ktrap_frame *f, uint64_t cr2, const uint64_t *frames, size_t n);
 
 static struct { uint16_t lo, sel; uint8_t ist, attr; uint16_t mid; uint32_t hi, zero; } __attribute__((packed)) idt[32];
@@ -23,13 +24,14 @@ const uint8_t *kbugcheck_dump_data = dump_buf;
 
 void trap_init(const struct loos_bootinfo *bi)
 {
+    tss.rsp[0] = user_trap_stack_top();                 /* ring 3 -> 0 transitions land here */
     tss.ist[0] = (uint64_t)(uintptr_t)(ist_stack[0] + sizeof ist_stack[0]);
     tss.ist[1] = (uint64_t)(uintptr_t)(ist_stack[1] + sizeof ist_stack[1]);
     tss.iomap = sizeof tss;
     uint64_t b = (uint64_t)(uintptr_t)&tss, lim = sizeof tss - 1;
     kgdt_tss[0] = (lim & 0xffff) | (b & 0xffffff) << 16 | 0x89ull << 40 | (lim >> 16 & 0xf) << 48 | (b >> 24 & 0xff) << 56;
     kgdt_tss[1] = b >> 32;
-    __asm__ volatile("ltr %w0" : : "r"(0x18));
+    __asm__ volatile("ltr %w0" : : "r"(0x28));
     for (int i = 0; i < 32; i++) {
         uint64_t h = ktrap_stubs[i];
         idt[i].lo = (uint16_t)h; idt[i].mid = (uint16_t)(h >> 16); idt[i].hi = (uint32_t)(h >> 32);

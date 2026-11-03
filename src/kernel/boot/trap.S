@@ -16,6 +16,8 @@ STUB \n
 .endr
 
 ktrap_common:
+    testb $3, 24(%rsp)                  /* saved CS: exception raised in ring 3 */
+    jnz utrap_entry
     pushq %r15; pushq %r14; pushq %r13; pushq %r12; pushq %r11; pushq %r10; pushq %r9; pushq %r8
     pushq %rdi; pushq %rsi; pushq %rbp; pushq %rsp; pushq %rbx; pushq %rdx; pushq %rcx; pushq %rax
     movq %rsp, %rdi

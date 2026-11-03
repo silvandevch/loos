@@ -169,11 +169,12 @@ regression gates. Add them as CI fixtures.
 
 ## 7. Module → agent split (see prompts/)
 
-- **Astra**: M1–M4 (kernel/VMM/syscalls/VFS) — the hardest, correctness-
-  critical core, plus novel security and hardest RE.
-- **Sol**: M5–M8 (PE/Win32 subsystem/API sets/compositor) — the bulk of
-  implementation: compat shims, backend services, graphics bridge, Lin bridge,
-  toolchain, tests.
+- **Astra** (GPT 6 Astra): M1–M4 (kernel/VMM/syscalls/VFS) — the hardest,
+  correctness-critical core, plus novel security and hardest RE.
+- **Sol** (DeepSeek V4.1 Flash, high effort): M5–M8 (PE/Win32 subsystem/API
+  sets/compositor) — the bulk of implementation: compat shims, backend
+  services, graphics bridge, Lin bridge, toolchain, tests, security
+  engineering (crypto/TLS/signing/firewall).
 - **Claude**: the UI/shell (U0–U5), design & branding, docs & writing, review,
   and mechanical tables/CI.
 

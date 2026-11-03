@@ -7,7 +7,7 @@ cc=${CC:-clang}
 kdir=$root/src/kernel/boot
 flags="--target=x86_64-unknown-none -ffreestanding -fPIE -fno-stack-protector -mno-red-zone -mgeneral-regs-only -fno-omit-frame-pointer -O2 -Wall -Wextra -Werror -nostdlibinc -isystem $root/src/libc/include -I$kdir -I$root/src/shell -I$root/src/security -I$root/src/fs/btrfs -I$root/src/fs/diskfmt"
 objs=()
-for s in entry.S trap.S bugcheck.c bootmenu.c kclib.c serial.c ktime.c kalloc.c video.c ata.c pci.c blk.c ahci.c nvme.c install.c ps2.c vm.c acpi.c smp.c splash.c shellhost.c kmain.c blob.c; do
+for s in entry.S trap.S usermode.S user.c bugcheck.c bootmenu.c kclib.c serial.c ktime.c kalloc.c video.c ata.c pci.c blk.c ahci.c nvme.c install.c ps2.c vm.c acpi.c smp.c splash.c shellhost.c kmain.c blob.c; do
     o=$out/k_${s%.*}.o; $cc $flags -c "$kdir/$s" -o "$o"; objs+=("$o")
 done
 for f in desktop backend_mem apphost; do

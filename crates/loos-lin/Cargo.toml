@@ -1,0 +1,13 @@
+[package]
+name = "loos-lin"
+description = "LoOS Linux subsystem (Lin): ELF loader, x86-64 Linux syscalls, threads/futex/signals, liblooswin bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+loos-win32k = { path = "../loos-win32k" }
+
+[lints]
+workspace = true

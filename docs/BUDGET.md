@@ -1,20 +1,22 @@
 # LoOS — working within a budget
 
 The user funds this with **existing subscriptions** (a Codex plan, a Claude
-plan, and one free Codex account) — **not** a large API budget. Everything here
-is designed to be cheap. Cost ≈ tokens × iterations; both are controllable.
+plan, and a DeepSeek plan) — **not** a large API budget. Everything here is
+designed to be cheap. Cost ≈ tokens × iterations; both are controllable.
 
 ## 1. Route by tier (the big lever)
 
 | Tier | Agent | Use for | Why |
 |---|---|---|---|
-| cheap/fast | `claude` | breadth: UI, design, docs, review, mechanical tables, CI | fastest to iterate; a wrong pass is cheap to spot |
-| workhorse | `sol` | most implementation: Win32, API sets, compat, backend, graphics bridge, Lin, toolchain, tests | near-Astra at ~⅕ the cost; matches Astra on complex coding |
-| expensive | `astra` | only the hardest: core kernel, novel security, hardest reverse-engineering, math | you pay for correctness where mistakes cost days |
+| cheap/fast | `claude` (Sonnet 5.5, medium) | breadth on self-contained tasks: UI, design, docs, review, mechanical tables, CI | fastest to iterate; a wrong pass is cheap to spot |
+| workhorse | `sol` (DeepSeek V4.1 Flash, high) | most implementation: Win32, API sets, compat, backend, graphics bridge, Lin, toolchain, tests, security engineering | best-in-table agentic coding (DeepSWE 77.0) at a fraction of a frontier price |
+| expensive | `astra` (GPT 6 Astra) | only the hardest: core kernel, novel security/exploit, hardest reverse-engineering, math | you pay for correctness where mistakes cost days |
 
-Never spend Astra on bulk work. Never let Sol or Claude guess at novel security
-or the hardest kernel work (a wrong kernel patch costs more later than handing
-it up).
+Never spend Astra on bulk work — and don't send bulk work back to Astra just
+because it is "best": at high effort Sol's coding scores above Astra's, so
+re-routing a slice to Astra throws away the savings. Never let Sol or Claude
+guess at novel security or the hardest kernel work (a wrong kernel patch costs
+more later than handing it up).
 
 ## 2. Keep context small
 
@@ -22,6 +24,8 @@ it up).
   250k-file tree. Read the doc, then the file.
 - **Paste prompts in 3 short parts** (`prompts/<agent>/PART-1..3.md`), not one
   giant blob. Re-paste only what changed.
+- **Sol has a 1M context — use it on the right things**: the spec, the adjacent
+  subsystem, the failing log — not on dumping the tree.
 - **Pass paths, not file bodies.** "implement per `prompts/spec/foo.md`" beats
   pasting the spec + the file + the test.
 - **One subsystem per session.** A deep kernel session and a UI session are two
@@ -35,14 +39,18 @@ it up).
 - **Test locally before reporting** — a QEMU boot or `./loos verify` catches
   what would otherwise be a review loop.
 - **Escalate early.** A cheap tier thrashing for 6 turns costs more than one
-  good turn from the tier above.
+  good turn from the tier above. At medium effort Claude should hand off after
+  two failed attempts at the same check.
 
 ## 4. Use the subscription tiers, not pay-as-you-go
 
 - Do the long, exploratory work (reading source, drafting docs) on **Claude**
   where the plan is generous, and the bursty hard work on the Codex plan.
-- Use the **free Codex account** for throwaway/mechanical jobs (formatting,
-  small table generation, sanity checks) so paid quota isn't touched.
+- Keep **Sol on high effort** for real work — its published scores are at high,
+  and DeepSeek's effort map collapses medium into high anyway, so low/medium
+  buys nothing but worse code.
+- **Claude at medium** is the right default (what Claude Code/apps use); don't
+  burn a max-effort run on tables or docs.
 - Keep a task on one agent until it's actually blocked — context-switching
   re-pays the setup cost.
 

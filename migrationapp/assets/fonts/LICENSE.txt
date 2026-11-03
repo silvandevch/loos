@@ -1,0 +1,4 @@
+Inter is licensed under the SIL Open Font License, Version 1.1.
+Project: https://rsms.me/inter/ · Copyright (c) 2016 The Inter Project Authors.
+Full license: https://openfontlicense.org/open-font-license-official-text/
+The OFL permits bundling and redistribution of the font as part of this application.

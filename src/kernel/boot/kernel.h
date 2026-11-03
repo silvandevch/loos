@@ -93,6 +93,7 @@ void install_set_bootinfo(const struct loos_bootinfo *bi);       /* modules (med
 int install_read_config(char *out, size_t cap);                 /* installed-system configuration text, 0 if none */
 const struct shell_inst_backend *install_backend(void);
 int install_unattended(int disk, const char *user, const char *pass, const char *host);
+int install_is_boot_media(int disk);                          /* 1 for the running installation media's disk */
 
 /* ps2.c */
 enum { KIN_KEY = 1, KIN_MOUSE = 2 };
@@ -142,5 +143,8 @@ uint64_t vm_pte(uint64_t cr3, uint64_t vaddr, uint64_t *page_size);
 int vm_unmap_page(uint64_t cr3, uint64_t vaddr);
 uint64_t vm_virt_to_phys(const struct loos_bootinfo *bi, const void *p);
 
+/* user.c + usermode.S + crates/kffi/src/lin.rs: ring 3 and the Linux subsystem */
+void user_init(void);
+int loos_lin_boot(const uint8_t *initrd, size_t len, const char *cmd);        /* runs "path,arg,arg" from the tar initrd; exit status */
 void kgdt_load(void);
 #endif
