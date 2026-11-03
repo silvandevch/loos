@@ -1,5 +1,7 @@
 # LoOS — build workspace + OS project
 
+**This Project is in EARLY Alpha, like 90% of features aren't implemented yet. Also this Project is Vibecoded cuz NOWAY i'm making an WHOLE OS from scratch without AI. AI models used (no AD): Claude Sonnet 5.5, GPT-6 Astra, GPT-6.1 Sol, Claude Opus 5.5 and DeepSeek V4.1 Flash.**
+
 **LoOS** = **Lo**cal **O**nly OS. A **Rust-first** privacy operating system
 that runs Windows apps, with **btrfs** as its native filesystem, **native
 package managers (winget + apt)**, and **zero telemetry**.
