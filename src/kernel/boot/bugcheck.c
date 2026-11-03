@@ -1,6 +1,6 @@
 /* IDT, kernel traps and the bugcheck (stop) path. Crash dumps are built by the Rust kdump crate (crates/kffi). */
 #include "kernel.h"
-#include "shell.h"
+#include "shellgfx.h"
 #include <string.h>
 
 /* matches TrapFrame in crates/kffi */

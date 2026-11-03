@@ -1,7 +1,7 @@
 /* Boot screen: wordmark, tagline and a smooth progress bar over a soft gradient. Drawn with the shell's own renderer so it
  * is anti-aliased and resolution independent. */
 #include "kernel.h"
-#include "shell.h"
+#include "shellgfx.h"
 #include <string.h>
 
 static struct video *V;

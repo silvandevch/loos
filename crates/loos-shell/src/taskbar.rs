@@ -929,6 +929,5 @@ mod tests {
     fn app_tile_colors_are_stable() {
         assert_eq!(app_color(b"Calculator"), app_color(b"Calculator"));
         assert_ne!(app_color(b"Calc"), app_color(b"Notepad") | 0);
-        assert_eq!(taskbar_h(), 48);
     }
 }

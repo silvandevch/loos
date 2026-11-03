@@ -13,6 +13,7 @@ use alloc::vec::Vec;
 
 pub mod ps;
 pub mod seh;
+pub mod smss;
 
 /// Rights understood by the first object syscalls.
 pub mod access {

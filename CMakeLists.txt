@@ -54,10 +54,6 @@ if(LOOS_BUILD_WIN32 AND NOT LOOS_FREESTANDING_BUILD)
     add_subdirectory(src/win32/ldr)
 endif()
 
-if(NOT LOOS_FREESTANDING_BUILD AND NOT WIN32)
-    add_subdirectory(src/shell) # after Win32: compat console links loos_compat when it exists
-endif()
-
 # ---- tests ----
 if(BUILD_TESTING AND NOT LOOS_FREESTANDING_BUILD)
     add_executable(kernel_core_test tests/kernel/core_test.c)
@@ -123,9 +119,6 @@ if(WIN32 AND LOOS_BUILD_APPS AND NOT LOOS_FREESTANDING_BUILD)
     add_subdirectory(apps)
 endif()
 
-if(NOT LOOS_FREESTANDING_BUILD AND NOT WIN32)
-    add_subdirectory(tests/shell)
-endif()
 
 # privacy gate: no direct network APIs, network libraries or external URLs anywhere in src/ or apps/
 find_program(LOOS_PYTHON3 NAMES python3)
@@ -194,12 +187,6 @@ endif()
 
 # ---- host snapshot tools + resolution tests ----
 if(NOT LOOS_FREESTANDING_BUILD AND NOT WIN32)
-    add_executable(shell_snap tools/shell/shell_snap.c)
-    target_link_libraries(shell_snap PRIVATE loos_shell)
-    target_compile_options(shell_snap PRIVATE ${LOOS_C_WARNINGS})
-    add_executable(installer_snap tools/shell/installer_snap.c)
-    target_link_libraries(installer_snap PRIVATE loos_shell)
-    target_compile_options(installer_snap PRIVATE ${LOOS_C_WARNINGS})
     add_executable(btrfs_mkfs tools/btrfs_mkfs.c)
     target_link_libraries(btrfs_mkfs PRIVATE loos_btrfs)
     target_compile_options(btrfs_mkfs PRIVATE ${LOOS_C_WARNINGS})

@@ -12,6 +12,7 @@ pub mod apphost;
 pub mod apps;
 pub mod backend;
 pub mod backend_mem;
+pub mod center;
 pub mod compositor;
 pub mod desktop;
 pub mod draw;

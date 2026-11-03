@@ -94,11 +94,13 @@ BLAKE2b-256, plus a bounded read-only image reader with checksum verification,
 SINGLE/DUP mapping, mirror fallback, sparse reads, and subvolume selection.
 The C mounted reader still rejects non-CRC32C volumes until that digest ABI is
 wired into the kernel reader.
-Write: the first B1 primitive (`loos_btrfs_write_transaction_*`) does
-allocate→COW→checksum→flush with a new root published last, but does **not** yet
-update dir/file items, extent accounting, or free-space metadata. It is not a
-complete filesystem write path, and snapshot/clone publication is intentionally
-not exposed as a successful operation. Striped/parity chunks,
+Write: the first B1 primitives (`loos_btrfs_write_transaction_*`) do
+allocate→COW→checksum→flush with a new root published last. A bounded leaf-item
+replacement primitive now COWs fixed-size inode, directory, extent, or checksum
+items while validating key ordering; it provides the mutation building block but
+does **not** yet update dir/file relationships, extent accounting, or free-space
+metadata. It is not a complete filesystem write path, and snapshot/clone
+publication is intentionally not exposed as a successful operation. Striped/parity chunks,
 compressed/encrypted extents, subvolumes, and non-CRC32C mounted checksum
 algorithms are not done. Everything else in the table above is **planned**.
 
@@ -113,6 +115,18 @@ trim, resize, dedupe, defrag, and swapfile mapping. These are not equivalent
 to a complete mounted Btrfs implementation: full COW mutation, snapshots,
 send/receive, compression integration, and multi-device write support remain
 open.
+
+Snapshot metadata planning is explicit in `loos-btrfs-ops::snapshot`: it
+validates source/destination identity, generation monotonicity, UUID uniqueness,
+and root geometry, then prepares read-only or writable root-item state with
+parent UUID linkage. Device mutation and atomic root-tree publication still
+belong to the mounted COW writer.
+
+`loos-btrfs-ops::subvolume` centralizes nested-subvolume validation: free object
+id range, nonzero parent/directory identity, bounded names without slash/NUL,
+and nonzero UUIDs are checked before metadata allocation. It is shared policy;
+the actual root-tree, parent `DIR_ITEM`, and `ROOT_REF`/`ROOT_BACKREF` writes
+remain transaction work.
 
 ## Milestones
 

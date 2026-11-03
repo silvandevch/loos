@@ -28,6 +28,8 @@ pub mod rescue;
 pub mod resize;
 pub mod restore;
 pub mod scrub;
+pub mod snapshot;
+pub mod subvolume;
 pub mod swapfile;
 pub mod trim;
 pub mod volume;

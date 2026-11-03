@@ -18,6 +18,40 @@ static uint32_t crc32(const uint8_t *p, uint64_t n)
     return ~c;
 }
 
+
+/* Rust subsystems (crates/kffi/src/sys.rs) */
+extern uint32_t loos_smss_selftest(void);
+extern uint32_t loos_comp_selftest(void);
+extern uint32_t loos_net_selftest(void);
+extern int32_t loos_xhci_probe(uint64_t mmio, void *dma_virt, uint64_t dma_phys, uint64_t dma_len, uint32_t *out);
+#define XHCI_ARENA 0x40000u
+static void report_selftest(const char *name, uint32_t got, uint32_t want)
+{
+    serial_puts(name); serial_puts(got == want ? ": ok (" : ": FAILED (");
+    serial_hex(got); serial_puts(")\n");
+}
+static void usb_probe(void)
+{
+    static struct pci_dev devs[64];
+    int n = pci_scan(devs, 64);
+    for (int i = 0; i < n; i++) {
+        if (devs[i].class_code != 0x0c || devs[i].subclass != 0x03 || devs[i].prog_if != 0x30) continue;
+        uint64_t size = 0, bar = pci_bar(&devs[i], 0, &size);
+        if (!bar || !size || size > (16u << 20)) continue;
+        if (vm_map_mmio(bar, size) < 0) { serial_puts("usb: xHCI BAR map failed\n"); continue; }
+        pci_enable(&devs[i]);
+        void *dma = kalloc(XHCI_ARENA, 4096);
+        if (!dma) { serial_puts("usb: no memory for xHCI\n"); continue; }
+        memset(dma, 0, XHCI_ARENA);
+        uint32_t c[4] = { 0 };
+        int32_t r = loos_xhci_probe(bar, dma, (uint64_t)(uintptr_t)dma, XHCI_ARENA, c);
+        if (r < 0) { serial_puts("usb: xHCI init failed, code "); serial_dec((uint64_t)(-r)); serial_puts("\n"); continue; }
+        serial_puts("usb: xHCI "); serial_hex(devs[i].vendor); serial_puts(":"); serial_hex(devs[i].device);
+        serial_puts(", devices "); serial_dec((uint64_t)r); serial_puts(" (keyboards "); serial_dec(c[0]);
+        serial_puts(", mice "); serial_dec(c[1]); serial_puts(", storage "); serial_dec(c[2]);
+        serial_puts(", sectors "); serial_dec(c[3]); serial_puts(")\n");
+    }
+}
 void kmain(const struct loos_bootinfo *bi);
 static int check_wx(const struct loos_bootinfo *bi)
 {
@@ -142,6 +176,10 @@ void kmain(const struct loos_bootinfo *bi)
     int st = loos_kexec_syscall(6, a, &child);                     /* CreateProcess: exercises Ob + Ps */
     serial_puts("executive: System pid "); serial_dec(sys); serial_puts(st == 0 ? ", syscalls ok\n" : ", syscalls FAILED\n");
     (void)wx;
+    report_selftest("smss", loos_smss_selftest(), 0xf);
+    report_selftest("compositor", loos_comp_selftest(), 0xf);
+    report_selftest("net", loos_net_selftest(), 0xf);
+    usb_probe();
 
     /* ---- disks, installer and login ---- */
     serial_puts("disks: "); serial_dec((uint64_t)ndisks); serial_puts("\n");

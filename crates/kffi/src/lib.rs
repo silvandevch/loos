@@ -8,6 +8,7 @@ extern crate alloc;
 
 #[cfg(target_os = "none")]
 mod lin;
+mod sys;
 
 #[cfg(target_os = "none")]
 use core::alloc::{GlobalAlloc, Layout};

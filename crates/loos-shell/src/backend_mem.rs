@@ -106,7 +106,7 @@ impl MemBackend {
     pub fn vtable(&mut self) -> ShellBackend {
         macro_rules! fp {
             ($f:expr) => {
-                $f as usize as *mut c_void
+                $f as *const () as *mut c_void
             };
         }
         ShellBackend {

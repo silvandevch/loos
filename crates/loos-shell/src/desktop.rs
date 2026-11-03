@@ -127,6 +127,10 @@ unsafe extern "C" fn launch(it: *const ShellItem, user: *mut c_void) {
             return;
         }
     }
+    if target.starts_with(b"look:") || target.starts_with(b"act:") {
+        d.run_action(target);
+        return;
+    }
     let slot = match target {
         b"loos-taskmgr.exe" => A_TASKS,
         b"loos-notepad.exe" => A_NOTEPAD,
@@ -148,6 +152,12 @@ unsafe extern "C" fn launch(it: *const ShellItem, user: *mut c_void) {
         }
     };
     d.open(slot);
+}
+
+/// The Rust apps declare `UiCtx` as an opaque pointee of their own; it is the same `ui::UiCtx` the toolkit passes.
+fn app_frame(f: *const ()) -> FrameFn {
+    // SAFETY: the four app frame functions have exactly the FrameFn ABI (pointer, ctx pointer, w, h); only the pointee's nominal type differs.
+    unsafe { core::mem::transmute::<*const (), FrameFn>(f) }
 }
 
 fn nul(a: &[u8]) -> &[u8] {
@@ -215,6 +225,65 @@ impl Desktop {
         self.comp.focus(win);
     }
 
+    /// Command-palette actions: `look:<id>` applies a Look, `act:<name>` flips one behaviour key.
+    pub fn run_action(&mut self, target: &[u8]) {
+        let b = &self.be;
+        if let Some(id) = target.strip_prefix(b"look:") {
+            if let Some(i) = core::str::from_utf8(id).ok().and_then(crate::look::look_index) {
+                crate::look::store_look(b, &crate::look::LOOKS[i]);
+            }
+        } else {
+            match target {
+                b"act:tiling" => cfg_set_bool(b, b"wm.tiling\0", !cfg_bool(b, b"wm.tiling\0", false)),
+                b"act:focus" => cfg_set_int(b, b"wm.focus\0", 1 - cfg_int(b, b"wm.focus\0", 0).clamp(0, 1)),
+                b"act:night" => cfg_set_int(b, b"ui.night\0", if cfg_int(b, b"ui.night\0", 0) > 0 { 0 } else { 60 }),
+                b"act:motion" => cfg_set_bool(b, b"ui.reduce_motion\0", !cfg_bool(b, b"ui.reduce_motion\0", false)),
+                b"act:network" => b.net_off_set(!b.net_off_get()),
+                _ => return,
+            }
+        }
+        self.settings.changes += 1;
+        crate::settings::apply(&mut self.settings);
+        self.sync_look();
+    }
+
+    /// Applies a Look by id (kernel command line `loos.look=<id>`).
+    pub fn apply_look(&mut self, id: &[u8]) -> bool {
+        let mut t = [0u8; 40];
+        t[..5].copy_from_slice(b"look:");
+        let n = id.len().min(30);
+        t[5..5 + n].copy_from_slice(&id[..n]);
+        let ok = core::str::from_utf8(&id[..n]).ok().and_then(crate::look::look_index).is_some();
+        if ok {
+            self.run_action(&t[..5 + n]);
+        }
+        ok
+    }
+
+    fn seed_palette(&mut self) {
+        use crate::inventory::{add, ITEM_APP};
+        let inv = &mut self.inv;
+        add(inv, b"Files", b"files", b"file manager folders browse btrfs", ITEM_APP);
+        add(inv, b"Settings", b"settings:privacy", b"preferences control panel", ITEM_SETTING);
+        for l in crate::look::LOOKS.iter() {
+            let (mut name, mut tgt) = ([0u8; 48], [0u8; 40]);
+            let nm = [b"Look: ".as_slice(), l.name.as_bytes()].concat();
+            name[..nm.len().min(47)].copy_from_slice(&nm[..nm.len().min(47)]);
+            let tg = [b"look:".as_slice(), l.id.as_bytes()].concat();
+            tgt[..tg.len()].copy_from_slice(&tg);
+            add(inv, &name[..nm.len().min(47)], &tgt[..tg.len()], b"theme preset style appearance look", ITEM_SETTING);
+        }
+        for (n, t, k) in [
+            (&b"Toggle tiling"[..], &b"act:tiling"[..], &b"windows tile tiler layout"[..]),
+            (b"Toggle focus follows mouse", b"act:focus", b"sloppy focus windows"),
+            (b"Toggle night light", b"act:night", b"blue light warm eyes evening display"),
+            (b"Toggle reduce motion", b"act:motion", b"animations accessibility"),
+            (b"Toggle network (hard switch)", b"act:network", b"offline airplane block internet privacy"),
+        ] {
+            add(inv, n, t, k, ITEM_SETTING);
+        }
+    }
+
     /// Opens (or focuses) one of the built-in apps.
     pub fn open(&mut self, slot: usize) {
         if self.aw[slot].is_open() {
@@ -224,10 +293,10 @@ impl Desktop {
             A_FILES => (b"Files", 100, files_cb as FrameFn, self.arrange(0)),
             A_SETTINGS => (b"Settings", 101, settings_cb as FrameFn, self.arrange(1)),
             A_TASKS => (b"Task Manager", 102, tasks_cb as FrameFn, self.arrange(2)),
-            A_NOTEPAD => (b"Notepad", 103, crate::apps::loos_notepad_frame as FrameFn, self.centered(720, 480, 40)),
-            A_TERM => (b"LoCmd", 104, crate::apps::loos_term_frame as FrameFn, self.centered(760, 440, -60)),
-            A_CALC => (b"Calculator", 105, crate::apps::loos_calc_frame as FrameFn, self.centered(320, 480, 200)),
-            _ => (b"LoOS Browser", 106, crate::apps::browser::loos_browser_frame as FrameFn, self.centered(1000, 720, 0)),
+            A_NOTEPAD => (b"Notepad", 103, app_frame(crate::apps::loos_notepad_frame as *const ()), self.centered(720, 480, 40)),
+            A_TERM => (b"LoCmd", 104, app_frame(crate::apps::loos_term_frame as *const ()), self.centered(760, 440, -60)),
+            A_CALC => (b"Calculator", 105, app_frame(crate::apps::loos_calc_frame as *const ()), self.centered(320, 480, 200)),
+            _ => (b"LoOS Browser", 106, app_frame(crate::apps::browser::loos_browser_frame as *const ()), self.centered(1000, 720, 0)),
         };
         // Rust apps are created on first open and live for the session (their state survives closing the window).
         if self.app[slot].is_null() {
@@ -330,6 +399,7 @@ impl Desktop {
         cfg_set_int(&self.be, b"ui.scale\0", self.comp.scale_pct as i32); // Settings reads the scale back
         unsafe {
             crate::inventory::inventory_defaults(&mut self.inv);
+            self.seed_palette();
             crate::launcher::launcher_init(&mut self.launcher, &self.inv, Some(launch), me);
             crate::taskbar::taskbar_init(&mut self.taskbar, &mut self.comp, &mut self.launcher);
         }
@@ -435,6 +505,7 @@ impl Desktop {
                 self.be.cfg_set(&kz, &vz);
             }
         }
+        self.settings.changes += 1;
         crate::settings::apply(&mut self.settings);
         self.sync_look();
     }
@@ -635,6 +706,36 @@ pub extern "C" fn desktop_instance() -> *mut Desktop {
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn desktop_set_log(d: *mut Desktop, log: Option<LogFn>, aux: *mut c_void) {
+    let d = unsafe { &mut *d };
+    d.log = log;
+    d.aux = aux;
+}
+/// Sign-in check used by the boot self-test. Returns the `auth_result` code (0 = ok, 1 = bad password, 2 = locked, 3 = no such user).
+#[no_mangle]
+pub unsafe extern "C" fn desktop_login_try(d: *mut Desktop, user: *const c_char, password: *const c_char, now_ms: u64) -> i32 {
+    let d = unsafe { &mut *d };
+    let mut retry = 0u32;
+    unsafe { crate::session::session_login(&mut d.session, user, password, now_ms, &mut retry) }
+}
+#[no_mangle]
+pub unsafe extern "C" fn desktop_apply_look(d: *mut Desktop, id: *const c_char) -> bool {
+    unsafe { &mut *d }.apply_look(unsafe { c_bytes(id) })
+}
+#[no_mangle]
+pub unsafe extern "C" fn desktop_theme_desktop(d: *const Desktop) -> u32 {
+    unsafe { &*d }.comp.theme.desktop
+}
+#[no_mangle]
+pub unsafe extern "C" fn desktop_window_count(d: *const Desktop) -> i32 {
+    unsafe { &*d }.comp.nwin
+}
+#[no_mangle]
+pub unsafe extern "C" fn desktop_scale_pct(d: *const Desktop) -> u32 {
+    unsafe { &*d }.comp.scale_pct
+}
+
+#[no_mangle]
 pub extern "C" fn desktop_auto_scale(w: i32, h: i32) -> i32 {
     auto_scale(w, h)
 }
@@ -754,6 +855,45 @@ pub(crate) mod tests {
         assert!(d.be.cfg_get(b"ui.base\0", &mut v));
         assert_eq!(nul(&v), b"nord");
         assert!(!d.be.cfg_get(b"bogus\0", &mut v));
+    }
+
+    #[test]
+    fn a_look_restyles_taskbar_and_window_manager_and_night_light_reaches_the_blit() {
+        let _g = crate::test_lock();
+        let (mut d, _b) = desk(1280, 720);
+        let tiler = crate::look::look_index("tiler").unwrap();
+        crate::look::store_look(&d.be, &crate::look::LOOKS[tiler]);
+        crate::settings::apply(&mut d.settings);
+        d.settings.changes += 1; // what the Settings card does
+        d.tick(2000, 9, 42);
+        assert!(d.taskbar.top && !d.taskbar.centered, "taskbar follows the look");
+        assert!(d.wm.tiling && d.wm.gap == 8 && d.wm.focus_mode == 1, "window manager follows the look");
+
+        cfg_set_int(&d.be, b"ui.night\0", 100);
+        d.settings.changes += 1;
+        d.tick(2100, 9, 42);
+        assert_eq!(d.night, 100);
+        d.render_all();
+        let px = d.fb.px;
+        // SAFETY: the back buffer holds w*h pixels.
+        let any_warm = (0..1280 * 720).any(|i| unsafe { *px.add(i) } & 0xFF < (unsafe { *px.add(i) } >> 16 & 0xFF) / 2);
+        assert!(any_warm, "blue is cut well below red somewhere");
+    }
+
+    #[test]
+    fn palette_actions_and_kernel_look_option_work() {
+        let _g = crate::test_lock();
+        let (mut d, _b) = desk(1024, 600);
+        assert!(d.apply_look(b"tiler") && !d.apply_look(b"nope"));
+        assert!(d.wm.tiling && d.taskbar.top);
+        d.run_action(b"act:tiling");
+        assert!(!d.wm.tiling);
+        d.run_action(b"act:night");
+        assert_eq!(d.night, 60);
+        d.apply_config(b"ui.night=0\n");
+        assert_eq!(d.night, 0);
+        let looks = (0..d.inv.n as usize).filter(|&i| nul(&d.inv.item[i].target).starts_with(b"look:")).count();
+        assert_eq!(looks, crate::look::LOOKS.len());
     }
 
     #[test]

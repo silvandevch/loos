@@ -63,6 +63,12 @@ full file-write support yet:
 directory/file-item mutation, extent accounting, mirrored superblocks, and free
 space-tree updates remain required before general writes are enabled.
 
+The writer also exposes a bounded fixed-size leaf-item replacement operation. It
+validates the existing item, preserves sorted key order, writes a fresh leaf
+block with a new checksum, and leaves root publication to the transaction
+caller. Variable-size insert/delete and extent/free-space accounting remain
+outside this operation.
+
 Facts were checked against the public Linux/btrfs-progs on-disk structure
 definitions, especially `include/uapi/linux/btrfs_tree.h`; no upstream code is
 copied into LoOS.

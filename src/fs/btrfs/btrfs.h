@@ -281,6 +281,25 @@ int loos_btrfs_write_transaction_cow_data(
     size_t length,
     uint64_t *new_logical);
 
+/* Replace one fixed-size item in a leaf tree block with a COW copy.  The
+ * replacement key may differ, but it must remain between its neighbours in
+ * the leaf's sort order.  The old block is never modified; new_tree receives
+ * the freshly allocated block address.  This is the primitive used to update
+ * inode, extent, directory, and checksum items while preserving the atomic
+ * root-publication ordering. */
+int loos_btrfs_write_transaction_replace_item(
+    struct loos_btrfs_write_transaction *transaction,
+    uint64_t old_tree,
+    uint64_t old_objectid,
+    uint8_t old_type,
+    uint64_t old_offset,
+    uint64_t new_objectid,
+    uint8_t new_type,
+    uint64_t new_offset,
+    const void *replacement,
+    size_t replacement_size,
+    uint64_t *new_tree);
+
 /* Stage a new root-tree pointer. The pointer must be a block allocated by this
  * transaction; commit publishes it only after all COW blocks are flushed. */
 int loos_btrfs_write_transaction_publish_root(

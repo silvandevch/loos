@@ -5,6 +5,9 @@
 
 static uint64_t align_up(uint64_t value, uint64_t alignment)
 {
+    if (value > UINT64_MAX - (alignment - 1U)) {
+        return 0;
+    }
     return (value + alignment - 1U) & ~(alignment - 1U);
 }
 
@@ -16,6 +19,8 @@ int loos_mm_section_init(struct loos_mm_section *section,
                          void *opaque)
 {
     if (section == NULL || size == 0 || (protection & ~7U) != 0 ||
+        (protection & (LOOS_MM_WRITE | LOOS_MM_EXECUTE)) ==
+            (LOOS_MM_WRITE | LOOS_MM_EXECUTE) ||
         (file_backed && read_page == NULL)) {
         return LOOS_MM_EINVAL;
     }
@@ -37,11 +42,13 @@ int loos_mm_map_view(struct loos_mm_view *view,
 {
     if (view == NULL || section == NULL || size == 0 ||
         (protection & ~section->protection) != 0 ||
+        (protection & (LOOS_MM_WRITE | LOOS_MM_EXECUTE)) ==
+            (LOOS_MM_WRITE | LOOS_MM_EXECUTE) ||
         requested_base % LOOS_MM_VIEW_ALIGNMENT != 0) {
         return LOOS_MM_EINVAL;
     }
     const uint64_t view_size = align_up(size, LOOS_MM_PAGE_SIZE);
-    if (view_size < size || view_size > section->size) {
+    if (view_size == 0 || view_size < size || view_size > section->size) {
         return LOOS_MM_EINVAL;
     }
     const size_t pages = (size_t)(view_size / LOOS_MM_PAGE_SIZE);
@@ -60,7 +67,9 @@ int loos_mm_map_view(struct loos_mm_view *view,
         view->pages[i].virtual_address = requested_base +
                                          (uint64_t)i * LOOS_MM_PAGE_SIZE;
         view->pages[i].protection = protection;
-        view->pages[i].copy_on_write = (protection & LOOS_MM_WRITE) == 0;
+        /* A read-only mapping is not a COW mapping: writes must fault with
+         * EACCES.  COW is installed only by clone_cow for shared pages. */
+        view->pages[i].copy_on_write = false;
         view->pages[i].references = NULL;
     }
     return LOOS_MM_OK;

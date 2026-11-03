@@ -22,6 +22,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "loos-compositor"
+version = "0.1.0"
+
+[[package]]
 name = "loos-dpkg"
 version = "0.1.0"
 
@@ -76,10 +80,13 @@ version = "0.1.0"
 name = "loos-kffi"
 version = "0.1.0"
 dependencies = [
+ "loos-compositor",
+ "loos-drivers",
  "loos-kdump",
  "loos-kernel",
  "loos-ksync",
  "loos-lin",
+ "loos-net",
  "loos-shell",
  "loos-win32k",
 ]
@@ -117,6 +124,10 @@ version = "0.1.0"
 dependencies = [
  "miniz_oxide",
 ]
+
+[[package]]
+name = "loos-net"
+version = "0.1.0"
 
 [[package]]
 name = "loos-pkgstate"

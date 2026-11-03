@@ -22,6 +22,14 @@ identity; a non-zero owner descriptor is private to its owner until group/world
 ACL entries are added. Denied rights always win, and replacing a descriptor
 requires `SET_SECURITY`.
 
+## Memory protection policy
+
+The kernel memory model rejects mappings that request both write and execute
+permissions. Read-only mappings are not implicitly copy-on-write: a write fault
+returns `EACCES`. Copy-on-write is installed explicitly when cloning a view;
+the child and parent then share present pages until the writer faults and gets a
+private writable copy. Overflowing page-range alignment is rejected.
+
 ## Objects
 
 The initial object types are:

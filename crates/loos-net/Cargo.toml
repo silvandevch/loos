@@ -1,0 +1,10 @@
+[package]
+name = "loos-net"
+description = "LoOS TCP/IP stack: Ethernet, ARP/NDP, IPv4/IPv6, ICMP/ICMPv6, UDP, TCP, routing, loopback"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

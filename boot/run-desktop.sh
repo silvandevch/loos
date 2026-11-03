@@ -2,11 +2,14 @@
 # Builds the kernel + boot image and boots the LoOS desktop in a QEMU window to explore.
 #   boot/run-desktop.sh [bios|uefi] [extra kernel cmdline words...]
 # Keys: Super = Start, F8 during boot = startup menu, Ctrl+Alt+G releases the mouse.
+#   Extra words go to the kernel: loos.look=<id> (loos classic dock tiler paper midnight lean large), loos.night=<0-100>, scale=<pct>.
+#   ./loos qemu bios --look tiler   is shorthand for loos.look=tiler.
 # Env: LOOS_WEBBRIDGE=0 disables the host HTTPS bridge; LOOS_DISPLAY=none runs headless.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd); out=$here/../out/boot
 mode=${1:-bios}; shift || true
-cmdline="console=ttyS0 $*"
+args=(); while [ $# -gt 0 ]; do case $1 in --look) args+=("loos.look=$2"); shift 2 ;; --night) args+=("loos.night=$2"); shift 2 ;; *) args+=("$1"); shift ;; esac; done
+cmdline="console=ttyS0 ${args[*]:-}"
 case $mode in
     bios) img=$("$here/bios/build.sh" "$out" --cmdline "$cmdline"); fw=() ;;
     uefi) img=$("$here/uefi/build.sh" "$out" --cmdline "$cmdline"); fw=(-bios "${OVMF_CODE:-/usr/share/edk2/ovmf/OVMF_CODE.fd}") ;;

@@ -1872,6 +1872,121 @@ static bool transaction_has_range(
     return false;
 }
 
+static void write_disk_key(uint8_t *destination, const struct btrfs_key *key)
+{
+    write_le64(destination, key->objectid);
+    destination[8] = key->type;
+    write_le64(destination + 9U, key->offset);
+}
+
+static int transaction_replace_leaf_item(
+    struct loos_btrfs_write_transaction *transaction,
+    uint64_t old_tree,
+    uint64_t old_objectid,
+    uint8_t old_type,
+    uint64_t old_offset,
+    uint64_t new_objectid,
+    uint8_t new_type,
+    uint64_t new_offset,
+    const void *replacement,
+    size_t replacement_size,
+    uint64_t *new_tree)
+{
+    if (transaction == NULL || !transaction->active || new_tree == NULL ||
+        (replacement == NULL && replacement_size != 0U)) {
+        return LOOS_BTRFS_EINVAL;
+    }
+
+    struct loos_btrfs_mount *mount = transaction->mount;
+    uint8_t *old_block;
+    uint8_t old_level;
+    uint32_t item_count;
+    int status = read_tree_block(mount, old_tree, 0, 0, 0, &old_block,
+                                 &old_level, &item_count);
+    if (status != LOOS_BTRFS_OK) {
+        return status;
+    }
+    if (old_level != 0U || item_count == 0U) {
+        return LOOS_BTRFS_EINVAL;
+    }
+
+    const struct btrfs_key wanted = {
+        .objectid = old_objectid,
+        .type = old_type,
+        .offset = old_offset,
+    };
+    const struct btrfs_key replacement_key = {
+        .objectid = new_objectid,
+        .type = new_type,
+        .offset = new_offset,
+    };
+    const uint32_t data_area_size = mount->nodesize - BTRFS_HEADER_SIZE;
+    const uint32_t data_area_start = item_count * BTRFS_ITEM_SIZE;
+    size_t matching_item = SIZE_MAX;
+    uint32_t matching_size = 0;
+    struct btrfs_key previous_key = {0, 0, 0};
+    for (uint32_t i = 0; i < item_count; ++i) {
+        const size_t item_offset = BTRFS_HEADER_SIZE +
+                                   (size_t)i * BTRFS_ITEM_SIZE;
+        const struct btrfs_key key = disk_key(old_block + item_offset);
+        const uint32_t data_offset = read_le32(old_block + item_offset + 17U);
+        const uint32_t data_size = read_le32(old_block + item_offset + 21U);
+        if ((i != 0U && compare_keys(&previous_key, &key) >= 0) ||
+            data_offset > data_area_size ||
+            (data_size != 0U &&
+             (data_offset < data_area_start ||
+              data_size > data_area_size - data_offset))) {
+            return LOOS_BTRFS_ECORRUPT;
+        }
+        previous_key = key;
+        if (compare_keys(&key, &wanted) == 0) {
+            if (matching_item != SIZE_MAX) {
+                return LOOS_BTRFS_ECORRUPT;
+            }
+            matching_item = i;
+            matching_size = data_size;
+        }
+    }
+    if (matching_item == SIZE_MAX) {
+        return LOOS_BTRFS_ENOTFOUND;
+    }
+    if (replacement_size != (size_t)matching_size) {
+        /* Keeping item offsets stable is important: the operation is a leaf
+         * replacement, not an in-place compaction.  A later tree builder can
+         * handle insert/delete and variable-size item packing. */
+        return LOOS_BTRFS_EINVAL;
+    }
+
+    const size_t item_offset = BTRFS_HEADER_SIZE +
+                               matching_item * BTRFS_ITEM_SIZE;
+    const uint32_t data_offset = read_le32(old_block + item_offset + 17U);
+
+    if (matching_item != 0U) {
+        const struct btrfs_key previous = disk_key(
+            old_block + item_offset - BTRFS_ITEM_SIZE);
+        if (compare_keys(&previous, &replacement_key) >= 0) {
+            return LOOS_BTRFS_EINVAL;
+        }
+    }
+    if (matching_item + 1U < item_count) {
+        const struct btrfs_key next = disk_key(
+            old_block + item_offset + BTRFS_ITEM_SIZE);
+        if (compare_keys(&replacement_key, &next) >= 0) {
+            return LOOS_BTRFS_EINVAL;
+        }
+    }
+
+    memcpy(transaction->storage, old_block, mount->nodesize);
+    write_disk_key(transaction->storage + item_offset, &replacement_key);
+    if (matching_size != 0U) {
+        memmove(transaction->storage + BTRFS_HEADER_SIZE + data_offset,
+                replacement, matching_size);
+    }
+    return loos_btrfs_write_transaction_cow_tree(transaction, old_tree,
+                                                  transaction->storage,
+                                                  new_tree);
+}
+
 static int transaction_check_base(
     const struct loos_btrfs_write_transaction *transaction)
 {
@@ -2088,6 +2203,25 @@ int loos_btrfs_write_transaction_cow_data(
     transaction->new_block_lengths[transaction->new_block_count++] = length;
     *new_logical = logical;
     return LOOS_BTRFS_OK;
+}
+
+int loos_btrfs_write_transaction_replace_item(
+    struct loos_btrfs_write_transaction *transaction,
+    uint64_t old_tree,
+    uint64_t old_objectid,
+    uint8_t old_type,
+    uint64_t old_offset,
+    uint64_t new_objectid,
+    uint8_t new_type,
+    uint64_t new_offset,
+    const void *replacement,
+    size_t replacement_size,
+    uint64_t *new_tree)
+{
+    return transaction_replace_leaf_item(
+        transaction, old_tree, old_objectid, old_type, old_offset,
+        new_objectid, new_type, new_offset, replacement, replacement_size,
+        new_tree);
 }
 
 int loos_btrfs_write_transaction_publish_root(

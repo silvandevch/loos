@@ -135,6 +135,43 @@ static int control_cookie(void *opaque,
     return control->status;
 }
 
+static uint64_t test_read_le64(const uint8_t *p)
+{
+    uint64_t value = 0;
+    for (unsigned i = 0; i < 8U; ++i) {
+        value |= (uint64_t)p[i] << (8U * i);
+    }
+    return value;
+}
+
+static const uint8_t *test_find_item(const uint8_t *block,
+                                     uint64_t objectid,
+                                     uint8_t type,
+                                     uint64_t offset,
+                                     uint32_t *size_out)
+{
+    const uint32_t count = (uint32_t)block[96] |
+                           ((uint32_t)block[97] << 8U) |
+                           ((uint32_t)block[98] << 16U) |
+                           ((uint32_t)block[99] << 24U);
+    for (uint32_t i = 0; i < count; ++i) {
+        const uint8_t *item = block + 101U + (size_t)i * 25U;
+        if (test_read_le64(item) == objectid && item[8] == type &&
+            test_read_le64(item + 9U) == offset) {
+            const uint32_t data_offset = (uint32_t)item[17] |
+                                          ((uint32_t)item[18] << 8U) |
+                                          ((uint32_t)item[19] << 16U) |
+                                          ((uint32_t)item[20] << 24U);
+            *size_out = (uint32_t)item[21] |
+                        ((uint32_t)item[22] << 8U) |
+                        ((uint32_t)item[23] << 16U) |
+                        ((uint32_t)item[24] << 24U);
+            return block + 101U + data_offset;
+        }
+    }
+    return NULL;
+}
+
 static int fail(const char *message, int line)
 {
     fprintf(stderr, "FAIL line %d: %s\n", line, message);
@@ -561,6 +598,47 @@ int main(int argc, char **argv)
         CHECK(status == LOOS_BTRFS_EIO && mount.root_tree == new_root,
               "abort publication on superblock write failure");
         loos_btrfs_write_transaction_abort(&write_transaction);
+
+        /* Updating an inode/root item must use the same leaf COW primitive as
+         * the tree-root path.  The old leaf remains byte-for-byte intact
+         * until the replacement root is committed. */
+        uint32_t root_item_size = 0;
+        const uint8_t *old_root_item = test_find_item(
+            image.data + (size_t)new_root, 5, 132, 0, &root_item_size);
+        CHECK(old_root_item != NULL && root_item_size == 439,
+              "locate root item for leaf replacement");
+        uint8_t root_item_replacement[439];
+        memcpy(root_item_replacement, old_root_item, sizeof(root_item_replacement));
+        root_item_replacement[160] = 9;
+        struct allocator_state item_state = {.next = UINT64_C(0x4e000)};
+        const struct loos_btrfs_allocator item_allocator = {
+            .allocate = allocate_block,
+            .opaque = &item_state,
+        };
+        struct loos_btrfs_write_transaction item_transaction;
+        status = loos_btrfs_write_transaction_begin(
+            &item_transaction, &mount, &item_allocator, transaction_storage,
+            sizeof(transaction_storage));
+        CHECK(status == LOOS_BTRFS_OK, "begin leaf item transaction");
+        uint64_t item_root = 0;
+        status = loos_btrfs_write_transaction_replace_item(
+            &item_transaction, new_root, 5, 132, 0, 5, 132, 0,
+            root_item_replacement, sizeof(root_item_replacement), &item_root);
+        CHECK(status == LOOS_BTRFS_OK && item_root == UINT64_C(0x4e000),
+              "COW replace fixed-size leaf item");
+        uint32_t new_item_size = 0;
+        const uint8_t *new_item = test_find_item(
+            image.data + (size_t)item_root, 5, 132, 0, &new_item_size);
+        CHECK(new_item != NULL && new_item_size == sizeof(root_item_replacement) &&
+                  new_item[160] == 9 && old_root_item[160] != 9,
+              "replacement preserves old leaf and updates new leaf");
+        status = loos_btrfs_write_transaction_publish_root(
+            &item_transaction, item_root, 0);
+        CHECK(status == LOOS_BTRFS_OK, "stage leaf replacement root");
+        status = loos_btrfs_write_transaction_commit(&item_transaction);
+        CHECK(status == LOOS_BTRFS_OK && mount.root_tree == item_root,
+              "commit leaf replacement root");
+        new_root = item_root;
 
         struct loos_btrfs_mount remounted;
         status = loos_btrfs_mount(&remounted, &io, node_storage,

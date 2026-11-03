@@ -9,8 +9,7 @@
  * Both: the new account (PBKDF2 hash only) and machine settings go into the config module, everything written is read back
  * and verified, and the old disk contents (partition tables, signatures) are wiped first. */
 #include "kernel.h"
-#include "installer.h"
-#include "session.h"
+#include "shellabi.h"
 #include "kdf.h"
 #include "diskfmt.h"
 #include "btrfs.h"

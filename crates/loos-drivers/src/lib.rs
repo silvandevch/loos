@@ -8,11 +8,17 @@
 
 extern crate alloc;
 
+pub mod ahci;
 pub mod display;
 pub mod e1000;
+pub mod gpu;
 pub mod hw;
 pub mod input;
+pub mod nvme;
 pub mod ps2;
+pub mod storage;
+pub mod usb;
+pub mod xhci;
 pub mod virtio_net;
 
 /// Errors common to all drivers.

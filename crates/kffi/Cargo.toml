@@ -20,6 +20,9 @@ loos-kdump = { path = "../kdump" }
 loos-shell = { path = "../loos-shell" }
 loos-lin = { path = "../loos-lin" }
 loos-win32k = { path = "../loos-win32k" }
+loos-drivers = { path = "../loos-drivers" }
+loos-net = { path = "../loos-net" }
+loos-compositor = { path = "../loos-compositor" }
 
 [lints]
 workspace = true

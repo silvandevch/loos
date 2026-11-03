@@ -1,6 +1,6 @@
 /* Startup menu: F8 during boot, "bootmenu" on the command line, or automatically after a crash. */
 #include "kernel.h"
-#include "shell.h"
+#include "shellgfx.h"
 #include <string.h>
 
 static const char *items[] = { "Start LoOS normally", "Safe mode (one CPU, basic display)", "Restart" };

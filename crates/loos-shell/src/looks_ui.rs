@@ -46,7 +46,7 @@ pub fn page_looks(s: &mut ShellSettings, u: &mut UiCtx, c: Rect) {
     let oy = c.y - s.p_scroll;
     ui::heading(u, c.x, oy, b"Looks");
     ui::label(u, c.x, oy + 30, b"One click restyles the whole desktop. Everything it sets stays editable in Personalize and Behavior.", t.text_dim);
-    let cur = look::current_look(be(s));
+    let cur = look::current_look(be(s)).or(Some(0)); // never chosen = the stock LoOS look
     for (i, l) in LOOKS.iter().enumerate() {
         let r = Rect::new(c.x, oy + 62 + i as i32 * (CARD_H + CARD_GAP), c.w, CARD_H);
         let active = cur == Some(i);
