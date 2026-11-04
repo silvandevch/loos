@@ -59,6 +59,8 @@ jobs:
         run: python3 tests/win32/apisets/host_coverage.py --check
       - name: Check source for direct network access
         run: python3 tests/privacy/privacy_lint.py
+      - name: Check generated Linux syscall table
+        run: python3 tests/lin/check_syscalls.py
 
   qemu-boot:
     name: QEMU boot (self-hosted)
