@@ -7,6 +7,7 @@
 #   ./loos build             build all implemented LoOS targets on Linux
 #   ./loos source-build      build a selected LoOS CMake preset
 #   ./loos boot-bios         build the LoOS BIOS boot image
+#   ./loos install-iso       build out/boot/loos.iso (UEFI installer for VMware/QEMU/USB)
 #   ./loos source-build windows-mingw  cross-build LoOS PE apps on Linux
 #   ./loos iso               (re)make the bootable ISO
 #   ./loos qemu [bios|uefi]  boot the LoOS kernel + desktop in QEMU
@@ -140,6 +141,7 @@ case "${1:-help}" in
     build)    shift; cmd_build "$@" ;;
     source-build) shift; cmd_source_build "$@" ;;
     boot-bios) shift; cmd_boot_bios "$@" ;;
+    install-iso) shift; bash "$HERE/boot/iso/build.sh" "$@" ;;
     iso)      shift; bash "$SCRIPTS_DIR/_iso-run.sh" ;;
     qemu)     shift; bash "$HERE/boot/run-desktop.sh" "$@" ;;                 # LoOS kernel (bios|uefi)
     qemu-nt)  shift; bash "$HERE/remote/run-qemu.sh" "$NT_OUT/loos.iso" ;;    # study-tree ISO

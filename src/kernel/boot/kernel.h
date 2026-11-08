@@ -24,7 +24,7 @@ struct video;
 void trap_init(const struct loos_bootinfo *bi);         /* IDT, TSS with IST stacks, stack guard page */
 uint32_t bugcheck_boot_report(void);                    /* stop code of a dump left by the last crash (reported once), or 0 */
 /* bootmenu.c */
-int bootmenu_run(struct video *v, int force, uint32_t wait_ms, uint32_t crash, int auto_pick);   /* 1 = safe mode */
+int bootmenu_run(struct video *v, struct loos_bootinfo *bi, int force, uint32_t wait_ms, uint32_t crash, int auto_pick);   /* 1 = safe mode */
 void bugcheck_set_video(struct video *v);               /* stop screen target */
 void bugcheck_selftest(const char *what);               /* loos.bugcheck=pf|ud|gp|manual */
 

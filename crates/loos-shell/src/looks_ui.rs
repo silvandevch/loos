@@ -39,9 +39,6 @@ pub fn page_looks(s: &mut ShellSettings, u: &mut UiCtx, c: Rect) {
     let saved = ui::clip_push(u, c);
     let total = 76 + LOOKS.len() as i32 * (CARD_H + CARD_GAP);
     let max_scroll = (total - c.h).max(0);
-    if ui::hovered(u, c) && u.wheel != 0 {
-        s.p_scroll -= u.wheel * 24;
-    }
     s.p_scroll = s.p_scroll.clamp(0, max_scroll);
     let oy = c.y - s.p_scroll;
     ui::heading(u, c.x, oy, b"Looks");
@@ -66,6 +63,7 @@ pub fn page_looks(s: &mut ShellSettings, u: &mut UiCtx, c: Rect) {
             apply_look(s, i);
         }
     }
+    ui::vscroll(u, b"looks_scroll", c, total, &mut s.p_scroll);
     ui::clip_pop(u, saved);
 }
 
@@ -85,7 +83,7 @@ pub fn page_behavior(s: &mut ShellSettings, u: &mut UiCtx, c: Rect) {
     let t = unsafe { *u.theme };
     let saved = ui::clip_push(u, c);
     let total = 470;
-    s.p_scroll = if ui::hovered(u, c) && u.wheel != 0 { s.p_scroll - u.wheel * 24 } else { s.p_scroll }.clamp(0, (total - c.h).max(0));
+    s.p_scroll = s.p_scroll.clamp(0, (total - c.h).max(0));
     let oy = c.y - s.p_scroll;
     let half = (c.w - 16) / 2;
     let x2 = c.x + half + 16;
@@ -130,5 +128,6 @@ pub fn page_behavior(s: &mut ShellSettings, u: &mut UiCtx, c: Rect) {
     if ui::button(u, Rect::new(c.x, oy + 274 + SHORTCUTS.len() as i32 * 20 + 14, 220, 28), b"Back to the LoOS look") {
         apply_look(s, 0);
     }
+    ui::vscroll(u, b"behavior_scroll", c, total, &mut s.p_scroll);
     ui::clip_pop(u, saved);
 }

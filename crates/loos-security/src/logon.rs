@@ -84,6 +84,103 @@ impl Account {
     }
 }
 
+impl Account {
+    /// Replaces the password (the PIN is kept) and clears the failure counter and lockout.
+    pub fn set_password(&mut self, password: &[u8], salt: [u8; 16], iterations: u32) {
+        self.salt = salt;
+        self.hash = derive(password, &salt, iterations);
+        self.failures = 0;
+        self.locked_until = 0;
+    }
+
+    /// Password check with the same lockout policy as the logon UI: a locked or disabled account always fails (after
+    /// the same hashing work), [`LOCKOUT_THRESHOLD`] consecutive failures lock it with doubling delay.
+    pub fn authenticate(&mut self, password: &[u8], iterations: u32, now: u64) -> Result<()> {
+        let ok = self.check_password(password, iterations);
+        if self.disabled {
+            return Err(Error::BadCredential);
+        }
+        if now < self.locked_until {
+            return Err(Error::LockedOut);
+        }
+        if !ok {
+            self.failures += 1;
+            if self.failures >= LOCKOUT_THRESHOLD {
+                let shift = (self.failures - LOCKOUT_THRESHOLD).min(7);
+                self.locked_until = now + (LOCKOUT_BASE << shift).min(3600);
+            }
+            return Err(Error::BadCredential);
+        }
+        self.failures = 0;
+        Ok(())
+    }
+
+    /// Clears the failure counter and any lockout.
+    pub fn unlock(&mut self) {
+        self.failures = 0;
+        self.locked_until = 0;
+    }
+
+    /// Whether `password` matches (constant-time compare).
+    pub fn check_password(&self, password: &[u8], iterations: u32) -> bool {
+        ct_eq(&derive(password, &self.salt, iterations), &self.hash)
+    }
+
+    /// Serialises the account for the SAM database.
+    pub(crate) fn to_record(&self) -> Vec<u8> {
+        let mut o = Vec::new();
+        let put = |o: &mut Vec<u8>, b: &[u8]| {
+            o.extend_from_slice(&(b.len() as u32).to_le_bytes());
+            o.extend_from_slice(b);
+        };
+        put(&mut o, self.name.as_bytes());
+        put(&mut o, self.sid.as_bytes());
+        o.extend_from_slice(&(self.groups.len() as u32).to_le_bytes());
+        for g in &self.groups {
+            put(&mut o, g.as_bytes());
+        }
+        o.extend_from_slice(&self.salt);
+        o.extend_from_slice(&self.hash);
+        match &self.pin {
+            Some((s, h)) => {
+                o.push(1);
+                o.extend_from_slice(s);
+                o.extend_from_slice(h);
+            }
+            None => o.push(0),
+        }
+        o.extend_from_slice(&self.failures.to_le_bytes());
+        o.extend_from_slice(&self.locked_until.to_le_bytes());
+        o.push(self.disabled as u8);
+        o
+    }
+
+    /// Inverse of [`Account::to_record`].
+    pub(crate) fn from_record(b: &[u8]) -> Result<Account> {
+        let mut c = crate::sam::Cur::new(b);
+        let name = c.string()?;
+        let sid = c.string()?;
+        let ng = c.u32()? as usize;
+        let mut groups = Vec::new();
+        for _ in 0..ng.min(4096) {
+            groups.push(c.string()?);
+        }
+        let salt: [u8; 16] = c.take(16)?.try_into().unwrap();
+        let hash: [u8; 32] = c.take(32)?.try_into().unwrap();
+        let pin = if c.take(1)?[0] == 1 {
+            let s: [u8; 16] = c.take(16)?.try_into().unwrap();
+            let h: [u8; 32] = c.take(32)?.try_into().unwrap();
+            Some((s, h))
+        } else {
+            None
+        };
+        let failures = c.u32()?;
+        let locked_until = c.u64()?;
+        let disabled = c.take(1)?[0] != 0;
+        Ok(Account { name, sid, groups, salt, hash, pin, failures, locked_until, disabled })
+    }
+}
+
 /// A way of proving identity (password, PIN, smart card, ...).
 pub trait CredentialProvider {
     /// Stable id.

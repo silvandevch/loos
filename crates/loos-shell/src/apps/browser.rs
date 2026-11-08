@@ -54,6 +54,18 @@ extern "C" {
         final_url: *mut core::ffi::c_char,
         final_cap: usize,
     ) -> bool;
+    /// `web.rs`: why the last fetch failed (NUL-terminated text; length 0 when unknown).
+    fn loos_web_last_error(out: *mut core::ffi::c_char, cap: usize) -> usize;
+}
+
+fn web_error() -> String {
+    let mut b = [0u8; 256];
+    // SAFETY: b is writable for its length.
+    let n = unsafe { loos_web_last_error(b.as_mut_ptr().cast(), b.len()) };
+    if n == 0 {
+        return "the request failed".to_string();
+    }
+    String::from_utf8_lossy(&b[..n.min(b.len())]).into_owned()
 }
 
 // ------------------------------------------------------------------ document model
@@ -1468,12 +1480,13 @@ impl Browser {
             let doc = parse_html(&format!(
                 "<h1>Page could not be loaded</h1>\
                  <p>You asked for <b>{}</b>.</p>\
-                 <p>LoOS has no native network stack yet. Under <b>./loos qemu</b> the browser uses a development web bridge on COM2: the host fetches the page over HTTPS and hands it to the guest. This page means the bridge is absent or the request failed; nothing is sent by the guest browser.</p>\
-                 <p>Start the desktop with <b>./loos qemu</b> (the bridge starts automatically) or set <b>LOOS_WEBBRIDGE=1</b>. Local pages and <b>loos://</b> pages always work.</p>\
+                 <p><b>Reason:</b> {}</p>\
+                 <p>LoOS loads pages over its own network stack (DHCP, DNS, TCP and TLS 1.3 with a built-in list of trusted certificate authorities). In a virtual machine use a network adapter of type <b>e1000</b> (NAT). Under <b>./loos qemu</b> the development web bridge is used when the adapter has no address.</p>\
                  <ul><li><a href=\"{HOME}\">Start page</a></li>\
                  <li><a href=\"loos://about\">How the web bridge works</a></li>\
                  <li><a href=\"loos://bookmarks\">Bookmarks</a></li></ul>",
-                html_escape(url)
+                html_escape(url),
+                html_escape(&web_error())
             ), HOME);
             return Loaded { title: "Page could not be loaded".to_string(), doc, ok: false, status: "Web fetch failed (bridge or request error)".to_string(), url: None };
         };
@@ -1497,7 +1510,7 @@ impl Browser {
             title: doc.title.clone(),
             doc,
             ok: true,
-            status: format!("{final_url}  -  {kb} KB  -  web via QEMU bridge"),
+            status: format!("{final_url}  -  {kb} KB  -  loaded over the network"),
             url: Some(final_url),
         }
     }
@@ -1937,7 +1950,7 @@ impl Browser {
         ui.fill(Rect::new(0, y, w, 1), t.border);
         let web = self.current().url.starts_with("http://") || self.current().url.starts_with("https://");
         let right = if web {
-            if self.current().ok { "Web | QEMU bridge" } else { "Web | offline" }
+            if self.current().ok { "Web | online" } else { "Web | offline" }
         } else if self.is_bookmarked(&self.current().url) {
             "Bookmarked | Local"
         } else {

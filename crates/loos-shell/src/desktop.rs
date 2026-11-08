@@ -574,10 +574,15 @@ impl Desktop {
         self.comp.now_ms = now_ms;
         match self.mode {
             MODE_INSTALLER => {
-                if self.installer.page == 5 {
+                let before = self.installer.page;
+                if before == crate::installer::IP_INSTALL {
                     self.aw_installer.dirty = true; // the progress page advances the install every frame
                 }
                 self.aw_installer.pump();
+                if self.installer.page != before {
+                    self.aw_installer.dirty = true; // the frame that finished (or failed) the install must repaint as the next page
+                    self.aw_installer.pump();
+                }
                 return;
             }
             MODE_LOGIN => {

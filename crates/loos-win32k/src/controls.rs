@@ -157,6 +157,20 @@ fn edit_proc(k: &mut Win32k, h: Hwnd, msg: u32, w: usize, l: isize) -> isize {
 }
 
 fn dialog_proc(k: &mut Win32k, h: Hwnd, msg: u32, w: usize, l: isize) -> isize {
+    if let Some(&dp) = k.dlg_procs.get(&h) {
+        // Template dialog: the program's DLGPROC sees every message first; a non-zero return means "handled".
+        let r = k.call_window_proc(Proc::User(dp), h, msg, w, l);
+        if msg == 0x82 {
+            k.dlg_procs.remove(&h); // WM_NCDESTROY
+        }
+        if r != 0 || msg == 0x110 {
+            return r;
+        }
+        if msg == WM_CLOSE {
+            return k.send_message(h, WM_COMMAND, IDCANCEL as usize, 0);
+        }
+        return k.def_window_proc(h, msg, w, l);
+    }
     match msg {
         WM_COMMAND => {
             k.results.insert(h, (w & 0xffff) as i32);
@@ -210,5 +224,73 @@ impl Win32k {
             self.enable_window(owner, true).ok();
         }
         Some(r)
+    }
+}
+
+/// One control of a dialog template (coordinates already in pixels, relative to the client area).
+#[derive(Clone, Debug, Default)]
+pub struct DlgItem {
+    /// Window class name (`Button`, `Edit`, ...).
+    pub class: String,
+    /// Initial text.
+    pub text: String,
+    /// Window style (WS_CHILD is added).
+    pub style: u32,
+    /// Extended style.
+    pub exstyle: u32,
+    /// Left.
+    pub x: i32,
+    /// Top.
+    pub y: i32,
+    /// Width.
+    pub cx: i32,
+    /// Height.
+    pub cy: i32,
+    /// Control id.
+    pub id: i32,
+}
+
+/// `WM_INITDIALOG`.
+pub const WM_INITDIALOG: u32 = 0x0110;
+
+impl Win32k {
+    /// Creates a dialog window of class `#32770` from template data: the frame (`client` is the client size in pixels),
+    /// its controls, then sends `WM_INITDIALOG(first tab-stop control, lparam)` to `dlgproc` (a user-mode address).
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_dialog(&mut self, owner: Hwnd, title: &str, style: u32, exstyle: u32, pos: Option<(i32, i32)>, client: (i32, i32), dlgproc: u64, items: &[DlgItem], lparam: isize) -> Result<Hwnd, Win32kError> {
+        let outer = crate::adjust_window_rect(style, false, Rect::new(0, 0, client.0, client.1));
+        let (ow, oh) = (outer.width(), outer.height());
+        let (sw, sh) = self.screen;
+        let (x, y) = pos.unwrap_or(((sw - ow) / 2, (sh - oh) / 2));
+        let dlg = self.create_window_ex(exstyle, "#32770", title, style & !WS_VISIBLE, x, y, ow, oh, 0, 0, 0)?;
+        if let Some(win) = self.wins.get_mut(&dlg) {
+            win.owner = owner;
+        }
+        if dlgproc != 0 {
+            self.dlg_procs.insert(dlg, dlgproc);
+        }
+        let mut first = 0;
+        for it in items {
+            let hc = self.create_window_ex(it.exstyle, &it.class, &it.text, it.style | WS_CHILD, it.x, it.y, it.cx, it.cy, dlg, it.id as isize, 0)?;
+            if first == 0 && it.style & 0x0001_0000 != 0 {
+                first = hc; // WS_TABSTOP
+            }
+        }
+        if dlgproc != 0 {
+            self.call_window_proc(Proc::User(dlgproc), dlg, WM_INITDIALOG, first as usize, lparam);
+        }
+        if style & WS_VISIBLE != 0 {
+            self.show_window(dlg, 5)?;
+        }
+        Ok(dlg)
+    }
+
+    /// `EndDialog`: records `result` for the modal loop and closes the dialog window.
+    pub fn end_dialog(&mut self, dlg: Hwnd, result: i32) -> bool {
+        if !self.is_window(dlg) {
+            return false;
+        }
+        self.results.insert(dlg, result);
+        self.destroy_window(dlg).is_ok()
     }
 }

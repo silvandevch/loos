@@ -205,8 +205,11 @@ void loader_prepare(struct loader_env *env, struct loader_result *out)
         if (t != LOOS_MEM_USABLE && t != LOOS_MEM_BOOT && t != LOOS_MEM_ACPI_RECLAIM && t != LOOS_MEM_KERNEL && t != LOOS_MEM_MODULE) continue;
         uint64_t a = ALIGN_DOWN(mm.e[i].base, HUGE), e = ALIGN_UP(mm.e[i].base + mm.e[i].length, HUGE);
         if (a < LOW_IDENTITY) a = LOW_IDENTITY;
-        for (; a < e && a < MAX_IDENTITY; a += HUGE)
-            if (!map_huge(&pt, a, PT_W | PT_NX)) break;
+        for (; a < e && a < MAX_IDENTITY; a += HUGE) {
+            uint64_t fl = PT_W | PT_NX;
+            if (env->image.length && !disjoint(a, HUGE, env->image.base, env->image.length)) fl &= ~PT_NX;   /* firmware may load the loader above 4 GiB */
+            if (!map_huge(&pt, a, fl)) break;
+        }
     }
     if (env->fb_phys) {
         uint64_t len = (uint64_t)env->fb_pitch * env->fb_height;

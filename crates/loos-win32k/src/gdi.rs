@@ -55,14 +55,34 @@ pub fn colorref_to_argb(c: u32) -> u32 {
     0xFF00_0000 | (c & 0xFF) << 16 | (c & 0xFF00) | (c >> 16 & 0xFF)
 }
 
-/// System colour table (COLORREF).
+/// System colour table (COLORREF), `COLOR_SCROLLBAR`..`COLOR_MENUBAR` (0..=30).
 pub fn sys_color(idx: i32) -> u32 {
+    let face = rgb(0xD4, 0xD0, 0xC8);
     match idx {
-        COLOR_DESKTOP => rgb(0x3A, 0x6E, 0xA5),
+        0 => rgb(0xC8, 0xC8, 0xC8),                 // SCROLLBAR
+        COLOR_DESKTOP => rgb(0x3A, 0x6E, 0xA5),     // BACKGROUND
+        2 => rgb(0x0A, 0x24, 0x6A),                 // ACTIVECAPTION
+        3 => rgb(0x80, 0x80, 0x80),                 // INACTIVECAPTION
+        4 => rgb(255, 255, 255),                    // MENU
         COLOR_WINDOW => rgb(255, 255, 255),
-        COLOR_WINDOWTEXT => rgb(0, 0, 0),
-        COLOR_BTNFACE => rgb(0xD4, 0xD0, 0xC8),
-        _ => rgb(0xD4, 0xD0, 0xC8),
+        6 => rgb(0, 0, 0),                          // WINDOWFRAME
+        7 | COLOR_WINDOWTEXT => rgb(0, 0, 0),       // MENUTEXT, WINDOWTEXT
+        9 => rgb(255, 255, 255),                    // CAPTIONTEXT
+        10 | 11 => face,                            // ACTIVEBORDER, INACTIVEBORDER
+        12 => rgb(0x80, 0x80, 0x80),                // APPWORKSPACE
+        13 => rgb(0x0A, 0x24, 0x6A),                // HIGHLIGHT
+        14 => rgb(255, 255, 255),                   // HIGHLIGHTTEXT
+        COLOR_BTNFACE => face,
+        16 => rgb(0x80, 0x80, 0x80),                // BTNSHADOW
+        17 => rgb(0x80, 0x80, 0x80),                // GRAYTEXT
+        18 => rgb(0, 0, 0),                         // BTNTEXT
+        19 => rgb(0xD4, 0xD0, 0xC8),                // INACTIVECAPTIONTEXT
+        20 => rgb(255, 255, 255),                   // BTNHIGHLIGHT
+        21 => rgb(0x40, 0x40, 0x40),                // 3DDKSHADOW
+        22 => rgb(0xD4, 0xD0, 0xC8),                // 3DLIGHT
+        23 => rgb(0, 0, 0),                         // INFOTEXT
+        24 => rgb(0xFF, 0xFF, 0xE1),                // INFOBK
+        _ => face,
     }
 }
 
@@ -491,5 +511,236 @@ pub(crate) fn fill(px: &mut [u32], stride: i32, r: Rect, c: u32) {
     for y in r.top..r.bottom {
         let row = (y * stride) as usize;
         px[row + r.left as usize..row + r.right as usize].fill(c);
+    }
+}
+
+fn draw_line(px: &mut [u32], stride: i32, clip: Rect, (mut x0, mut y0): (i32, i32), (x1, y1): (i32, i32), c: u32) {
+    let (dx, dy) = ((x1 - x0).abs(), -(y1 - y0).abs());
+    let (sx, sy) = (if x0 < x1 { 1 } else { -1 }, if y0 < y1 { 1 } else { -1 });
+    let mut err = dx + dy;
+    loop {
+        if clip.contains(Point { x: x0, y: y0 }) {
+            px[(y0 * stride + x0) as usize] = c;
+        }
+        if x0 == x1 && y0 == y1 {
+            break;
+        }
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            x0 += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y0 += sy;
+        }
+    }
+}
+
+impl Win32k {
+    /// `Ellipse`: brush interior, 1px pen outline, inscribed in `[l,r) x [t,b)`.
+    pub fn ellipse(&mut self, dc: Hdc, l: i32, t: i32, r: i32, b: i32) -> bool {
+        let (bw, bh) = (i64::from(r - l), i64::from(b - t));
+        if bw <= 0 || bh <= 0 {
+            return false;
+        }
+        // Pixel (x,y) is inside when ((2x+1-(l+r))/bw)^2 + ((2y+1-(t+b))/bh)^2 <= 1.
+        let inside = move |x: i32, y: i32| {
+            let (dx, dy) = (i64::from(2 * x + 1 - (l + r)), i64::from(2 * y + 1 - (t + b)));
+            dx * dx * bh * bh + dy * dy * bw * bw <= bw * bw * bh * bh
+        };
+        self.with_surface(dc, |ds, px, w, _| {
+            for y in t..b {
+                for x in l..r {
+                    if !inside(x, y) || !ds.clip.contains(Point { x, y }) {
+                        continue;
+                    }
+                    let edge = !inside(x - 1, y) || !inside(x + 1, y) || !inside(x, y - 1) || !inside(x, y + 1);
+                    let c = if edge { ds.pen.map(|p| p.0).or(ds.brush) } else { ds.brush };
+                    if let Some(c) = c {
+                        px[(y * w + x) as usize] = c;
+                    }
+                }
+            }
+        })
+        .is_some()
+    }
+
+    /// `Polyline`: pen segments through `pts` (the current position is unchanged).
+    pub fn polyline(&mut self, dc: Hdc, pts: &[Point]) -> bool {
+        self.with_surface(dc, |ds, px, w, _| {
+            if let Some((pc, _)) = ds.pen {
+                for s in pts.windows(2) {
+                    draw_line(px, w, ds.clip, (s[0].x, s[0].y), (s[1].x, s[1].y), pc);
+                }
+            }
+        })
+        .is_some()
+    }
+
+    /// `Polygon`: even-odd brush fill plus a closed pen outline.
+    pub fn polygon(&mut self, dc: Hdc, pts: &[Point]) -> bool {
+        if pts.len() < 2 {
+            return false;
+        }
+        self.with_surface(dc, |ds, px, w, _| {
+            if let Some(bc) = ds.brush {
+                let (ymin, ymax) = (pts.iter().map(|p| p.y).min().unwrap(), pts.iter().map(|p| p.y).max().unwrap());
+                for y in ymin..ymax {
+                    let mut xs: Vec<i32> = Vec::new();
+                    for i in 0..pts.len() {
+                        let (a, b) = (pts[i], pts[(i + 1) % pts.len()]);
+                        if (a.y <= y && b.y > y) || (b.y <= y && a.y > y) {
+                            xs.push(a.x + (y - a.y) * (b.x - a.x) / (b.y - a.y));
+                        }
+                    }
+                    xs.sort_unstable();
+                    for pair in xs.chunks_exact(2) {
+                        fill(px, w, ds.clip.intersect(&Rect::new(pair[0], y, pair[1], y + 1)), bc);
+                    }
+                }
+            }
+            if let Some((pc, _)) = ds.pen {
+                for i in 0..pts.len() {
+                    let (a, b) = (pts[i], pts[(i + 1) % pts.len()]);
+                    draw_line(px, w, ds.clip, (a.x, a.y), (b.x, b.y), pc);
+                }
+            }
+        })
+        .is_some()
+    }
+
+    /// `PatBlt` for PATCOPY, PATINVERT, DSTINVERT, BLACKNESS and WHITENESS.
+    pub fn pat_blt(&mut self, dc: Hdc, x: i32, y: i32, w: i32, h: i32, rop: u32) -> bool {
+        let r = Rect::new(x, y, x + w, y + h);
+        self.with_surface(dc, |ds, px, stride, _| {
+            let r = ds.clip.intersect(&r);
+            if r.is_empty() {
+                return true;
+            }
+            match rop {
+                0x00F0_0021 => ds.brush.map(|c| fill(px, stride, r, c)).is_some(),
+                0x0000_0042 => {
+                    fill(px, stride, r, 0xFF00_0000);
+                    true
+                }
+                0x00FF_0062 => {
+                    fill(px, stride, r, 0xFFFF_FFFF);
+                    true
+                }
+                0x0055_0009 | 0x005A_0049 => {
+                    let pat = if rop == 0x005A_0049 { ds.brush.unwrap_or(0xFFFF_FFFF) & 0x00FF_FFFF } else { 0x00FF_FFFF };
+                    for yy in r.top..r.bottom {
+                        for xx in r.left..r.right {
+                            px[(yy * stride + xx) as usize] ^= pat;
+                        }
+                    }
+                    true
+                }
+                _ => false,
+            }
+        })
+        .unwrap_or(false)
+    }
+
+    /// `FrameRect`: 1px border in `brush`.
+    pub fn frame_rect(&mut self, dc: Hdc, r: Rect, brush: Hgdi) -> bool {
+        let Some(Gdi::Brush { color, null: false }) = self.gdi.get(&brush) else { return false };
+        let c = *color;
+        self.with_surface(dc, |ds, px, w, _| {
+            for e in [Rect::new(r.left, r.top, r.right, r.top + 1), Rect::new(r.left, r.bottom - 1, r.right, r.bottom), Rect::new(r.left, r.top, r.left + 1, r.bottom), Rect::new(r.right - 1, r.top, r.right, r.bottom)] {
+                fill(px, w, ds.clip.intersect(&e), c);
+            }
+        })
+        .is_some()
+    }
+
+    /// `StretchBlt` (nearest neighbour, SRCCOPY only); negative sizes mirror like Windows.
+    #[allow(clippy::too_many_arguments)]
+    pub fn stretch_blt(&mut self, dst: Hdc, dx: i32, dy: i32, dw: i32, dh: i32, src: Hdc, sx: i32, sy: i32, sw: i32, sh: i32) -> bool {
+        if dw == 0 || dh == 0 || sw == 0 || sh == 0 || i64::from(dw.abs()) * i64::from(dh.abs()) > (64 << 20) {
+            return false;
+        }
+        let Some(block) = self.with_surface(src, |_, px, w, h| {
+            let mut v = vec![None; (sw.abs() * sh.abs()) as usize];
+            for j in 0..sh.abs() {
+                for i in 0..sw.abs() {
+                    let (x, y) = (sx + if sw < 0 { -i - 1 } else { i }, sy + if sh < 0 { -j - 1 } else { j });
+                    if x >= 0 && y >= 0 && x < w && y < h {
+                        v[(j * sw.abs() + i) as usize] = Some(px[(y * w + x) as usize]);
+                    }
+                }
+            }
+            v
+        }) else {
+            return false;
+        };
+        self.with_surface(dst, |ds, px, stride, _| {
+            for j in 0..dh.abs() {
+                for i in 0..dw.abs() {
+                    let (u, v) = (i * sw.abs() / dw.abs(), j * sh.abs() / dh.abs());
+                    let (x, y) = (dx + if dw < 0 { -i - 1 } else { i }, dy + if dh < 0 { -j - 1 } else { j });
+                    if let Some(c) = block[(v * sw.abs() + u) as usize] {
+                        if ds.clip.contains(Point { x, y }) {
+                            px[(y * stride + x) as usize] = c;
+                        }
+                    }
+                }
+            }
+        })
+        .is_some()
+    }
+
+    /// Size of bitmap `h`.
+    pub fn bitmap_size(&self, h: Hgdi) -> Option<(i32, i32)> {
+        match self.gdi.get(&h) {
+            Some(Gdi::Bitmap { w, h, .. }) => Some((*w, *h)),
+            _ => None,
+        }
+    }
+
+    /// Pixels (0xAARRGGBB, top-down) of bitmap `h`.
+    pub fn bitmap_pixels(&self, h: Hgdi) -> Option<&[u32]> {
+        match self.gdi.get(&h) {
+            Some(Gdi::Bitmap { px, .. }) => Some(px),
+            _ => None,
+        }
+    }
+
+    /// Replaces the pixels of bitmap `h` (same size required).
+    pub fn set_bitmap_pixels(&mut self, h: Hgdi, src: &[u32]) -> bool {
+        match self.gdi.get_mut(&h) {
+            Some(Gdi::Bitmap { px, .. }) if px.len() == src.len() => {
+                px.copy_from_slice(src);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The bitmap selected into a memory DC (0 for window DCs).
+    pub fn dc_bitmap(&self, dc: Hdc) -> Hgdi {
+        match self.dcs.get(&dc) {
+            Some(Dc { kind: DcKind::Mem, bitmap, .. }) => *bitmap,
+            _ => 0,
+        }
+    }
+
+    /// Draws a `sw` x `sh` image (0xAARRGGBB, top-down) into `[dx,dx+dw) x [dy,dy+dh)` of `dc`, nearest-neighbour scaled.
+    pub fn draw_pixels(&mut self, dc: Hdc, dx: i32, dy: i32, dw: i32, dh: i32, src: &[u32], sw: i32, sh: i32) -> bool {
+        if dw <= 0 || dh <= 0 || sw <= 0 || sh <= 0 || src.len() < (sw as usize) * (sh as usize) {
+            return false;
+        }
+        self.with_surface(dc, |ds, px, stride, _| {
+            for j in 0..dh {
+                for i in 0..dw {
+                    let (x, y) = (dx + i, dy + j);
+                    if ds.clip.contains(Point { x, y }) {
+                        px[(y * stride + x) as usize] = src[((j * sh / dh) * sw + i * sw / dw) as usize];
+                    }
+                }
+            }
+        })
+        .is_some()
     }
 }

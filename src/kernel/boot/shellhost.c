@@ -101,7 +101,7 @@ int shellhost_installer(struct video *v, int scale_pct, int test_mode)
     ps2_init();
     uint32_t last_clock = 0; int h = 0, m = 0, s = 0;
     rtc_time(&h, &m, &s);
-    while (!desktop_installer_wants_live(DESK)) { host_frame(v, &last_clock, &h, &m); __asm__ volatile("pause"); }
+    while (!desktop_installer_wants_live(DESK)) { host_frame(v, &last_clock, &h, &m); loos_net_poll(time_ms()); __asm__ volatile("pause"); }
     return 1;
 }
 

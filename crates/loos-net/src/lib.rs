@@ -11,6 +11,7 @@
 
 extern crate alloc;
 
+pub mod dhcp;
 pub mod route;
 pub mod stack;
 pub mod tcp;

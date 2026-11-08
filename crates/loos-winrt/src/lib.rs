@@ -10,13 +10,19 @@
 
 extern crate alloc;
 
+pub mod adv;
 pub mod api;
+pub mod cio;
+pub mod crt;
+pub mod dib;
 pub mod dll;
 pub mod files;
+pub mod fmt;
 pub mod gl;
 pub mod gui;
 pub mod k32;
 pub mod pe;
+pub mod rsrc;
 pub mod seh;
 pub mod thread;
 pub mod ws2;
@@ -123,6 +129,18 @@ pub struct Process {
     pub(crate) net: Option<alloc::boxed::Box<dyn ws2::NetOps>>,
     pub(crate) socks: Vec<Option<ws2::Sock>>,
     pub(crate) ws_err: i32,
+    pub(crate) ws_init: u32,
+    pub(crate) adv: adv::State,
+    /// Modal dialog loops in progress: `(call key, dialog, owner)`.
+    /// Resource data sizes by address (`FindResource` handles).
+    pub(crate) rsrc: alloc::collections::BTreeMap<u64, u32>,
+    /// Check-box/radio states set by `CheckDlgButton`.
+    pub(crate) checks: alloc::collections::BTreeMap<u32, u32>,
+    pub(crate) crt: crt::State,
+    pub(crate) data: crt::DataArena,
+    pub(crate) modal: Vec<([u64; 4], u32, u32)>,
+    /// DIB sections: bitmap handle -> `(bits address, header bytes)`.
+    pub(crate) dibs: alloc::collections::BTreeMap<u32, (u64, Vec<u8>)>,
     pub(crate) dns: Option<ws2::Dns>,
     pub(crate) dns_seq: u16,
     pub(crate) scratch: u64,
@@ -190,7 +208,7 @@ impl Process {
         put(&mut tb, 0x1000 + 0x20, teb + 0x2000); // PEB.ProcessParameters
         tb[0x2004..0x2008].copy_from_slice(&0x400u32.to_le_bytes());
         mem.write(teb, &tb).map_err(|_| PeError::NoMemory)?;
-        let mut p = Process { teb, pid, session, mem, entry: loaded.entry, rsp, base: loaded.base, name: name.into(), console: Vec::new(), cmdline_addr, cb_stub: loaded.cb_stub, soft_stubs: false, trace: false, threads: alloc::vec![thread::Thread::main(pid, teb)], cur: 0, cur_rsp: 0, regs: [0; 16], ret_addr: 0, images: Vec::new(), unhandled_filter: 0, xmm: [[0; 16]; 4], gls: Vec::new(), gl_cur: None, net: None, socks: Vec::new(), ws_err: 0, dns: None, dns_seq: 0, scratch: 0, scratch_next: 0, spawned: Vec::new(), objs: Vec::new(), tls_count: 1, thread_exit_stub: loaded.thread_exit_stub, vfs: Default::default(), open: Vec::new(), finds: Vec::new(), modules: Vec::new(), next_dll_base: Process::dll_area(), pending_init: Vec::new(), stub_cache: Default::default(), stub_next: 0, stub_end: 0, dialog_open: String::new(), dialog_save: String::new(), menus: Default::default(), heap_base: 0, heap_next: 0, tls: alloc::vec![0; 1], cmdline_w: 0, env_w: 0, logged: Vec::new(), unresolved: loaded.unresolved };
+        let mut p = Process { teb, pid, session, mem, entry: loaded.entry, rsp, base: loaded.base, name: name.into(), console: Vec::new(), cmdline_addr, cb_stub: loaded.cb_stub, soft_stubs: false, trace: false, threads: alloc::vec![thread::Thread::main(pid, teb)], cur: 0, cur_rsp: 0, regs: [0; 16], ret_addr: 0, images: Vec::new(), unhandled_filter: 0, xmm: [[0; 16]; 4], gls: Vec::new(), gl_cur: None, net: None, socks: Vec::new(), ws_err: 0, ws_init: 0, adv: Default::default(), modal: Vec::new(), crt: Default::default(), data: loaded.arena, rsrc: Default::default(), checks: Default::default(), dibs: Default::default(), dns: None, dns_seq: 0, scratch: 0, scratch_next: 0, spawned: Vec::new(), objs: Vec::new(), tls_count: 1, thread_exit_stub: loaded.thread_exit_stub, vfs: Default::default(), open: Vec::new(), finds: Vec::new(), modules: Vec::new(), next_dll_base: Process::dll_area(), pending_init: Vec::new(), stub_cache: Default::default(), stub_next: 0, stub_end: 0, dialog_open: String::new(), dialog_save: String::new(), menus: Default::default(), heap_base: 0, heap_next: 0, tls: alloc::vec![0; 1], cmdline_w: 0, env_w: 0, logged: Vec::new(), unresolved: loaded.unresolved };
         let nt = u32::from_le_bytes(image[0x3c..0x40].try_into().unwrap()) as usize;
         let rd = |o: usize| u32::from_le_bytes(image[o..o + 4].try_into().unwrap());
         p.register_image(loaded.base, u64::from(rd(nt + 24 + 56)), rd(nt + 24 + 112 + 24), rd(nt + 24 + 112 + 28));

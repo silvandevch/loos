@@ -11,7 +11,23 @@ use loos_lin::mem::{ceil, PROT_EXEC, PROT_READ};
 const BUILTIN: &[&str] = &[
     "kernel32.dll", "kernelbase.dll", "ntdll.dll", "user32.dll", "gdi32.dll", "advapi32.dll", "shell32.dll", "comctl32.dll",
     "comdlg32.dll", "ole32.dll", "uxtheme.dll", "winspool.drv", "msvcrt.dll", "ucrtbase.dll", "win32u.dll", "ws2_32.dll",
+    "shlwapi.dll", "oleaut32.dll", "imm32.dll", "version.dll", "kernel.appcore.dll", "sechost.dll", "rpcrt4.dll", "bcrypt.dll",
+    "mswsock.dll", "wsock32.dll", "msvcp_win.dll",
 ];
+
+/// Index into [`BUILTIN`] of the runtime module that provides `n`, resolving API-set contracts: the `api-ms-win-crt-*`
+/// family forwards to the C runtime, every other `api-ms-win-*`/`ext-ms-win-*` contract to kernelbase (one name table
+/// serves kernel32, kernelbase, ntdll and the contracts, so a forwarded export resolves to the same stub as its target).
+fn builtin_index(n: &str) -> Option<usize> {
+    let host = if n.starts_with("api-ms-win-crt-") {
+        "ucrtbase.dll"
+    } else if n.starts_with("api-ms-win-") || n.starts_with("ext-ms-win-") {
+        "kernelbase.dll"
+    } else {
+        n
+    };
+    BUILTIN.iter().position(|b| *b == host)
+}
 const BUILTIN_BASE: u64 = 0x7ff0_0000;
 const DLL_AREA: u64 = 0x1_8000_0000;
 const STUB_AREA: u64 = 0x10000;
@@ -59,6 +75,9 @@ impl Process {
     }
 
     fn builtin_proc(&mut self, dll: &str, name: Option<&str>, ord: u32) -> u64 {
+        if let Some((n, size)) = name.and_then(|n| crate::crt::data_size(n).map(|s| (n, s))) {
+            return self.data.cell(n, size).unwrap_or(0);
+        }
         let nr = match name.and_then(api::lookup) {
             Some(nr) => nr,
             None => {
@@ -72,7 +91,7 @@ impl Process {
     /// Module handle for `name` if already available (built-in pseudo handle or mapped DLL).
     pub fn module_handle(&self, name: &str) -> Option<u64> {
         let n = base_name(name);
-        if let Some(i) = BUILTIN.iter().position(|b| *b == n) {
+        if let Some(i) = builtin_index(&n) {
             return Some(BUILTIN_BASE + i as u64 * 0x1000);
         }
         self.modules.iter().find(|m| m.name == n).map(|m| m.base)
@@ -104,7 +123,7 @@ impl Process {
         let mut patches = Vec::new();
         for imp in &imports {
             let dll = base_name(&imp.dll);
-            let addr = if BUILTIN.contains(&dll.as_str()) {
+            let addr = if builtin_index(&dll).is_some() {
                 self.builtin_proc(&dll, imp.name.as_deref(), imp.ord)
             } else if let Some(h) = self.load_library(&dll) {
                 self.module_proc(h, imp.name.as_deref(), imp.ord)

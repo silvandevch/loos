@@ -7,12 +7,15 @@
 extern crate alloc;
 
 pub mod aes;
+pub mod ecc;
+pub mod sha512;
 pub mod bignum;
 pub mod codesign;
 pub mod evlog;
 pub mod fde;
 pub mod hash;
 pub mod logon;
+pub mod sam;
 pub mod tls;
 pub mod uac;
 pub mod x509;
@@ -41,6 +44,10 @@ pub enum Error {
     LockedOut,
     /// Storage is full and the log is not circular.
     Full,
+    /// The named object already exists.
+    Exists,
+    /// The named object does not exist.
+    NotFound,
 }
 
 /// Result alias.

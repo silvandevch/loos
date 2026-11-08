@@ -300,6 +300,36 @@ pub fn clip_pop(u: &mut UiCtx, saved: Rect) {
     u.clip = saved;
 }
 
+/// Vertical scroll bar for a view of `content_h` pixels shown in `view`: mouse wheel over the view, drag the thumb or click the
+/// track to move `scroll` (pixels from the top, clamped here). Draws nothing when the content fits. Call it after the content
+/// is drawn, inside the view's clip, so the bar sits on top.
+pub fn vscroll(u: &mut UiCtx, id_s: &[u8], view: Rect, content_h: i32, scroll: &mut i32) {
+    let max = (content_h - view.h).max(0);
+    if hovered(u, view) && u.wheel != 0 {
+        *scroll -= u.wheel * 24;
+    }
+    *scroll = (*scroll).clamp(0, max);
+    if max == 0 {
+        return;
+    }
+    let th = *t(u);
+    let track = Rect::new(view.x + view.w - 10, view.y + 2, 8, view.h - 4);
+    let thumb_h = (track.h * view.h / content_h).clamp(28.min(track.h), track.h);
+    let span = (track.h - thumb_h).max(1);
+    let wid = id(id_s) ^ 0x5c01_1ba0;
+    click_logic(u, wid, track);
+    if u.active == wid {
+        *scroll = ((u.my - track.y - thumb_h / 2).clamp(0, span) * max / span).clamp(0, max);
+    }
+    let ty = track.y + span * *scroll / max;
+    let thumb = Rect::new(track.x, ty, track.w, thumb_h);
+    let lit = u.active == wid || hovered(u, track);
+    unsafe {
+        ffi::fb_fill_round(u.fb, u.clip, track, 4, mix(th.surface, th.border, 90));
+        ffi::fb_fill_round(u.fb, u.clip, thumb, 4, if lit { th.accent } else { th.text_dim });
+    }
+}
+
 fn click_logic(u: &mut UiCtx, id: u32, r: Rect) -> bool {
     let over = hovered(u, r);
     if over {

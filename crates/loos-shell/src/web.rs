@@ -1,5 +1,6 @@
-//! QEMU web bridge client (C `web.h` contract): host-assisted HTTP(S) over COM2 while the native stack is built.
-//! Hosted builds expose the offline stub; the freestanding kernel talks to boot/web-bridge.py.
+//! Web fetch for the browser (C `web.h` contract). The freestanding kernel first uses the native network stack (HTTP/HTTPS over
+//! the NIC, implemented in `kffi::webnet`) and only falls back to the QEMU development bridge on COM2 when the NIC has no address.
+//! Hosted builds expose the offline stub.
 #![allow(missing_docs)]
 
 use core::ffi::c_char;
@@ -16,6 +17,27 @@ pub unsafe extern "C" fn loos_web_fetch(
     _final_cap: usize,
 ) -> bool {
     false
+}
+
+/// Why the last fetch failed, NUL-terminated into `out`; returns the length (0 when unknown).
+#[cfg(not(target_os = "none"))]
+#[no_mangle]
+pub unsafe extern "C" fn loos_web_last_error(_out: *mut c_char, _cap: usize) -> usize {
+    0
+}
+
+#[cfg(target_os = "none")]
+extern "C" {
+    fn loos_net_fetch(url: *const u8, out: *mut u8, cap: usize, out_len: *mut usize, raw_len: *mut usize, final_url: *mut u8, final_cap: usize) -> i32;
+    fn loos_net_last_error(out: *mut u8, cap: usize) -> usize;
+}
+
+/// Why the last fetch failed, NUL-terminated into `out`; returns the length (0 when unknown).
+#[cfg(target_os = "none")]
+#[no_mangle]
+pub unsafe extern "C" fn loos_web_last_error(out: *mut c_char, cap: usize) -> usize {
+    // SAFETY: forwarded contract.
+    unsafe { loos_net_last_error(out.cast(), cap) }
 }
 
 #[cfg(target_os = "none")]
@@ -119,6 +141,12 @@ mod kernel {
         let ulen = strlen(url);
         if ulen == 0 || ulen > MAX_URL {
             return false;
+        }
+        // SAFETY: native fetch contract: same buffers, NUL-terminated URL. 1 = done, -1 = failed with a reason, 0 = no native network.
+        match unsafe { super::loos_net_fetch(url.cast(), out.cast(), cap, out_len, raw_len, final_url.cast(), final_cap) } {
+            1 => return true,
+            -1 => return false,
+            _ => {}
         }
         // SAFETY: ulen bytes before the NUL.
         let url = unsafe { core::slice::from_raw_parts(url as *const u8, ulen) };

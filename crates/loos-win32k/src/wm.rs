@@ -46,6 +46,12 @@ fn insets(style: u32, menu: bool) -> (i32, i32, i32, i32) {
     }
 }
 
+/// `AdjustWindowRect`: the outer rectangle whose client area is `client`, for a window `style` (with or without a menu bar).
+pub fn adjust_window_rect(style: u32, menu: bool, client: Rect) -> Rect {
+    let (l, t, r, b) = insets(style, menu);
+    Rect::new(client.left - l, client.top - t, client.right + r, client.bottom + b)
+}
+
 impl Win32k {
     // ---------- classes ----------
 

@@ -3,8 +3,31 @@
 #include "shellgfx.h"
 #include <string.h>
 
-static const char *items[] = { "Start LoOS normally", "Safe mode (one CPU, basic display)", "Restart" };
-#define N_ITEMS 3
+/* The first three entries are fixed; compatibility-layer demos follow when the media carries their file systems. */
+struct extra { const char *label, *module, *cmd; };
+static const struct extra extras[] = {
+    { "Windows app: Hello (LoOS Windows layer)", "winroot", "loos.gui=hello_gui.exe loos.net=1" },
+    { "Windows app: Notepad", "winroot", "loos.gui=notepad.exe loos.net=1" },
+    { "Windows app: network test", "winroot", "loos.gui=nettest.exe loos.net=1" },
+    { "Linux app: GUI demo (LoOS Linux layer)", "initrd", "loos.lin=/bin/gui" },
+    { "Linux app: syscall self-test", "initrd", "loos.lin=/bin/lbox,selftest" },
+};
+#define N_BASE 3
+#define MAX_ITEMS (N_BASE + (int)(sizeof extras / sizeof extras[0]))
+static const char *items[MAX_ITEMS] = { "Start LoOS normally", "Safe mode (one CPU, basic display)", "Restart" };
+static const char *item_cmd[MAX_ITEMS];
+static int N_ITEMS = N_BASE;
+
+static void collect_items(const struct loos_bootinfo *bi)
+{
+    N_ITEMS = N_BASE;
+    for (size_t i = 0; i < sizeof extras / sizeof extras[0]; i++)
+        for (uint32_t m = 0; m < bi->module_count; m++)
+            if (!strncmp(bi->modules[m].name, extras[i].module, strlen(extras[i].module))) {
+                items[N_ITEMS] = extras[i].label; item_cmd[N_ITEMS++] = extras[i].cmd;
+                break;
+            }
+}
 
 static void draw(struct video *v, int sel, uint32_t crash, int secs)
 {
@@ -12,7 +35,7 @@ static void draw(struct video *v, int sel, uint32_t crash, int secs)
     shell_rect s = { 0, 0, fb_lw(&fb), fb_lh(&fb) };
     shell_font title = { &loos_font_semibold, 30 }, body = { &loos_font_regular, 18 }, small = { &loos_font_regular, 14 };
     fb_gradient_v(&fb, s, s, 0xFF0B101Au, 0xFF05080Fu);
-    int x = s.w / 2 - 260, y = s.h / 2 - 170;
+    int x = s.w / 2 - 260, y = s.h / 2 - 60 - N_ITEMS * 22;
     fb_text_ex(&fb, s, x, y, "Choose how to start LoOS", 0xFFF3F4F6u, title);
     if (crash) {
         char name[64], line[120] = "The last session stopped: ";
@@ -22,14 +45,14 @@ static void draw(struct video *v, int sel, uint32_t crash, int secs)
         fb_text_ex(&fb, s, x, y + 44, line, 0xFFFCA5A5u, small);
     }
     for (int i = 0; i < N_ITEMS; i++) {
-        shell_rect r = { x - 12, y + 80 + i * 48, 544, 40 };
+        shell_rect r = { x - 12, y + 80 + i * 44, 544, 38 };
         if (i == sel) fb_fill_round(&fb, s, r, 8, 0xFF2563EBu);
         else fb_fill_round(&fb, s, r, 8, 0x22FFFFFFu);
-        fb_text_ex(&fb, s, x + 6, r.y + 10, items[i], 0xFFFFFFFFu, body);
+        fb_text_ex(&fb, s, x + 6, r.y + 9, items[i], 0xFFFFFFFFu, body);
     }
     char hint[96] = "Up/Down to choose, Enter to start";
     if (secs >= 0) { size_t n = strlen(hint); memcpy(hint + n, " - automatic in  s", 19); hint[n + 16] = (char)('0' + secs % 10); }
-    fb_text_ex(&fb, s, x, y + 80 + N_ITEMS * 48 + 16, hint, 0xFF9CA3AFu, small);
+    fb_text_ex(&fb, s, x, y + 80 + N_ITEMS * 44 + 16, hint, 0xFF9CA3AFu, small);
     video_present(v, 0, 0, v->w, v->h);
 }
 
@@ -42,9 +65,10 @@ static int f8_held(uint32_t ms)
 }
 
 /* Returns 0 normal, 1 safe mode. `wait_ms` = F8 window; `force` shows it regardless; `auto_pick` >= 0 answers it (tests). */
-int bootmenu_run(struct video *v, int force, uint32_t wait_ms, uint32_t crash, int auto_pick)
+int bootmenu_run(struct video *v, struct loos_bootinfo *bi, int force, uint32_t wait_ms, uint32_t crash, int auto_pick)
 {
     if (!v) return 0;
+    collect_items(bi);
     if (!force && !crash && !f8_held(wait_ms)) return 0;
     int sel = crash ? 1 : 0, secs = 9;
     if (auto_pick >= 0) { draw(v, auto_pick, crash, -1); serial_puts("bootmenu: picked "); serial_puts(items[auto_pick]); serial_puts("\n"); return auto_pick == 1; }
@@ -57,7 +81,7 @@ int bootmenu_run(struct video *v, int force, uint32_t wait_ms, uint32_t crash, i
             secs = -1;
             if (k.key == 0x100) sel = (sel + N_ITEMS - 1) % N_ITEMS;
             else if (k.key == 0x101) sel = (sel + 1) % N_ITEMS;
-            else if (k.key >= '1' && k.key < '1' + N_ITEMS) sel = (int)(k.key - '1');
+            else if (k.key >= '1' && k.key < (uint32_t)('1' + N_ITEMS)) sel = (int)(k.key - '1');
             else if (k.key == 13) goto chosen;
             draw(v, sel, crash, secs);
         }
@@ -71,5 +95,9 @@ int bootmenu_run(struct video *v, int force, uint32_t wait_ms, uint32_t crash, i
 chosen:
     serial_puts("bootmenu: "); serial_puts(items[sel]); serial_puts("\n");
     if (sel == 2) { outb(0x64, 0xFE); for (;;) __asm__ volatile("hlt"); }
+    if (sel >= N_BASE) {                                     /* a demo: hand its words to the kernel through the command line */
+        size_t n = strlen(bi->cmdline), l = strlen(item_cmd[sel]);
+        if (n + l + 2 < sizeof bi->cmdline) { bi->cmdline[n] = ' '; memcpy(bi->cmdline + n + 1, item_cmd[sel], l + 1); }
+    }
     return sel == 1;
 }

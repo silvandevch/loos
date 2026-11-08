@@ -24,3 +24,28 @@ against an in-test server built from the same primitives (not against a third-pa
 - Crypto is plain software, not constant-time against cache attacks (RSA is public-key-only on the verify path; signing is a build-host tool).
 - Secrets are not zeroized (no volatile writes without `unsafe`).
 - The kernel integration (SAS keyboard hook, secure-desktop compositor switch, load-time driver check, FDE hook in the block layer) is not wired yet; these crates are the logic those hooks call.
+
+## Local accounts: SAM and LSA (`loos-security::sam`)
+
+- **SAM (`Sam`)**: machine SID `S-1-5-21-a-b-c`; built-in Administrator (RID 500) and Guest (501), both disabled until enabled;
+  users and local groups from RID 1000; built-in aliases (Administrators 544, Users 545, Guests 546, Power Users 547,
+  Backup Operators 551) under `S-1-5-32`. Names: 1-20 chars, none of `\ / [ ] : | < > + = ; , ? * @ "`, unique across users and
+  groups (case-insensitive). Password policy (`min_len`, `complexity`, `max_age`) applies to create, reset and change.
+  Group membership may nest; each user's effective groups (plus Everyone and Authenticated Users) feed the logon token.
+  The last enabled administrator cannot be deleted, disabled or removed from Administrators.
+- **LSA (`Lsa`)**: per-SID privileges and logon rights (`SeInteractiveLogonRight`, `SeDeny...`), default grants for the built-in
+  groups, `token_for` builds the logon `Token` (groups from the SAM, privilege mask from the LSA, denied for disabled accounts or a
+  deny right), and sealed secrets (AES-GCM, key derived from the boot key, name bound as AAD).
+- **Persistence**: `Sam::to_bytes/from_bytes` and `Lsa::to_bytes/from_bytes` (strict parsers: truncation, trailing bytes and
+  unknown rights are errors). Storing the blobs in the SAM hive is not wired yet. `loos-winrt` exposes the database to Windows programs
+  (`Process::set_accounts`; a throw-away default "User" is used if the kernel installs none): `LookupAccountNameW/SidW`,
+  `Convert(String)SidToSid(String)W`, `GetUserNameW`, `GetComputerNameW`, `OpenProcessToken`, `GetTokenInformation`
+  (user, groups, privileges, elevation, integrity, session), `LogonUserW` (with lockout via `Sam::authenticate`),
+  `LookupPrivilegeValueW/NameW`, `CheckTokenMembership`, `IsUserAnAdmin`. `NetUser*` is not provided. `Sam::export_to_logon` feeds `LogonUi` (same PBKDF2 iteration count).
+- Salts and the boot key come from the caller: the crate has no RNG.
+- **Boot hookup (`crates/kffi/src/win.rs`)**: `boot_accounts()` builds the database at kernel start from `krandom` entropy: random
+  machine SID and LSA boot key, the disabled built-in Administrator/Guest, and one administrator `User` with a **blank password**
+  (no remote logon exists; set a real one through the SAM). PBKDF2 cost is `BOOT_ITERATIONS` (4096, lower than
+  `logon::ITERATIONS`; a `LogonUi` fed from this database must be built with the same value). Every Windows process gets its own
+  clone via `Process::set_accounts`, so password or group changes made by one process are not seen by others until a shared
+  account service exists.

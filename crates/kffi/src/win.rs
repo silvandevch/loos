@@ -12,6 +12,8 @@ use loos_kernel::smss::{Launcher, Outcome, SmConfig, Smss};
 use loos_kernel::ProcessId;
 use loos_lin::fs::MemFs;
 use loos_win32k::Win32k;
+use loos_security::sam::{Lsa, Sam};
+use loos_security::uac::SID_ADMINS;
 use loos_winrt::{Process, Ret};
 
 extern "C" {
@@ -23,7 +25,39 @@ enum End {
     Park,
 }
 
+extern "C" {
+    /// Kernel entropy (RDRAND when present, else timer jitter): `src/kernel/boot/ktime.c`.
+    fn krandom(out: *mut u8, n: usize);
+}
+
+fn random<const N: usize>() -> [u8; N] {
+    let mut b = [0u8; N];
+    // SAFETY: krandom fills exactly `n` bytes of the buffer it is given.
+    unsafe { krandom(b.as_mut_ptr(), N) };
+    b
+}
+
+/// PBKDF2 cost of the boot-time account database (the logon UI must be built with the same value).
+pub(crate) const BOOT_ITERATIONS: u32 = 4096;
+
+/// The machine's local accounts for this boot: a fresh machine SID and LSA boot key from kernel entropy, the disabled
+/// built-in Administrator/Guest, and one administrator "User" with a blank password (there is no remote logon; a real
+/// password is set through the SAM). Returns `(SAM, LSA, RID of the user processes run as)`.
+pub(crate) fn boot_accounts() -> (Sam, Lsa, u32) {
+    let sid = random::<12>();
+    let part = |i: usize| u32::from_le_bytes(sid[4 * i..4 * i + 4].try_into().unwrap());
+    let mut sam = Sam::new("LOOS", &alloc::format!("S-1-5-21-{}-{}-{}", part(0), part(1), part(2)), BOOT_ITERATIONS);
+    sam.policy.min_len = 0;
+    let rid = sam.create_user("User", b"", random::<16>(), 0).unwrap_or(1000);
+    sam.policy.min_len = 8;
+    if let Some(sid) = sam.user(rid).map(|u| u.account.sid.clone()) {
+        let _ = sam.add_member(SID_ADMINS, &sid);
+    }
+    (sam, Lsa::new(&random::<32>()), rid)
+}
+
 struct WinKernel {
+    accounts: (Sam, Lsa, u32),
     fs: MemFs,
     next_pid: u64,
     resident: BTreeMap<u64, Process>,
@@ -585,6 +619,8 @@ pub unsafe extern "C" fn loos_win_gui(initrd: *const u8, len: usize, image: *con
         }
     };
     p.soft_stubs = true;
+    let (sam, lsa, rid) = boot_accounts();
+    p.set_accounts(sam, lsa, rid);
     if crate::sys::KNet::present() {
         p.set_net(alloc::boxed::Box::new(crate::sys::KNet));
         say("win: network stack attached\n");
@@ -682,6 +718,8 @@ impl WinKernel {
         self.next_pid += 4;
         let pid = self.next_pid;
         let mut p = Process::create(pid, session, image, cmdline, &bytes).map_err(|e| alloc::format!("{image}: {e:?}"))?;
+        let (sam, lsa, rid) = &self.accounts;
+        p.set_accounts(sam.clone(), lsa.clone(), *rid);
         let end = run(&mut p);
         if matches!(end, End::Park) {
             self.resident.insert(pid, p);
@@ -728,7 +766,7 @@ pub unsafe extern "C" fn loos_win_boot(initrd: *const u8, len: usize) -> u32 {
     // SAFETY: serial output.
     unsafe { serial_dec(files as u64) };
     say(" entries\n");
-    let mut k = WinKernel { fs, next_pid: 0x100, resident: BTreeMap::new(), exited: Vec::new() };
+    let mut k = WinKernel { accounts: boot_accounts(), fs, next_pid: 0x100, resident: BTreeMap::new(), exited: Vec::new() };
     let mut cfg = SmConfig::default();
     cfg.boot_execute = alloc::vec![String::from("autochk.exe autochk *")];
     let mut s = Smss::new(cfg);

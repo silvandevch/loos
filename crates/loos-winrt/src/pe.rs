@@ -26,6 +26,8 @@ pub struct Loaded {
     pub thread_exit_stub: u64,
     /// Names of imports without an implementation.
     pub unresolved: Vec<String>,
+    /// Data symbols and runtime cells of the C runtime.
+    pub arena: crate::crt::DataArena,
 }
 
 fn u16_at(b: &[u8], o: usize) -> Result<u16, PeError> {
@@ -136,6 +138,8 @@ pub fn load(mem: &mut UserMem, file: &[u8]) -> Result<Loaded, PeError> {
     let stub_base = base + ceil(size_of_image as u64);
     let mut stubs: Vec<[u8; STUB]> = Vec::new();
     let mut unresolved = Vec::new();
+    let arena_base = mem.map_anywhere(0x8000, PROT_READ | PROT_WRITE, &[], "crtdata").unwrap_or(0);
+    let mut arena = crate::crt::DataArena::new(arena_base, 0x8000);
     let exit_stub_index = {
         stubs.push(stub(api::EXIT_PROCESS));
         stubs.push(cb_stub_bytes());
@@ -159,6 +163,18 @@ pub fn load(mem: &mut UserMem, file: &[u8]) -> Result<Loaded, PeError> {
                 let thunk = u64_at(&img, t)?;
                 if thunk == 0 {
                     break;
+                }
+                if thunk >> 63 == 0 {
+                    // Data imports (`_fmode`, `_iob`, ...): the IAT slot holds the variable's address, not a code stub.
+                    let fname = cstr(&img, thunk as usize + 2)?;
+                    if let Some(size) = crate::crt::data_size(fname) {
+                        if let Some(addr) = arena.cell(fname, size) {
+                            img.get_mut(slot..slot + 8).ok_or(PeError::Malformed("IAT outside image"))?.copy_from_slice(&addr.to_le_bytes());
+                            t += 8;
+                            slot += 8;
+                            continue;
+                        }
+                    }
                 }
                 let nr = if thunk >> 63 != 0 {
                     unresolved.push(alloc::format!("{dll}!#{}", thunk & 0xffff));
@@ -194,7 +210,7 @@ pub fn load(mem: &mut UserMem, file: &[u8]) -> Result<Loaded, PeError> {
     }
     let flat: Vec<u8> = stubs.iter().flatten().copied().collect();
     mem.map_fixed(stub_base, flat.len() as u64, PROT_READ | PROT_EXEC, &flat, "stubs").map_err(|_| PeError::NoMemory)?;
-    Ok(Loaded { entry: base + entry_rva, base, exit_stub: stub_base + (exit_stub_index * STUB) as u64, cb_stub: stub_base + STUB as u64, thread_exit_stub: stub_base + 2 * STUB as u64, unresolved })
+    Ok(Loaded { entry: base + entry_rva, base, exit_stub: stub_base + (exit_stub_index * STUB) as u64, cb_stub: stub_base + STUB as u64, thread_exit_stub: stub_base + 2 * STUB as u64, unresolved, arena })
 }
 
 /// One import of an image: by name or by ordinal, with the RVA of its IAT slot.

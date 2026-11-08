@@ -32,6 +32,27 @@ Supporting pieces: `instunattend` (answer files / OEM provisioning),
 `instmedia` (build the USB/DVD), `instdrv` (offline driver injection),
 `instupgrade` (upgrade-in-place + migration from an earlier LoOS install).
 
+## Try it: QEMU and VMware (Windows 11 Pro host)
+
+Build the UEFI install ISO on the Linux box (`./loos install-iso`, or `boot/iso/build.sh`) → `out/boot/loos.iso`, and copy it to
+the Windows machine. `boot/iso/iso_test.sh` checks the full flow (CD boot → install → boot the installed disk) in QEMU+OVMF.
+Quick QEMU run: `boot/run-desktop.sh uefi`.
+
+VMware Workstation (Pro/Player) on Windows 11:
+
+1. New Virtual Machine → Custom → *Other* / *Other 64-bit* (or Other Linux 6.x 64-bit) → firmware **UEFI**.
+2. **Disable Secure Boot**: VM Settings → Options → Advanced → untick *Enable secure boot* (or Esc/F2 into the VM firmware →
+   Device Manager → Secure Boot Configuration). `BOOTX64.EFI` is unsigned. No TPM/encryption is needed.
+3. Memory ≥ 2 GB, 2+ CPUs, disk **≥ 4 GB** (installer minimum is 2 GiB) as **NVMe** or **SATA**. Do not use SCSI/LSI (no driver).
+   Leave the keyboard/mouse on the default (PS/2); there is no USB HID or xHCI driver yet.
+4. CD/DVD → *Use ISO image file* → `loos.iso`, *Connect at power on*. Power on; the wizard starts. Pick the disk, create an
+   account, install.
+5. When it finishes, power off, then set the CD/DVD to *Use physical drive* or untick *Connected* (otherwise the firmware boots the
+   ISO again), and power on: sign in with your account.
+
+If the screen stays black, add `video=1280x720` to the `cmdline=` line in `\LOOS\BOOT.CFG` of the ISO's `efiboot.img` or tell
+me what the VM's serial/debug output says (VM Settings → Add → Serial Port → output to file; the kernel logs to COM1).
+
 ## Recovery (`winre`, `factoryreset`)
 
 A separate recovery partition holds the LoOS Recovery Environment: repair boot,

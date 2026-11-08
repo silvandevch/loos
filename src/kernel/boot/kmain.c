@@ -44,6 +44,8 @@ static void report_selftest(const char *name, uint32_t got, uint32_t want)
     serial_puts(name); serial_puts(got == want ? ": ok (" : ": FAILED (");
     serial_hex(got); serial_puts(")\n");
 }
+extern int32_t loos_net_config(uint32_t *out);
+static void net_ip(uint32_t ip) { for (int k = 24; k >= 0; k -= 8) { serial_dec((ip >> k) & 255); if (k) serial_puts("."); } }
 static void net_gpu_probe(void)
 {
     static struct pci_dev devs[64];
@@ -55,23 +57,41 @@ static void net_gpu_probe(void)
             if (!bar || vm_map_mmio(bar, size ? size : 0x1000) < 0) continue;
             serial_puts("gpu: bochs vga, modes "); serial_dec(loos_gpu_probe(bar)); serial_puts("\n");
         }
-        if (devs[i].class_code == 0x02 && devs[i].vendor == 0x8086 && devs[i].device == 0x100e) {   /* e1000 */
+        if (devs[i].class_code == 0x02 && devs[i].vendor == 0x8086 && (devs[i].device == 0x100e || devs[i].device == 0x100f)) {   /* e1000: QEMU 82540EM, VMware 82545EM */
             bar = pci_bar(&devs[i], 0, &size);
             if (!bar || !size || vm_map_mmio(bar, size) < 0) continue;
             pci_enable(&devs[i]);
             void *dma = kalloc(E1000_ARENA, 4096);
             if (!dma) continue;
             memset(dma, 0, E1000_ARENA);
-            if (loos_net_attach_e1000(bar, dma, (uint64_t)(uintptr_t)dma, E1000_ARENA, 0x0a00020fu, 0x0a000202u) < 0) { serial_puts("net: e1000 init failed\n"); continue; }
+            if (loos_net_attach_e1000(bar, dma, (uint64_t)(uintptr_t)dma, E1000_ARENA, 0, 0) < 0) { serial_puts("net: e1000 init failed\n"); continue; }
+            uint32_t cfg[4] = { 0 };
+            for (uint32_t t0 = time_ms(); !loos_net_config(cfg) && time_ms() - t0 < 6000;) loos_net_poll(time_ms());   /* DHCP; the main loops keep polling */
+            if (!cfg[0]) { serial_puts("net: e1000 up, waiting for DHCP\n"); continue; }
+            serial_puts("net: e1000 "); net_ip(cfg[0]); serial_puts("/"); serial_dec(cfg[1]); serial_puts(", gateway "); net_ip(cfg[2]); serial_puts(", dns "); net_ip(cfg[3]);
             int ok = 0;
-            for (uint32_t t0 = time_ms(), last = t0 - 1000; !ok && time_ms() - t0 < 4000;) {   /* link may take a moment: re-ask */
-                if (time_ms() - last >= 500) { last = time_ms(); loos_net_ping(0x0a000202u, 1, 1, time_ms()); }
-                loos_net_poll(time_ms()); ok = loos_net_ping(0x0a000202u, 1, 0, time_ms());
+            for (uint32_t t0 = time_ms(), last = t0 - 1000; cfg[2] && !ok && time_ms() - t0 < 4000;) {   /* link may take a moment: re-ask */
+                if (time_ms() - last >= 500) { last = time_ms(); loos_net_ping(cfg[2], 1, 1, time_ms()); }
+                loos_net_poll(time_ms()); ok = loos_net_ping(cfg[2], 1, 0, time_ms());
             }
-            serial_puts("net: e1000 10.0.2.15/24, ping 10.0.2.2 "); serial_puts(ok == 1 ? "reply\n" : "NO REPLY\n");
+            serial_puts(", ping gateway "); serial_puts(ok == 1 ? "reply\n" : "NO REPLY\n");
         }
     }
 }
+extern int32_t loos_net_fetch(const char *url, uint8_t *out, size_t cap, size_t *out_len, size_t *raw_len, char *final_url, size_t final_cap);
+extern size_t loos_net_last_error(char *out, size_t cap);
+static void web_selftest(const char *url)                   /* loos.fetch=<url>: proves DNS + TCP + TLS + HTTP end to end on the serial log */
+{
+    static uint8_t out[512 * 1024];
+    static char fin[256], err[256];
+    size_t n = 0, raw = 0;
+    uint32_t t0 = time_ms();
+    int rc = loos_net_fetch(url, out, sizeof out, &n, &raw, fin, sizeof fin);
+    serial_puts("web: "); serial_puts(url);
+    if (rc == 1) { serial_puts(" -> "); serial_puts(fin); serial_puts(", "); serial_dec(raw); serial_puts(" bytes in "); serial_dec(time_ms() - t0); serial_puts(" ms\n"); }
+    else { loos_net_last_error(err, sizeof err); serial_puts(rc == 0 ? " FAILED (no network): " : " FAILED: "); serial_puts(err); serial_puts("\n"); }
+}
+
 static void usb_probe(void)
 {
     static struct pci_dev devs[64];
@@ -158,7 +178,7 @@ void kmain(const struct loos_bootinfo *bi)
             have_video = 1;
             bugcheck_set_video(&vid);
             const char *pick = cmdline_get(bi, "bootmenu.auto");
-            if (bootmenu_run(&vid, cmdline_get(bi, "bootmenu") != 0, test_mode ? 0 : 600, crashed, pick ? cmdline_int(pick) : -1)) safe_mode = 1;
+            if (bootmenu_run(&vid, (struct loos_bootinfo *)bi, cmdline_get(bi, "bootmenu") != 0, test_mode ? 0 : 1500, crashed, pick ? cmdline_int(pick) : -1)) safe_mode = 1;
             if (safe_mode) scale = 100;
             if (!scale) scale = desktop_auto_scale(vid.w, vid.h);
             if (!safe_mode) splash_start(&vid, scale);
@@ -249,6 +269,7 @@ void kmain(const struct loos_bootinfo *bi)
     report_selftest("net", loos_net_selftest(), 0xf);
     usb_probe();
     net_gpu_probe();
+    { const char *fu = cmdline_get(bi, "loos.fetch"); if (fu) { char url[256]; cmdline_word(fu, url, sizeof url); web_selftest(url); } }
 
     /* ---- disks, installer and login ---- */
     serial_puts("disks: "); serial_dec((uint64_t)ndisks); serial_puts("\n");

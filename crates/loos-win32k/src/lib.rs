@@ -298,6 +298,8 @@ pub struct Win32k {
     pub(crate) cascade: i32,
     pub(crate) last_error: u32,
     pub(crate) results: BTreeMap<Hwnd, i32>,
+    /// User-mode `DLGPROC` per dialog window (dialogs created from templates).
+    pub(crate) dlg_procs: BTreeMap<Hwnd, u64>,
     pub(crate) open_menu: Option<(Hwnd, usize)>,
     /// Screen size in pixels.
     pub screen: (i32, i32),
@@ -332,6 +334,7 @@ impl Win32k {
             cascade: 0,
             last_error: 0,
             results: BTreeMap::new(),
+            dlg_procs: BTreeMap::new(),
             open_menu: None,
             screen: (w, h),
             desktop_color: 0xFF3A6EA5,

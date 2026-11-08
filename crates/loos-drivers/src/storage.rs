@@ -15,8 +15,9 @@ pub trait BlockDev {
     fn write(&mut self, lba: u64, data: &[u8]) -> Result<(), DriverError>;
 }
 
-/// Polling budget for device completion (register reads).
-pub(crate) const SPIN: u32 = 200_000;
+/// Polling budget for device completion. Real and virtual controllers (VMware, hardware) take milliseconds per command; the
+/// budget only matters on failure, so it is generous (hundreds of milliseconds to seconds).
+pub(crate) const SPIN: u32 = 400_000_000;
 
 pub(crate) fn wait(mut f: impl FnMut() -> bool) -> Result<(), DriverError> {
     for _ in 0..SPIN {

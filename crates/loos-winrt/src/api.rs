@@ -6,7 +6,7 @@ use loos_lin::mem::{ceil, PROT_READ, PROT_WRITE};
 /// Terminates the process (also the entry point's return address).
 pub const EXIT_PROCESS: u32 = 1;
 /// First syscall number used for unimplemented imports.
-pub const UNRESOLVED_BASE: u32 = 0x1000;
+pub const UNRESOLVED_BASE: u32 = 0x8000;
 
 const ERROR_INVALID_PARAMETER: u32 = 87;
 const STATUS_NOT_IMPLEMENTED: u64 = 0xc000_0002;
@@ -37,7 +37,7 @@ const TABLE: &[(&str, u32)] = &[
 
 /// Syscall number for an imported function name.
 pub fn lookup(name: &str) -> Option<u32> {
-    TABLE.iter().find(|(n, _)| *n == name).map(|(_, nr)| *nr).or_else(|| crate::gui::lookup(name)).or_else(|| crate::thread::lookup(name)).or_else(|| crate::ws2::lookup(name)).or_else(|| crate::gl::lookup(name)).or_else(|| crate::k32::lookup(name))
+    TABLE.iter().find(|(n, _)| *n == name).map(|(_, nr)| *nr).or_else(|| crate::gui::lookup(name)).or_else(|| crate::thread::lookup(name)).or_else(|| crate::ws2::lookup(name)).or_else(|| crate::gl::lookup(name)).or_else(|| crate::adv::lookup(name)).or_else(|| crate::crt::lookup(name)).or_else(|| crate::k32::lookup(name))
 }
 
 impl Process {
@@ -140,7 +140,7 @@ impl Process {
                 }
                 if self.soft_stubs { ok(0) } else { Ret::Exit(STATUS_NOT_IMPLEMENTED as u32) }
             }
-            _ => self.thread_syscall(nr, a, self.cur_rsp, now_ms).or_else(|| self.ws_syscall(nr, a, self.cur_rsp, now_ms)).or_else(|| self.k32_syscall(nr, a, self.cur_rsp, now_ms)).unwrap_or(ok(0)),
+            _ => self.thread_syscall(nr, a, self.cur_rsp, now_ms).or_else(|| self.ws_syscall(nr, a, self.cur_rsp, now_ms)).or_else(|| self.k32_syscall(nr, a, self.cur_rsp, now_ms)).or_else(|| self.adv_syscall(nr, a, self.cur_rsp, now_ms)).or_else(|| self.crt_syscall(nr, a, self.cur_rsp, now_ms)).unwrap_or(ok(0)),
         }
     }
 }

@@ -269,13 +269,39 @@ pub unsafe extern "C" fn loos_comp_present(back: *const u32, bw: i32, bh: i32, x
     0
 }
 
+#[path = "webnet.rs"]
+mod webnet;
+
 struct NetState {
     stack: Stack,
     nic: E1000<RawMmio, RawDma>,
+    iface: usize,
+    dhcp: Option<loos_net::dhcp::Dhcp>,
+    /// Address, prefix, gateway and DNS server in use; `ip == 0` until configured.
+    cfg: NetConfig,
+    /// When DHCP started (ms), for the fall-back to the QEMU user-network defaults.
+    since: Option<u64>,
+}
+#[derive(Clone, Copy, Default)]
+struct NetConfig {
+    ip: u32,
+    prefix: u32,
+    gw: u32,
+    dns: u32,
 }
 static NET: Global<NetState> = Global::new();
+const DHCP_FALLBACK_MS: u64 = 12_000;
 
-/// Brings up an e1000 NIC, wires it to the TCP/IP stack and configures `ip/24` with default gateway `gw`.
+impl NetState {
+    fn apply(&mut self, ip: [u8; 4], prefix: u8, gw: [u8; 4], dns: [u8; 4]) {
+        let gwo = (gw != [0; 4]).then(|| Ipv4Addr::from(gw));
+        self.stack.set_ipv4(self.iface, Ipv4Addr::from(ip), prefix, gwo);
+        self.cfg = NetConfig { ip: u32::from_be_bytes(ip), prefix: u32::from(prefix), gw: u32::from_be_bytes(gw), dns: u32::from_be_bytes(dns) };
+    }
+}
+
+/// Brings up an e1000 NIC and wires it to the TCP/IP stack. With `ip == 0` the address, gateway and DNS server come from DHCP
+/// (see [`loos_net_config`]); otherwise `ip/24` with default gateway `gw` is configured statically.
 /// Returns 0, or a negative error.
 ///
 /// # Safety
@@ -285,11 +311,30 @@ pub unsafe extern "C" fn loos_net_attach_e1000(mmio: u64, dma_virt: *mut u8, dma
     let dma = RawDma { virt: dma_virt, phys: dma_phys, len: dma_len as usize };
     let Ok(nic) = E1000::new(RawMmio(mmio as *mut u8), dma) else { return -1 };
     let mut stack = Stack::new();
-    let me = IpAddr::V4(Ipv4Addr::from(ip));
-    let idx = stack.add_iface(nic.mac(), &[(me, 24)]);
-    stack.add_route(loos_net::route::Route { dst: IpAddr::V4(Ipv4Addr::UNSPECIFIED), prefix: 0, gw: Some(IpAddr::V4(Ipv4Addr::from(gw))), iface: idx, metric: 100 });
-    *NET.get() = Some(NetState { stack, nic });
+    let mac = nic.mac();
+    let iface = stack.add_iface(mac, &[]);
+    let xid = u32::from_le_bytes([mac[2], mac[3], mac[4], mac[5]]) ^ 0x4c6f_4f53;
+    let mut st = NetState { stack, nic, iface, dhcp: None, cfg: NetConfig::default(), since: None };
+    if ip != 0 {
+        st.apply(ip.to_be_bytes(), 24, gw.to_be_bytes(), [10, 0, 2, 3]);
+    } else {
+        st.dhcp = Some(loos_net::dhcp::Dhcp::new(mac, xid));
+    }
+    *NET.get() = Some(st);
     0
+}
+
+/// Current configuration as `[ip, prefix, gateway, dns]` (host-order addresses); `ip == 0` while DHCP is still working.
+/// Returns 1 once configured, 0 otherwise, -1 without a NIC.
+///
+/// # Safety
+/// `out` must point at four writable `u32`s.
+#[no_mangle]
+pub unsafe extern "C" fn loos_net_config(out: *mut u32) -> i32 {
+    let Some(n) = NET.get().as_ref() else { return -1 };
+    // SAFETY: per contract.
+    unsafe { out.copy_from_nonoverlapping([n.cfg.ip, n.cfg.prefix, n.cfg.gw, n.cfg.dns].as_ptr(), 4) };
+    i32::from(n.cfg.ip != 0)
 }
 
 /// Moves frames between the NIC and the stack and runs stack timers. Cheap when no NIC is attached.
@@ -297,12 +342,32 @@ pub unsafe extern "C" fn loos_net_attach_e1000(mmio: u64, dma_virt: *mut u8, dma
 pub extern "C" fn loos_net_poll(now_ms: u64) {
     let Some(n) = NET.get() else { return };
     n.stack.poll(now_ms);
+    if n.dhcp.is_some() && n.since.is_none() {
+        n.since = Some(now_ms);
+    }
     let mut buf = [0u8; 2048];
     for _ in 0..32 {
         let Some(len) = n.nic.recv(&mut buf) else { break };
+        if n.dhcp.as_mut().is_some_and(|d| d.rx(&buf[..len], now_ms)) {
+            continue;
+        }
         n.stack.rx(1, &buf[..len]);
     }
-    while let Some((_, f)) = n.stack.pop_tx() {
+    if let Some(d) = n.dhcp.as_mut() {
+        if let Some(f) = d.poll(now_ms) {
+            let _ = n.nic.send(&f);
+        }
+        match d.lease() {
+            Some(l) if n.cfg.ip != u32::from_be_bytes(l.ip) => {
+                n.apply(l.ip, l.prefix, l.gw, if l.dns == [0; 4] { l.gw } else { l.dns });
+            }
+            None if n.cfg.ip == 0 && n.since.is_some_and(|s| now_ms.saturating_sub(s) > DHCP_FALLBACK_MS) => {
+                n.apply([10, 0, 2, 15], 24, [10, 0, 2, 2], [10, 0, 2, 3]); // no DHCP server: QEMU user-network defaults
+            }
+            _ => {}
+        }
+    }
+while let Some((_, f)) = n.stack.pop_tx() {
         let _ = n.nic.send(&f);
     }
 }
@@ -524,6 +589,6 @@ impl loos_winrt::ws2::NetOps for KNet {
         }
     }
     fn dns_server(&self) -> [u8; 4] {
-        [10, 0, 2, 3]
+        NET.get().as_ref().map_or([10, 0, 2, 3], |n| n.cfg.dns.to_be_bytes())
     }
 }

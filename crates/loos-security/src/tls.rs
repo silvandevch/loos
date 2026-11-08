@@ -1,4 +1,4 @@
-//! TLS 1.3 client (sans-IO): `TLS_AES_128_GCM_SHA256`, X25519, `rsa_pss_rsae_sha256`.
+//! TLS 1.3 client (sans-IO): `TLS_AES_128_GCM_SHA256`, X25519, `rsa_pss_rsae_sha256`, `ecdsa_secp256r1_sha256`, `ecdsa_secp384r1_sha384`.
 //!
 //! Server certificates are validated against a [`RootStore`] (chain, validity, hostname). The
 //! state machine consumes bytes with [`TlsClient::feed`] and returns bytes to write to the socket;
@@ -183,7 +183,7 @@ impl<'a> TlsClient<'a> {
         ext(&mut e, 0, &sni_list);
         ext(&mut e, 43, &[2, 3, 4]);
         ext(&mut e, 10, &[0, 2, 0, 0x1d]);
-        ext(&mut e, 13, &[0, 2, 0x08, 0x04]);
+        ext(&mut e, 13, &[0, 6, 0x04, 0x03, 0x05, 0x03, 0x08, 0x04]); // ecdsa_p256_sha256, ecdsa_p384_sha384, rsa_pss_rsae_sha256
         let mut ks = be16(36).to_vec();
         ks.extend_from_slice(&[0, 0x1d, 0, 32]);
         ks.extend_from_slice(&public_key(&self.eph_priv));
@@ -339,15 +339,16 @@ impl<'a> TlsClient<'a> {
                 self.state = State::WaitCertVerify;
             }
             (State::WaitCertVerify, HS_CERT_VERIFY) => {
-                if body.len() < 4 || u16::from_be_bytes([body[0], body[1]]) != 0x0804 {
-                    return Err(Error::Unsupported);
+                if body.len() < 4 {
+                    return Err(Error::Parse);
                 }
+                let scheme = u16::from_be_bytes([body[0], body[1]]);
                 let slen = u16::from_be_bytes([body[2], body[3]]) as usize;
                 let sig = body.get(4..4 + slen).ok_or(Error::Parse)?;
                 let mut content = alloc::vec![0x20u8; 64];
                 content.extend_from_slice(b"TLS 1.3, server CertificateVerify\0");
                 content.extend_from_slice(&self.th());
-                self.leaf.as_ref().ok_or(Error::Invalid)?.verify_pss(&content, sig)?;
+                self.leaf.as_ref().ok_or(Error::Invalid)?.verify_tls(scheme, &content, sig)?;
                 self.transcript.extend_from_slice(raw);
                 self.state = State::WaitFinished;
             }

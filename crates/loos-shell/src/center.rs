@@ -458,9 +458,9 @@ impl Center {
             ui::label(u, c.x, c.y + 78, b"Nothing matches.", t.text_dim);
         }
         let visible = ((c.h - 76) / 22).max(1) as usize;
-        if ui::hovered(u, c) && u.wheel != 0 {
-            scroll = (scroll - u.wheel).clamp(0, rows.len().saturating_sub(visible) as i32);
-        }
+        let mut px = scroll * 22;
+        ui::vscroll(u, b"center_scroll", Rect::new(c.x, c.y + 76, c.w, visible as i32 * 22), rows.len() as i32 * 22, &mut px);
+        scroll = (px / 22).clamp(0, rows.len().saturating_sub(visible) as i32);
         for (i, e) in rows.iter().skip(scroll as usize).take(visible).enumerate() {
             let y = c.y + 76 + i as i32 * 22;
             let s = e.t / 1000;

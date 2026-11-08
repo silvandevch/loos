@@ -128,6 +128,18 @@ impl Stack {
         idx
     }
 
+    /// Gives interface `iface` an IPv4 address (replacing earlier IPv4 ones) with its on-link route and optional default gateway.
+    pub fn set_ipv4(&mut self, iface: usize, ip: Ipv4Addr, prefix: u8, gw: Option<Ipv4Addr>) {
+        let Some(i) = self.ifaces.get_mut(iface) else { return };
+        i.addrs.retain(|a| !a.0.is_ipv4());
+        i.addrs.push((IpAddr::V4(ip), prefix));
+        self.routes.remove_iface_v4(iface);
+        self.routes.add(Route { dst: IpAddr::V4(ip), prefix, gw: None, iface, metric: 10 });
+        if let Some(g) = gw {
+            self.routes.add(Route { dst: IpAddr::V4(Ipv4Addr::UNSPECIFIED), prefix: 0, gw: Some(IpAddr::V4(g)), iface, metric: 100 });
+        }
+    }
+
     /// Adds a route (e.g. a default route: `0.0.0.0/0` via a gateway).
     pub fn add_route(&mut self, r: Route) {
         self.routes.add(r);

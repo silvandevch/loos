@@ -574,8 +574,7 @@ pub(crate) fn pers_slider(u: &mut UiCtx, x: i32, y: i32, w: i32, label: &[u8], v
 fn page_personalize(s: &mut ShellSettings, u: &mut UiCtx, c: Rect) {
     let t = unsafe { *u.theme };
     let saved = ui::clip_push(u, c);
-    if ui::hovered(u, c) && u.wheel != 0 { s.p_scroll -= u.wheel * 24; }
-    s.p_scroll = s.p_scroll.clamp(0, 560);
+    s.p_scroll = s.p_scroll.max(0);
     let y = |v: i32, s: &ShellSettings| v + c.y - s.p_scroll;
     ui::heading(u, c.x, y(0, s), b"Personalize");
     ui::label(u, c.x, y(46, s), b"Presets", t.text_dim);
@@ -718,6 +717,7 @@ fn page_personalize(s: &mut ShellSettings, u: &mut UiCtx, c: Rect) {
             pers_commit(s);
         }
     }
+    ui::vscroll(u, b"pers_scroll", c, io + 22 + 26 + 16, &mut s.p_scroll);
     ui::clip_pop(u, saved);
 }
 

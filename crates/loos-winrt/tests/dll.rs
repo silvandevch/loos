@@ -32,6 +32,21 @@ fn builtin_modules_hand_out_stub_pointers() {
 }
 
 #[test]
+fn api_set_contracts_resolve_to_their_host_module() {
+    let mut p = proc();
+    let k = p.module_handle("kernelbase.dll").unwrap();
+    assert_eq!(p.load_library("api-ms-win-core-synch-l1-2-0.dll"), Some(k));
+    assert_eq!(p.module_handle("ext-ms-win-kernel32-package-l1-1-0"), Some(k));
+    assert_eq!(p.load_library("api-ms-win-crt-stdio-l1-1-0.dll"), p.module_handle("ucrtbase.dll"));
+    for dll in ["shlwapi.dll", "oleaut32.dll", "rpcrt4.dll", "bcrypt.dll"] {
+        assert!(p.load_library(dll).is_some(), "{dll}");
+    }
+    let f = p.proc_address(k, Some("GetTickCount"), 0);
+    assert_eq!(p.mem.read_vec(f, 4).unwrap(), [0x4c, 0x8b, 0xd1, 0xb8]);
+    assert_eq!(p.syscall(12, [0; 4], 0), loos_winrt::Ret::Value(0), "built-in contracts do not touch the last error");
+}
+
+#[test]
 fn volume_paths_are_normalised() {
     let mut p = proc();
     p.add_file("/Users/a.txt", b"x");

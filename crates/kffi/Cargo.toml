@@ -24,6 +24,8 @@ loos-drivers = { path = "../loos-drivers" }
 loos-net = { path = "../loos-net" }
 loos-compositor = { path = "../loos-compositor" }
 loos-winrt = { path = "../loos-winrt" }
+loos-security = { path = "../loos-security" }
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
 
 [lints]
 workspace = true

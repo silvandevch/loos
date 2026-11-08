@@ -62,6 +62,11 @@ impl RouteTable {
         self.routes.retain(|r| r.iface != iface);
     }
 
+    /// Removes the IPv4 routes that go out `iface` (a new lease replaces them).
+    pub fn remove_iface_v4(&mut self, iface: usize) {
+        self.routes.retain(|r| r.iface != iface || !r.dst.is_ipv4());
+    }
+
     /// Best route for `dst`: longest prefix, then lowest metric.
     pub fn lookup(&self, dst: IpAddr) -> Option<&Route> {
         self.routes

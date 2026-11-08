@@ -1,10 +1,12 @@
 //! X.509 (DER) parsing, RSA/SHA-256 signature verification, chain building and the root store.
 //!
-//! Supported: RSA PKCS#1 v1.5 with SHA-256 signatures, basicConstraints, SAN dNSName.
-//! ECDSA-signed certificates parse but fail verification with [`Error::Unsupported`].
+//! Supported: RSA PKCS#1 v1.5 (SHA-256/384/512) and ECDSA (P-256 with SHA-256/384, P-384 with SHA-256/384) signatures and keys,
+//! basicConstraints, SAN dNSName. Other key or signature algorithms fail with [`Error::Unsupported`].
 
 use crate::bignum::Uint;
+use crate::ecc::{ecdsa_verify, Curve};
 use crate::hash::{ct_eq, sha256};
+use crate::sha512::{sha384, sha512};
 use crate::{Error, Result};
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -44,6 +46,24 @@ fn expect(b: &[u8], tag: u8) -> Result<(&[u8], &[u8])> {
 }
 
 const OID_SHA256_RSA: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0b];
+const OID_SHA384_RSA: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0c];
+const OID_SHA512_RSA: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0d];
+const OID_ECDSA_SHA256: &[u8] = &[0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x02];
+const OID_ECDSA_SHA384: &[u8] = &[0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x03];
+const OID_EC_KEY: &[u8] = &[0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01];
+const OID_P256: &[u8] = &[0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07];
+const OID_P384: &[u8] = &[0x2b, 0x81, 0x04, 0x00, 0x22];
+
+/// How a certificate's signature was made.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SigAlg {
+    RsaSha256,
+    RsaSha384,
+    RsaSha512,
+    EcdsaSha256,
+    EcdsaSha384,
+    Other,
+}
 const OID_RSA: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01];
 const OID_CN: &[u8] = &[0x55, 0x04, 0x03];
 const OID_BC: &[u8] = &[0x55, 0x1d, 0x13];
@@ -66,7 +86,8 @@ pub struct Cert {
     pub not_after: i64,
     n: Vec<u8>,
     e: Vec<u8>,
-    sig_is_rsa_sha256: bool,
+    sig_alg: SigAlg,
+    ec: Option<(Curve, Vec<u8>)>,
     sig: Vec<u8>,
     /// basicConstraints cA.
     pub is_ca: bool,
@@ -131,13 +152,29 @@ impl Cert {
         let (_, _, subject, t) = tlv_raw(t)?;
         let (spki, mut t) = expect(t, 0x30)?;
         let (ka, kr) = expect(spki, 0x30)?;
-        if expect(ka, 0x06)?.0 != OID_RSA {
+        let (koid, kparams) = expect(ka, 0x06)?;
+        let (kb, _) = expect(kr, 0x03)?;
+        let (mut n, mut e): (&[u8], &[u8]) = (&[], &[]);
+        let mut ec = None;
+        if koid == OID_RSA {
+            let (keyseq, _) = expect(kb.get(1..).ok_or(Error::Parse)?, 0x30)?;
+            let (nn, ke) = expect(keyseq, 0x02)?;
+            let (ee, _) = expect(ke, 0x02)?;
+            n = nn;
+            e = ee;
+        } else if koid == OID_EC_KEY {
+            let (curve_oid, _) = expect(kparams, 0x06)?;
+            let curve = if curve_oid == OID_P256 {
+                Curve::P256
+            } else if curve_oid == OID_P384 {
+                Curve::P384
+            } else {
+                return Err(Error::Unsupported);
+            };
+            ec = Some((curve, kb.get(1..).ok_or(Error::Parse)?.to_vec()));
+        } else {
             return Err(Error::Unsupported);
         }
-        let (kb, _) = expect(kr, 0x03)?;
-        let (keyseq, _) = expect(kb.get(1..).ok_or(Error::Parse)?, 0x30)?;
-        let (n, ke) = expect(keyseq, 0x02)?;
-        let (e, _) = expect(ke, 0x02)?;
         let strip = |v: &[u8]| v.iter().skip_while(|&&b| b == 0).copied().collect::<Vec<u8>>();
 
         let (mut is_ca, mut path_len, mut dns_names) = (false, None, Vec::new());
@@ -203,7 +240,20 @@ impl Cert {
             not_after: parse_time(nat, nac)?,
             n: strip(n),
             e: strip(e),
-            sig_is_rsa_sha256: aoid == OID_SHA256_RSA,
+            sig_alg: if aoid == OID_SHA256_RSA {
+                SigAlg::RsaSha256
+            } else if aoid == OID_SHA384_RSA {
+                SigAlg::RsaSha384
+            } else if aoid == OID_SHA512_RSA {
+                SigAlg::RsaSha512
+            } else if aoid == OID_ECDSA_SHA256 {
+                SigAlg::EcdsaSha256
+            } else if aoid == OID_ECDSA_SHA384 {
+                SigAlg::EcdsaSha384
+            } else {
+                SigAlg::Other
+            },
+            ec,
             sig,
             is_ca,
             path_len,
@@ -219,10 +269,19 @@ impl Cert {
 
     /// Verify that `issuer_cert`'s key signed this certificate.
     pub fn verify_signed_by(&self, issuer_cert: &Cert) -> Result<()> {
-        if !self.sig_is_rsa_sha256 {
-            return Err(Error::Unsupported);
+        let rsa = |h: Hash| rsa_pkcs1_verify(&issuer_cert.n, &issuer_cert.e, h, &self.tbs, &self.sig);
+        let ecdsa = |h: &[u8]| match &issuer_cert.ec {
+            Some((curve, q)) => ecdsa_verify(*curve, q, h, &self.sig),
+            None => Err(Error::BadSignature),
+        };
+        match self.sig_alg {
+            SigAlg::RsaSha256 => rsa(Hash::Sha256),
+            SigAlg::RsaSha384 => rsa(Hash::Sha384),
+            SigAlg::RsaSha512 => rsa(Hash::Sha512),
+            SigAlg::EcdsaSha256 => ecdsa(&sha256(&self.tbs)),
+            SigAlg::EcdsaSha384 => ecdsa(&sha384(&self.tbs)),
+            SigAlg::Other => Err(Error::Unsupported),
         }
-        rsa_pkcs1_sha256_verify(&issuer_cert.n, &issuer_cert.e, &self.tbs, &self.sig)
     }
 
     /// Does this certificate cover `host` (SAN dNSName with `*.` wildcard, else CN)?
@@ -243,22 +302,40 @@ impl Cert {
     }
 }
 
-/// RSASSA-PKCS1-v1_5 verify with SHA-256 over `msg`. `n`/`e` big-endian without leading zeros.
-pub fn rsa_pkcs1_sha256_verify(n: &[u8], e: &[u8], msg: &[u8], sig: &[u8]) -> Result<()> {
+/// Hash used inside an RSASSA-PKCS1-v1_5 signature.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hash {
+    /// SHA-256.
+    Sha256,
+    /// SHA-384.
+    Sha384,
+    /// SHA-512.
+    Sha512,
+}
+
+/// RSASSA-PKCS1-v1_5 verify over `msg`. `n`/`e` big-endian without leading zeros.
+pub fn rsa_pkcs1_verify(n: &[u8], e: &[u8], hash: Hash, msg: &[u8], sig: &[u8]) -> Result<()> {
     let k = n.len();
     if k < 64 || sig.len() != k {
         return Err(Error::BadSignature);
     }
+    const P384: [u8; 19] = [0x30, 0x41, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, 0x05, 0x00, 0x04, 0x30];
+    const P512: [u8; 19] = [0x30, 0x51, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, 0x05, 0x00, 0x04, 0x40];
+    let (prefix, digest): (&[u8], Vec<u8>) = match hash {
+        Hash::Sha256 => (&DIGEST_PREFIX, sha256(msg).to_vec()),
+        Hash::Sha384 => (&P384, sha384(msg).to_vec()),
+        Hash::Sha512 => (&P512, sha512(msg).to_vec()),
+    };
     let nn = Uint::from_be(n);
     let s = Uint::from_be(sig);
     let m = s.modpow(&Uint::from_be(e), &nn).to_be(k);
     let mut expected = alloc::vec![0xffu8; k];
     expected[0] = 0;
     expected[1] = 1;
-    let t = k - 32 - DIGEST_PREFIX.len();
+    let t = k - digest.len() - prefix.len();
     expected[t - 1] = 0;
-    expected[t..t + DIGEST_PREFIX.len()].copy_from_slice(&DIGEST_PREFIX);
-    expected[k - 32..].copy_from_slice(&sha256(msg));
+    expected[t..t + prefix.len()].copy_from_slice(prefix);
+    expected[k - digest.len()..].copy_from_slice(&digest);
     if ct_eq(&m, &expected) {
         Ok(())
     } else {
@@ -266,6 +343,10 @@ pub fn rsa_pkcs1_sha256_verify(n: &[u8], e: &[u8], msg: &[u8], sig: &[u8]) -> Re
     }
 }
 
+/// RSASSA-PKCS1-v1_5 verify with SHA-256 over `msg`. `n`/`e` big-endian without leading zeros.
+pub fn rsa_pkcs1_sha256_verify(n: &[u8], e: &[u8], msg: &[u8], sig: &[u8]) -> Result<()> {
+    rsa_pkcs1_verify(n, e, Hash::Sha256, msg, sig)
+}
 
 fn mgf1(seed: &[u8], len: usize) -> Vec<u8> {
     let mut out = Vec::with_capacity(len + 32);
@@ -331,6 +412,17 @@ impl Cert {
     /// Verify an RSA-PSS/SHA-256 signature made by this certificate's key (TLS CertificateVerify).
     pub fn verify_pss(&self, msg: &[u8], sig: &[u8]) -> Result<()> {
         rsa_pss_sha256_verify(&self.n, &self.e, msg, sig)
+    }
+
+    /// Verify a TLS 1.3 CertificateVerify signature of the given `SignatureScheme` made by this certificate's key:
+    /// `0x0804` rsa_pss_rsae_sha256, `0x0403` ecdsa_secp256r1_sha256, `0x0503` ecdsa_secp384r1_sha384.
+    pub fn verify_tls(&self, scheme: u16, msg: &[u8], sig: &[u8]) -> Result<()> {
+        match (scheme, &self.ec) {
+            (0x0804, None) => self.verify_pss(msg, sig),
+            (0x0403, Some((Curve::P256, q))) => ecdsa_verify(Curve::P256, q, &sha256(msg), sig),
+            (0x0503, Some((Curve::P384, q))) => ecdsa_verify(Curve::P384, q, &sha384(msg), sig),
+            _ => Err(Error::Unsupported),
+        }
     }
 }
 
