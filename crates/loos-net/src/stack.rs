@@ -562,6 +562,31 @@ impl Stack {
         self.udp.get_mut(h)?.as_mut()?.rx.pop_front()
     }
 
+    /// Local port of UDP socket `h`.
+    pub fn udp_port(&self, h: usize) -> Option<u16> {
+        self.udp.get(h)?.as_ref().map(|s| s.port)
+    }
+
+    /// The source address the stack would use to reach `dst`.
+    pub fn source_for(&self, dst: IpAddr) -> Option<IpAddr> {
+        self.pick_src(dst)
+    }
+
+    /// `(local, remote)` addresses of TCP connection `h`.
+    pub fn tcp_addrs(&self, h: usize) -> Option<((IpAddr, u16), (IpAddr, u16))> {
+        self.tcp.get(h).map(|s| (s.tcb.local, s.tcb.remote))
+    }
+
+    /// Length of the next datagram waiting on socket `h`.
+    pub fn udp_front_len(&self, h: usize) -> Option<usize> {
+        self.udp.get(h)?.as_ref()?.rx.front().map(|d| d.2.len())
+    }
+
+    /// True when a datagram is waiting on socket `h`.
+    pub fn udp_pending(&self, h: usize) -> bool {
+        self.udp.get(h).and_then(|s| s.as_ref()).is_some_and(|s| !s.rx.is_empty())
+    }
+
     /// Closes a UDP socket.
     pub fn udp_close(&mut self, h: usize) {
         if let Some(s) = self.udp.get_mut(h) {

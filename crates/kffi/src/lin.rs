@@ -34,6 +34,7 @@ extern "C" {
     fn serial_puts(s: *const u8);
     fn serial_dec(v: u64);
     pub(crate) fn time_us() -> u64;
+    fn rtc_unix() -> u64;
     pub(crate) fn user_init();
 }
 
@@ -123,6 +124,18 @@ fn signal_for_vector(v: u64) -> u32 {
     }
 }
 
+/// The Linux layer's view of the kernel network: the NIC-backed stack and its pump.
+struct KLinNet;
+
+impl loos_lin::sys::LinNet for KLinNet {
+    fn stack(&mut self) -> Option<&mut loos_net::stack::Stack> {
+        crate::sys::net_stack()
+    }
+    fn pump(&mut self, now_ms: u64) {
+        crate::sys::loos_net_poll(now_ms);
+    }
+}
+
 struct Lin {
     sys: LinSystem<MemFs>,
     pml4: BTreeMap<Pid, (u64, u64)>,
@@ -199,7 +212,13 @@ impl Lin {
             let now = unsafe { time_us() };
             self.sys.advance((now - clock) * 1000);
             clock = now;
+            if self.sys.net_attached() {
+                self.sys.poll_net(now / 1000);
+            }
             let Some(tid) = self.pick() else {
+                if self.sys.net_attached() && self.sys.io_waiters() {
+                    continue; // waiting for the network: keep pumping the NIC in real time
+                }
                 match self.sys.next_deadline() {
                     Some(d) => {
                         let wait = d.saturating_sub(self.sys.now_ns);
@@ -323,6 +342,9 @@ pub unsafe extern "C" fn loos_lin_boot(
     let argv: Vec<String> = cmd.split(',').map(String::from).collect();
     let mut sys = LinSystem::new(fs);
     sys.stdin_eof = true;
+    // SAFETY: plain C accessor (CMOS clock as Unix seconds).
+    sys.epoch_base_s = unsafe { rtc_unix() };
+    sys.attach_net(KLinNet);
     // liblooswin: Linux programs reach the LoOS window system through bridge syscalls.
     let screen_w = width.max(1);
     let screen_h = height.max(1);
@@ -348,6 +370,17 @@ pub unsafe extern "C" fn loos_lin_boot(
     };
     let mut lin = Lin { sys, pml4: BTreeMap::new(), last: 0, desk: desk.clone(), wayland_windows: BTreeMap::new() };
     let st = lin.run(pid);
+    if !lin.sys.missing.is_empty() {
+        say("lin: unimplemented syscalls:");
+        for (nr, n) in &lin.sys.missing {
+            say(" ");
+            // SAFETY: serial output.
+            unsafe { serial_dec(*nr) };
+            say("x");
+            unsafe { serial_dec(*n as u64) };
+        }
+        say("\n");
+    }
     // Compose the Win32 bridge's desktop into the real kernel video backbuffer.
     // The Linux GUI corpus paints a known green client rectangle; report its
     // pixels so the headless QEMU proof checks rendering, not just syscalls.

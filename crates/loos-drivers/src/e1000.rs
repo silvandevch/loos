@@ -1,4 +1,4 @@
-//! Intel 8254x / 82540EM (QEMU `e1000`) Ethernet driver: legacy descriptor rings, polled.
+//! Intel 8254x / 82540EM (QEMU `e1000`), 82545EM (VMware e1000) and 82574L (VMware/QEMU e1000e) Ethernet driver: legacy descriptor rings, polled.
 
 use crate::hw::{DmaArena, Mmio, Nic};
 use crate::DriverError;
@@ -20,6 +20,10 @@ const TDBAH: usize = 0x3804;
 const TDLEN: usize = 0x3808;
 const TDH: usize = 0x3810;
 const TDT: usize = 0x3818;
+const RXDCTL: usize = 0x2828;
+const TXDCTL: usize = 0x3828;
+/// 82574 (e1000e) queues stay off until their ENABLE bit is set; older parts ignore the register. GRAN counts descriptors.
+const XDCTL_ENABLE_GRAN: u32 = 1 << 25 | 1 << 24 | 1;
 const MTA: usize = 0x5200;
 const RAL0: usize = 0x5400;
 const RAH0: usize = 0x5404;
@@ -112,6 +116,8 @@ impl<M: Mmio, D: DmaArena> E1000<M, D> {
         regs.write32(TDT, 0);
         regs.write32(TIPG, 10 | 8 << 10 | 6 << 20);
         dma.barrier();
+        regs.write32(RXDCTL, XDCTL_ENABLE_GRAN);
+        regs.write32(TXDCTL, XDCTL_ENABLE_GRAN);
         regs.write32(RCTL, RCTL_EN | RCTL_BAM | RCTL_SECRC); // 2048-byte buffers (BSIZE=0)
         regs.write32(TCTL, TCTL_EN | TCTL_PSP | 0x0f << 4 | 0x40 << 12);
         Ok(E1000 { regs, dma, mac, rx_next: 0, tx_next: 0 })

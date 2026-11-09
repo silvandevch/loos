@@ -281,6 +281,10 @@ struct NetState {
     cfg: NetConfig,
     /// When DHCP started (ms), for the fall-back to the QEMU user-network defaults.
     since: Option<u64>,
+    /// Frames sent / received and the link state at the last poll, for diagnostics.
+    tx: u32,
+    rx: u32,
+    link: bool,
 }
 #[derive(Clone, Copy, Default)]
 struct NetConfig {
@@ -300,6 +304,11 @@ impl NetState {
     }
 }
 
+/// The kernel's TCP/IP stack, if a NIC is attached (used by the Linux layer's sockets).
+pub(crate) fn net_stack() -> Option<&'static mut Stack> {
+    NET.get().as_mut().map(|n| &mut n.stack)
+}
+
 /// Brings up an e1000 NIC and wires it to the TCP/IP stack. With `ip == 0` the address, gateway and DNS server come from DHCP
 /// (see [`loos_net_config`]); otherwise `ip/24` with default gateway `gw` is configured statically.
 /// Returns 0, or a negative error.
@@ -314,7 +323,7 @@ pub unsafe extern "C" fn loos_net_attach_e1000(mmio: u64, dma_virt: *mut u8, dma
     let mac = nic.mac();
     let iface = stack.add_iface(mac, &[]);
     let xid = u32::from_le_bytes([mac[2], mac[3], mac[4], mac[5]]) ^ 0x4c6f_4f53;
-    let mut st = NetState { stack, nic, iface, dhcp: None, cfg: NetConfig::default(), since: None };
+    let mut st = NetState { stack, nic, iface, dhcp: None, cfg: NetConfig::default(), since: None, tx: 0, rx: 0, link: false };
     if ip != 0 {
         st.apply(ip.to_be_bytes(), 24, gw.to_be_bytes(), [10, 0, 2, 3]);
     } else {
@@ -345,9 +354,11 @@ pub extern "C" fn loos_net_poll(now_ms: u64) {
     if n.dhcp.is_some() && n.since.is_none() {
         n.since = Some(now_ms);
     }
+    n.link = n.nic.link_up();
     let mut buf = [0u8; 2048];
     for _ in 0..32 {
         let Some(len) = n.nic.recv(&mut buf) else { break };
+        n.rx += 1;
         if n.dhcp.as_mut().is_some_and(|d| d.rx(&buf[..len], now_ms)) {
             continue;
         }
@@ -355,14 +366,11 @@ pub extern "C" fn loos_net_poll(now_ms: u64) {
     }
     if let Some(d) = n.dhcp.as_mut() {
         if let Some(f) = d.poll(now_ms) {
-            let _ = n.nic.send(&f);
+            n.tx += u32::from(n.nic.send(&f).is_ok());
         }
         match d.lease() {
             Some(l) if n.cfg.ip != u32::from_be_bytes(l.ip) => {
                 n.apply(l.ip, l.prefix, l.gw, if l.dns == [0; 4] { l.gw } else { l.dns });
-            }
-            None if n.cfg.ip == 0 && n.since.is_some_and(|s| now_ms.saturating_sub(s) > DHCP_FALLBACK_MS) => {
-                n.apply([10, 0, 2, 15], 24, [10, 0, 2, 2], [10, 0, 2, 3]); // no DHCP server: QEMU user-network defaults
             }
             _ => {}
         }

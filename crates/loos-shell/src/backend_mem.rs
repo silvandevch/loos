@@ -196,6 +196,13 @@ impl MemBackend {
         v.readonly = ro;
         self.vol.push(v);
     }
+    /// Replaces the size of volume `idx` (the real partition size, once the kernel has read it).
+    pub fn set_volume_size(&mut self, idx: usize, total: u64, used: u64) {
+        if let Some(v) = self.vol.get_mut(idx) {
+            v.total = total;
+            v.avail = total.saturating_sub(used);
+        }
+    }
     pub fn add_proc(&mut self, pid: u32, ppid: u32, name: &str, threads: u32, mem: u64, cpu_x10: u32) {
         if self.proc_.len() >= MAX_PROCS {
             return;

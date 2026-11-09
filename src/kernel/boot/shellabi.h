@@ -64,6 +64,7 @@ bool desktop_init_login(shell_desktop *d, uint32_t *backbuf, int w, int h, int s
 bool desktop_login_done(const shell_desktop *d, char *user_out, size_t cap);
 int  desktop_login_try(shell_desktop *d, const char *user, const char *password, uint64_t now_ms);   /* auth_result */
 void desktop_apply_config(shell_desktop *d, const char *text);
+void desktop_set_system_volume(shell_desktop *d, uint64_t total, uint64_t used);   /* real size of the installed system partition */
 bool desktop_apply_look(shell_desktop *d, const char *id);   /* Looks: loos, classic, dock, tiler, paper, midnight, lean, large */
 void desktop_open_url(shell_desktop *d, const char *url);
 void desktop_pointer(shell_desktop *d, int dx, int dy, uint32_t buttons);

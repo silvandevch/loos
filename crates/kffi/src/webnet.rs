@@ -12,6 +12,7 @@ extern "C" {
     fn time_ms() -> u32;
     fn krandom(out: *mut u8, n: usize);
     fn rtc_unix() -> u64;
+    fn net_nic_summary(out: *mut u8, cap: usize) -> usize;
 }
 
 const ROOTS: &[u8] = include_bytes!("../../../certs/roots.bin");
@@ -355,6 +356,23 @@ pub(super) fn get(url: &str) -> Result<(Vec<u8>, String), String> {
     fail("too many redirects")
 }
 
+/// Raw deflate using only stored blocks. The browser needs a valid deflate stream, not a small one, and the real compressor
+/// needs more stack than the boot kernel has to spare.
+fn deflate_stored(d: &[u8]) -> Vec<u8> {
+    let mut z = Vec::with_capacity(d.len() + d.len() / 65535 * 5 + 8);
+    let mut chunks = d.chunks(65535).peekable();
+    if chunks.peek().is_none() {
+        z.extend_from_slice(&[1, 0, 0, 0xff, 0xff]);
+    }
+    while let Some(c) = chunks.next() {
+        z.push(u8::from(chunks.peek().is_none()));
+        z.extend_from_slice(&(c.len() as u16).to_le_bytes());
+        z.extend_from_slice(&(!(c.len() as u16)).to_le_bytes());
+        z.extend_from_slice(c);
+    }
+    z
+}
+
 /// C ABI for `loos-shell`'s web layer. Returns 1 when `out` holds a deflated page, 0 when no native network is configured
 /// (the caller may fall back to the development bridge), -1 on failure (reason via [`loos_net_last_error`]).
 ///
@@ -362,8 +380,26 @@ pub(super) fn get(url: &str) -> Result<(Vec<u8>, String), String> {
 /// `url` is NUL-terminated; `out`/`final_url` are writable for their stated capacities; the length pointers are valid.
 #[no_mangle]
 pub unsafe extern "C" fn loos_net_fetch(url: *const u8, out: *mut u8, cap: usize, out_len: *mut usize, raw_len: *mut usize, final_url: *mut u8, final_cap: usize) -> i32 {
-    if NET.get().as_ref().is_none_or(|n| n.cfg.ip == 0) {
-        *LAST_ERROR.get() = Some("The network adapter has no address (DHCP has not answered).".to_string());
+    let msg = match NET.get().as_ref() {
+        None => {
+            let mut b = [0u8; 128];
+            // SAFETY: b is writable for its length.
+            let n = unsafe { net_nic_summary(b.as_mut_ptr(), b.len()) };
+            let ids = core::str::from_utf8(&b[..n]).unwrap_or("");
+            if ids.is_empty() {
+                "No network adapter was found. Add one to the virtual machine, type e1000.".to_string()
+            } else {
+                format!("None of the network adapters here is supported (found PCI {ids}). LoOS supports Intel e1000 and e1000e (8086:100e, 100f, 10d3).")
+            }
+        }
+        Some(n) if n.cfg.ip == 0 => format!(
+            "The e1000 adapter is present but DHCP has not answered (link {}, {} frames sent, {} received). Check that the VM network is NAT or bridged and connected.",
+            if n.link { "up" } else { "down" }, n.tx, n.rx
+        ),
+        Some(_) => String::new(),
+    };
+    if !msg.is_empty() {
+        *LAST_ERROR.get() = Some(msg);
         return 0;
     }
     let mut n = 0;
@@ -376,7 +412,7 @@ pub unsafe extern "C" fn loos_net_fetch(url: *const u8, out: *mut u8, cap: usize
     match get(u) {
         Ok((body, fin)) => {
             let body = &body[..body.len().min(MAX_BODY)];
-            let z = miniz_oxide::deflate::compress_to_vec(body, 6);
+            let z = deflate_stored(body);
             if z.len() > cap {
                 *LAST_ERROR.get() = Some("The page is too large to display.".to_string());
                 return -1;

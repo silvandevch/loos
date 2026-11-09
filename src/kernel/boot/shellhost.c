@@ -1,6 +1,7 @@
 /* Kernel host for the portable shell desktop: PS/2 input in, back buffer to the framebuffer out. */
 #include "kernel.h"
 #include "shellabi.h"
+#include "diskfmt.h"
 #include <string.h>
 
 #define DESK (desktop_instance())                    /* ~1 MB of state, owned by the Rust shell (.bss) */
@@ -58,12 +59,14 @@ static void settle(struct video *v)
     (void)v;
 }
 
+static int system_volume(uint64_t *total, uint64_t *used);
 int shellhost_run(const struct loos_bootinfo *bi, struct video *v, int test_mode, int scale_pct)
 {
     desktop_set_log(DESK, host_log, 0);
     if (!desktop_init(DESK, v->back, v->w, v->h, scale_pct, host_alloc, 0)) return -1;
     time_init();
     if (g_accounts_text) desktop_apply_config(DESK, g_accounts_text);
+    { uint64_t total, used; if (system_volume(&total, &used)) desktop_set_system_volume(DESK, total, used); }
     for (const char *p = bi->cmdline; *p; p++) {                /* loos.look=<id> and loos.night=<0-100> (./loos qemu --look tiler) */
         if (p != bi->cmdline && p[-1] != ' ') continue;
         char id[32]; int n = 0;
@@ -76,6 +79,29 @@ int shellhost_run(const struct loos_bootinfo *bi, struct video *v, int test_mode
 }
 
 void shellhost_set_config(const char *text) { g_accounts_text = text; }
+
+/* The installed system partition: the first GPT "Linux data" partition that carries a btrfs superblock (sizes are exact). */
+static int system_volume(uint64_t *total, uint64_t *used)
+{
+    static uint8_t sec[4096];
+    for (int d = 0; d < blk_count(); d++) {
+        struct blkdev *b = blk_get(d);
+        if (b->read(b, 1, 1, sec) != 0 || memcmp(sec, "EFI PART", 8) != 0) continue;
+        uint64_t ents = *(uint64_t *)(sec + 72); uint32_t n = *(uint32_t *)(sec + 80), sz = *(uint32_t *)(sec + 84);
+        if (sz < 128 || sz > 512 || n > 128) continue;
+        for (uint32_t i = 0; i < n; i++) {
+            uint64_t off = (uint64_t)i * sz, lba = ents + off / 512;
+            if (b->read(b, lba, 1, sec) != 0) break;
+            const uint8_t *e = sec + off % 512;
+            if (memcmp(e, GPT_TYPE_LINUX_DATA, 16) != 0) continue;
+            uint64_t first = *(const uint64_t *)(e + 32);
+            if (b->read(b, first + 128, 1, sec) != 0 || memcmp(sec + 64, "_BHRfS_M", 8) != 0) continue;   /* superblock at 64 KiB */
+            *total = *(uint64_t *)(sec + 0x70); *used = *(uint64_t *)(sec + 0x78);
+            return 1;
+        }
+    }
+    return 0;
+}
 
 extern void loos_net_poll(uint64_t now_ms);
 

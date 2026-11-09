@@ -341,8 +341,8 @@ impl Desktop {
     /// The in-memory backend filled with demo volumes, files and processes until the real services exist.
     fn seed_backend(&mut self) {
         let mut m = Box::new(MemBackend::new());
-        m.add_volume("/", "LoOS", "btrfs", 500 << 30, 320 << 30, false);
-        m.add_volume("/boot/efi", "ESP", "vfat", 512 << 20, 400 << 20, false);
+        m.add_volume("/", "LoOS (System)", "btrfs", 500 << 30, 320 << 30, false);
+        m.add_volume("/boot/efi", "EFI System", "vfat", 300 << 20, 296 << 20, false);
         for (p, dir, sz, t) in [
             ("/home", true, 0, 1_700_000_000),
             ("/home/user", true, 0, 1_700_000_100),
@@ -360,6 +360,37 @@ impl Desktop {
         ] {
             m.add_node(p, dir, sz, t, 0);
         }
+        // The rest of the system partition, so the whole tree is browsable like on Linux (and Windows: /Windows, /Program Files,
+        // /Users are what the Windows layer sees as C:\). Sizes of the real boot files are approximate.
+        let t = 1_700_000_000;
+        for p in [
+            "/bin", "/sbin", "/lib", "/lib64", "/usr", "/usr/bin", "/usr/lib", "/usr/share", "/usr/share/fonts", "/var", "/var/log", "/var/tmp",
+            "/var/lib", "/opt", "/srv", "/mnt", "/media", "/root", "/tmp", "/run", "/dev", "/proc", "/sys", "/boot", "/boot/efi",
+            "/boot/efi/EFI", "/boot/efi/EFI/BOOT", "/boot/efi/LOOS", "/etc/ssl", "/etc/ssl/certs", "/Windows", "/Windows/System32",
+            "/Windows/Fonts", "/Program Files", "/Program Files/LoOS", "/ProgramData", "/Users", "/Users/Public",
+        ] {
+            m.add_node(p, true, 0, t, 0);
+        }
+        for (p, sz) in [
+            ("/boot/efi/EFI/BOOT/BOOTX64.EFI", 40_000),
+            ("/boot/efi/LOOS/KERNEL.ELF", 8_700_000),
+            ("/boot/efi/LOOS/BOOT.CFG", 90),
+            ("/boot/efi/LOOS/CONFIG.BIN", 300),
+            ("/etc/hostname", 12),
+            ("/etc/os-release", 120),
+            ("/etc/ssl/certs/roots.bin", 128_002),
+            ("/var/log/boot.log", 4096),
+            ("/bin/lbox", 9_832),
+            ("/Windows/System32/cmd.exe", 60_000),
+            ("/Windows/System32/notepad.exe", 60_000),
+            ("/Windows/System32/ws2_32.dll", 0),
+            ("/Program Files/LoOS/README.txt", 80),
+        ] {
+            m.add_node(p, false, sz, t, 0);
+        }
+        m.put_file("/etc/hostname", b"loos\n");
+        m.put_file("/etc/os-release", b"NAME=\"LoOS\"\nID=loos\nPRETTY_NAME=\"LoOS\"\nHOME_URL=\"\"\n");
+        m.put_file("/Program Files/LoOS/README.txt", b"Windows programs installed here are run by the LoOS Windows layer.\n");
         m.put_file("/home/user/README.txt", README.as_bytes());
         m.put_file("/home/user/Web/index.html", WEB_INDEX.as_bytes());
         m.put_file("/home/user/Web/guide.html", WEB_GUIDE.as_bytes());
@@ -777,6 +808,13 @@ pub unsafe extern "C" fn desktop_login_done(d: *const Desktop, user_out: *mut c_
         }
     }
     true
+}
+/// Sets the real size of the installed system partition (volume 0 in the file manager).
+#[no_mangle]
+pub unsafe extern "C" fn desktop_set_system_volume(d: *mut Desktop, total: u64, used: u64) {
+    if let Some(m) = unsafe { &mut *d }.mem.as_mut() {
+        m.set_volume_size(0, total, used);
+    }
 }
 #[no_mangle]
 pub unsafe extern "C" fn desktop_apply_config(d: *mut Desktop, text: *const c_char) {
