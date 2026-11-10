@@ -177,6 +177,8 @@ pub struct Region {
     /// When set the bytes live in a buffer shared with other address spaces
     /// (`data` is empty); `(buffer, offset, length)`.
     pub shared: Option<(SharedBuf, usize, usize)>,
+    /// Shared only for a `vfork` child's lifetime; private again afterwards ([`UserMem::end_vfork`]).
+    pub vfork: bool,
 }
 
 impl Region {
@@ -254,7 +256,7 @@ impl UserMem {
                 }
                 None => (r.data.split_off(cut), None),
             };
-            let nr = Region { start: addr, prot: r.prot, data: tail, name: r.name.clone(), shared };
+            let nr = Region { start: addr, prot: r.prot, data: tail, name: r.name.clone(), shared, vfork: r.vfork };
             self.regions.insert(addr, nr);
         }
     }
@@ -277,9 +279,10 @@ impl UserMem {
                 data.page_mut(i).0[..c.len()].copy_from_slice(c);
             }
         }
-        self.version += 1;
-        self.regions.insert(start, Region { start, prot, data, name: name.to_string(), shared: None });
+        // page tables: updated per page through `remap` (new pages are demand-zero; init pages are queued below)
+        self.regions.insert(start, Region { start, prot, data, name: name.to_string(), shared: None, vfork: false });
         self.total += len;
+        self.queue_resident(start, start + len);
         Ok(())
     }
 
@@ -302,14 +305,39 @@ impl UserMem {
     /// Make every mapping shared and return a second address space aliasing the same bytes
     /// (`CLONE_VM` without `CLONE_THREAD`: vfork / posix_spawn). Later (un)mappings are private.
     pub fn share_all(&mut self) -> UserMem {
-        let all: Vec<(u64, u64)> = self.regions.values().map(|r| (r.start, r.size())).collect();
+        let all: Vec<(u64, u64)> = self.regions.values().filter(|r| r.shared.is_none()).map(|r| (r.start, r.size())).collect();
         for (s, l) in all {
             self.make_shared(s, l);
+            for (_, r) in self.regions.range_mut(s..s + l) {
+                r.vfork = true;
+            }
         }
         self.stack = None;
         let mut c = self.clone();
         c.total = self.total;
         c
+    }
+
+    /// The `vfork` child exec'd or exited: regions shared only for it become private again (once
+    /// the child no longer holds them), so later forks get copy-on-write snapshots, not live memory.
+    pub fn end_vfork(&mut self) {
+        let mut changed = false;
+        for r in self.regions.values_mut().filter(|r| r.vfork) {
+            let Some((buf, off, len)) = r.shared.take() else { continue };
+            match Rc::try_unwrap(buf) {
+                Ok(cell) if off == 0 && cell.borrow().len() == len => r.data = cell.into_inner(),
+                Ok(cell) => r.shared = Some((Rc::new(cell), off, len)),
+                Err(buf) => {
+                    r.shared = Some((buf, off, len)); // the child still runs on it
+                    continue;
+                }
+            }
+            r.vfork = r.shared.is_some();
+            changed = true;
+        }
+        if changed {
+            self.version += 1;
+        }
     }
 
     /// Address space for a `fork` child: private pages become copy-on-write in both spaces
@@ -320,6 +348,28 @@ impl UserMem {
         c.version = NEXT_EPOCH.fetch_add(1 << 20, Ordering::Relaxed);
         c.remap.clear();
         c
+    }
+
+    /// Queue every resident page of the regions overlapping [start, end) for a page-table refresh.
+    fn queue_resident(&mut self, start: u64, end: u64) {
+        let mut q = Vec::new();
+        for r in self.regions.values().filter(|r| r.start < end && r.end() > start) {
+            let sb = r.shared.as_ref().map(|(b, o, _)| (b.borrow(), *o / 4096));
+            for i in 0..(r.size() / PAGE) as usize {
+                let va = r.start + i as u64 * PAGE;
+                if va < start || va >= end {
+                    continue;
+                }
+                let present = match &sb {
+                    Some((b, o)) => b.page_addr(o + i).is_some(),
+                    None => r.data.page_addr(i).is_some(),
+                };
+                if present {
+                    q.push(va);
+                }
+            }
+        }
+        self.remap.extend(q);
     }
 
     /// Pages to refresh in the page tables (see `remap`).
@@ -389,7 +439,7 @@ impl UserMem {
             b.unshare();
         }
         self.version += 1;
-        self.regions.insert(start, Region { start, prot, data: PageBuf::default(), name: name.to_string(), shared: Some((buf, off, len as usize)) });
+        self.regions.insert(start, Region { start, prot, data: PageBuf::default(), name: name.to_string(), shared: Some((buf, off, len as usize)), vfork: false });
         self.total += len;
         Ok(start)
     }
@@ -402,7 +452,8 @@ impl UserMem {
         let end = start.checked_add(ceil(len)).ok_or(EINVAL)?;
         self.split_at(start);
         self.split_at(end);
-        self.version += 1;
+        // page tables: updated per page through `remap` (the removed pages are queued below)
+        self.queue_resident(start, end);
         let keys: Vec<u64> = self.regions.range(start..end).map(|(&k, _)| k).collect();
         for k in keys {
             if let Some(r) = self.regions.remove(&k) {
@@ -425,10 +476,11 @@ impl UserMem {
         }
         self.split_at(start);
         self.split_at(end);
-        self.version += 1;
+        // page tables: updated per page through `remap` (the affected pages are queued below)
         for (_, r) in self.regions.range_mut(start..end) {
             r.prot = prot;
         }
+        self.queue_resident(start, end);
         Ok(())
     }
 
@@ -456,7 +508,7 @@ impl UserMem {
         }
         let mut r = self.regions.remove(&s).unwrap();
         r.data.prepend_zero((s - want) as usize);
-        self.version += 1;
+        // page tables: updated per page through `remap` (new stack pages are demand-zero)
         r.start = want;
         self.total += s - want;
         self.stack = Some(want);
@@ -636,6 +688,20 @@ impl UserMem {
             }
         }
         self.pte(va).map(|(pa, prot)| (va, pa, prot))
+    }
+
+    /// Mapping containing `addr`: (its name, offset of `addr` from the mapping start) — for crash reports.
+    pub fn locate(&self, addr: u64) -> Option<(&str, u64)> {
+        let r = self.find(addr)?;
+        // A library is several adjacent mappings with one name: measure from its first one.
+        let mut start = r.start;
+        for q in self.regions.range(..r.start).rev().map(|(_, q)| q) {
+            if q.name != r.name || q.end() != start {
+                break;
+            }
+            start = q.start;
+        }
+        Some((r.name.as_str(), addr - start))
     }
 
     /// `/proc/self/maps` text.

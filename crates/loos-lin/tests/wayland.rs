@@ -140,3 +140,32 @@ fn malformed_wire_is_rejected_without_partial_event() {
     assert_eq!(server.receive(&[1, 0, 0, 0, 7, 0, 0, 0]), Err(Error::Malformed));
     assert!(server.take_events().is_empty());
 }
+
+#[test]
+fn subsurface_content_is_composited_into_its_window() {
+    let mut s = connected();
+    bind(&mut s, "wl_shm", 1, 10);
+    bind(&mut s, "wl_compositor", 5, 30);
+    bind(&mut s, "xdg_wm_base", 5, 40);
+    bind(&mut s, "wl_subcompositor", 1, 50);
+    // one pool: [window 2x1 fully transparent][content 1x1 opaque red]
+    let mut pb = PageBuf::default();
+    pb.write_at(0, &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff]);
+    let buf = Rc::new(RefCell::new(pb));
+    s.receive_with_fds(&req(10, 0, u32s(&[20, 12])), &[SharedFd { buf }]).unwrap();
+    s.receive(&req(20, 0, u32s(&[21, 0, 2, 1, 8, 0]))).unwrap(); // window buffer
+    s.receive(&req(20, 0, u32s(&[22, 8, 1, 1, 4, 0]))).unwrap(); // content buffer
+    s.receive(&req(30, 0, u32s(&[31]))).unwrap(); // window surface
+    s.receive(&req(30, 0, u32s(&[32]))).unwrap(); // content surface
+    s.receive(&req(40, 2, u32s(&[41, 31]))).unwrap();
+    s.receive(&req(41, 1, u32s(&[42]))).unwrap();
+    s.receive(&req(50, 1, u32s(&[51, 32, 31]))).unwrap(); // get_subsurface(content -> window)
+    s.receive(&req(51, 1, u32s(&[1, 0]))).unwrap(); // at x=1
+    s.receive(&req(32, 1, u32s(&[22, 0, 0]))).unwrap();
+    s.receive(&req(32, 6, vec![])).unwrap();
+    s.receive(&req(31, 1, u32s(&[21, 0, 0]))).unwrap();
+    s.receive(&req(31, 6, vec![])).unwrap();
+    let f = s.take_frames();
+    assert_eq!(f.len(), 1, "one frame per window");
+    assert_eq!((f[0].surface, f[0].pixels.clone()), (31, vec![0, 0xffff0000]), "transparent window with the red content on top at x=1");
+}

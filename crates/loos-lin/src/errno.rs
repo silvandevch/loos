@@ -30,3 +30,5 @@ pub const ENOSYS: i64 = 38;
 pub const ENOTEMPTY: i64 = 39;
 pub const ELOOP: i64 = 40;
 pub const ETIMEDOUT: i64 = 110;
+/// File too large.
+pub const EFBIG: i64 = 27;

@@ -64,6 +64,14 @@ struct Surface {
     pending_cbs: Vec<u32>,
     xdg: Option<u32>,
     role_top: Option<u32>,
+    /// Content of the last commit (`0xAARRGGBB`, premultiplied as wl_shm defines), width, height.
+    pixels: Vec<u32>,
+    size: (u32, u32),
+    /// Subsurface role: parent surface and position relative to it.
+    parent: Option<u32>,
+    pos: (i32, i32),
+    /// Subsurfaces stacked above this surface, bottom to top.
+    children: Vec<u32>,
 }
 
 #[derive(Debug)]
@@ -254,7 +262,10 @@ impl Server {
 
     /// Pointer moved to surface-local (x, y) over `surface`.
     pub fn pointer_motion(&mut self, surface: u32, x: i32, y: i32, time_ms: u32) {
-        let (fx, fy) = ((x * 256) as u32, (y * 256) as u32);
+        // The window shown on screen is cropped to the xdg window geometry; the surface's own
+        // coordinates include the client's shadow margin in front of it.
+        let (gx, gy) = self.geometry_origin(surface);
+        let (fx, fy) = (((x + gx) * 256) as u32, ((y + gy) * 256) as u32);
         let pointers = self.with(Iface::Pointer);
         if self.pointer_focus != Some(surface) {
             let serial = self.next_serial();
@@ -270,6 +281,17 @@ impl Server {
             self.event(p, 2, &words(&[time_ms, fx, fy]));
             self.pointer_frame(p);
         }
+    }
+
+    /// Top-left of the window geometry inside `surface` (0,0 without one).
+    fn geometry_origin(&self, surface: u32) -> (i32, i32) {
+        self.objects
+            .get(&surface)
+            .and_then(|o| o.surf.as_ref())
+            .and_then(|s| s.xdg)
+            .and_then(|x| self.objects.get(&x))
+            .and_then(|o| o.geometry)
+            .map_or((0, 0), |g| (g.0 as i32, g.1 as i32))
     }
 
     /// Mouse button (Linux `BTN_*` code) pressed or released over the focused surface.
@@ -414,13 +436,47 @@ impl Server {
             (Compositor, 1) => {
                 self.new_id(p, 0, Region, object)?;
             }
-            (Region, 0) | (Subsurface, 0) | (Buffer, 0) | (XdgPositioner, 0) | (DataSource, 1) | (ToplevelDecoration, 0) | (Subcompositor, 0) | (DecorationManager, 0) | (XdgWmBase, 0) => self.destroy(object),
+            (Region, 0) | (Buffer, 0) | (XdgPositioner, 0) | (DataSource, 1) | (ToplevelDecoration, 0) | (Subcompositor, 0) | (DecorationManager, 0) | (XdgWmBase, 0) => self.destroy(object),
             (Pointer, 1) | (Keyboard, 0) | (Touch, 0) | (Seat, 3) | (Output, 0) | (DataDevice, 2) | (Shm, 1) | (DataDeviceManager, 2) => self.destroy(object),
             (Region, 1) | (Region, 2) => {}
             (Subcompositor, 1) => {
-                self.new_id(p, 0, Subsurface, object)?;
+                // get_subsurface(id, surface, parent)
+                let id = self.new_id(p, 0, Subsurface, object)?;
+                let surface = get_u32(p.get(4..).ok_or(Error::Malformed)?)?;
+                let parent = get_u32(p.get(8..).ok_or(Error::Malformed)?)?;
+                if !self.objects.get(&surface).is_some_and(|o| o.surf.is_some()) || !self.objects.get(&parent).is_some_and(|o| o.surf.is_some()) {
+                    return Err(Error::InvalidState);
+                }
+                self.objects.get_mut(&id).unwrap().surface = Some(surface);
+                self.surf(surface).parent = Some(parent);
+                self.surf(parent).children.push(surface);
             }
-            (Subsurface, 1..=5) => {}
+            (Subsurface, 0) => {
+                if let Some(child) = self.objects.get(&object).and_then(|o| o.surface) {
+                    self.unparent(child);
+                }
+                self.destroy(object);
+            }
+            (Subsurface, 1) => {
+                // set_position(x, y): applied with the parent's next commit (we apply it at once)
+                let (x, y) = (get_u32(p)? as i32, get_u32(p.get(4..).ok_or(Error::Malformed)?)? as i32);
+                if let Some(child) = self.objects.get(&object).and_then(|o| o.surface) {
+                    self.surf(child).pos = (x, y);
+                }
+            }
+            (Subsurface, 2) | (Subsurface, 3) => {
+                // place_above / place_below(sibling): restack among the parent's children
+                let sibling = get_u32(p)?;
+                if let Some(child) = self.objects.get(&object).and_then(|o| o.surface) {
+                    if let Some(parent) = self.objects.get(&child).and_then(|o| o.surf.as_ref()).and_then(|s| s.parent) {
+                        let kids = &mut self.surf(parent).children;
+                        kids.retain(|&c| c != child);
+                        let at = kids.iter().position(|&c| c == sibling).map_or(if op == 2 { kids.len() } else { 0 }, |i| if op == 2 { i + 1 } else { i });
+                        kids.insert(at.min(kids.len()), child);
+                    }
+                }
+            }
+            (Subsurface, 4) | (Subsurface, 5) => {}
             (Shm, 0) => {
                 let id = get_u32(p)?;
                 let size = get_u32(p.get(4..).ok_or(Error::Malformed)?)? as usize;
@@ -449,7 +505,10 @@ impl Server {
                 pool.buf.borrow_mut().grow_to(size);
                 pool.size = pool.size.max(size);
             }
-            (Surface, 0) => self.destroy(object),
+            (Surface, 0) => {
+                self.unparent(object);
+                self.destroy(object);
+            }
             (Surface, 1) => {
                 let b = get_u32(p)?;
                 self.surf(object).pending = Some(b);
@@ -580,20 +639,75 @@ impl Server {
         self.objects.get_mut(&id).and_then(|o| o.surf.as_mut()).expect("surface object")
     }
 
+    /// Detach a surface from its subsurface parent.
+    fn unparent(&mut self, child: u32) {
+        let parent = self.objects.get_mut(&child).and_then(|o| o.surf.as_mut()).and_then(|s| s.parent.take());
+        if let Some(pa) = parent.and_then(|pa| self.objects.get_mut(&pa)).and_then(|o| o.surf.as_mut()) {
+            pa.children.retain(|&c| c != child);
+        }
+    }
+
     fn commit(&mut self, id: u32) -> Result<(), Error> {
         let s = self.surf(id);
         let cbs = core::mem::take(&mut s.pending_cbs);
         s.frame_cbs.extend(cbs);
-        let Some(b) = s.pending.take() else { return Ok(()) };
+        let Some(b) = s.pending.take() else { return self.present_tree(id) };
         s.attached = if b == 0 { None } else { Some(b) };
+        match s.attached {
+            None => {
+                let s = self.surf(id);
+                s.pixels.clear();
+                s.size = (0, 0);
+                if s.parent.is_none() {
+                    self.closed.push(id); // a window surface without a buffer is unmapped
+                    return Ok(());
+                }
+            }
+            Some(bid) => {
+                let Some(buffer) = self.objects.get(&bid).and_then(|o| o.buffer.clone()) else { return Err(Error::InvalidState) };
+                let pixels = decode_pixels(&buffer);
+                let s = self.surf(id);
+                s.pixels = pixels;
+                s.size = (buffer.width, buffer.height);
+                self.event(bid, 0, &[]); // pixels copied: the client may reuse the buffer at once
+            }
+        }
+        self.present_tree(id)
+    }
+
+    /// Re-compose the window containing `id` (its root surface plus all subsurfaces) into a frame.
+    fn present_tree(&mut self, id: u32) -> Result<(), Error> {
+        let mut root = id;
+        let mut guard = 0;
+        while let Some(p) = self.objects.get(&root).and_then(|o| o.surf.as_ref()).and_then(|s| s.parent) {
+            root = p;
+            guard += 1;
+            if guard > 32 {
+                return Err(Error::InvalidState);
+            }
+        }
+        let s = self.objects.get(&root).and_then(|o| o.surf.as_ref()).ok_or(Error::InvalidState)?;
         let (xdg, top) = (s.xdg, s.role_top);
-        let Some(bid) = s.attached else {
-            self.closed.push(id);
-            return Ok(());
+        if xdg.is_none() && top.is_none() {
+            return Ok(()); // not a window (yet)
+        }
+        // The window's own buffer, or (when the client draws only into subsurfaces) a transparent
+        // canvas covering the window geometry or else its subsurfaces.
+        let (mut width, mut height, mut pixels) = if s.size.0 > 0 {
+            (s.size.0, s.size.1, s.pixels.clone())
+        } else {
+            let geo = xdg.and_then(|x| self.objects.get(&x)).and_then(|o| o.geometry).map(|g| (g.0 + g.2, g.1 + g.3));
+            let (w, h) = geo.unwrap_or_else(|| self.extent(root));
+            if w == 0 || h == 0 {
+                return Ok(());
+            }
+            (w, h, alloc::vec![0u32; (w * h) as usize])
         };
-        let Some(buffer) = self.objects.get(&bid).and_then(|o| o.buffer.clone()) else { return Err(Error::InvalidState) };
-        let mut pixels = decode_pixels(&buffer);
-        let (mut width, mut height) = (buffer.width, buffer.height);
+        let s = self.objects.get(&root).and_then(|o| o.surf.as_ref()).unwrap();
+        let kids = s.children.clone();
+        for c in kids {
+            self.blend_into(&mut pixels, width, height, c, 0, 0, 0);
+        }
         if let Some((gx, gy, gw, gh)) = xdg.and_then(|x| self.objects.get(&x)).and_then(|o| o.geometry) {
             // Show only the window geometry: drop the client's shadow margin.
             let (gw, gh) = (gw.min(width.saturating_sub(gx)), gh.min(height.saturating_sub(gy)));
@@ -611,11 +725,51 @@ impl Server {
             Some(o) => (o.title.as_bytes().to_vec(), o.app_id.as_bytes().to_vec(), o.iface == Iface::XdgToplevel),
             None => (Vec::new(), Vec::new(), xdg.is_none()),
         };
-        if xdg.is_some() || top.is_some() {
-            self.frames.push(Frame { surface: id, width, height, pixels, title, app_id, toplevel });
-        }
-        self.event(bid, 0, &[]); // pixels copied: the client may reuse the buffer at once
+        self.frames.retain(|f| f.surface != root); // only the newest frame of a window matters
+        self.frames.push(Frame { surface: root, width, height, pixels, title, app_id, toplevel });
         Ok(())
+    }
+
+    /// Bottom-right corner of everything the subsurfaces of `id` cover.
+    fn extent(&self, id: u32) -> (u32, u32) {
+        let Some(s) = self.objects.get(&id).and_then(|o| o.surf.as_ref()) else { return (0, 0) };
+        let (mut w, mut h) = s.size;
+        for &c in &s.children {
+            let Some(cs) = self.objects.get(&c).and_then(|o| o.surf.as_ref()) else { continue };
+            let (cw, ch) = self.extent(c);
+            w = w.max((cs.pos.0.max(0) as u32).saturating_add(cw));
+            h = h.max((cs.pos.1.max(0) as u32).saturating_add(ch));
+        }
+        (w, h)
+    }
+
+    /// Alpha-blend subsurface `id` (and its own subsurfaces) into `dst` at its position plus (`ox`, `oy`).
+    #[allow(clippy::too_many_arguments)]
+    fn blend_into(&self, dst: &mut [u32], dw: u32, dh: u32, id: u32, ox: i32, oy: i32, depth: u32) {
+        let Some(s) = self.objects.get(&id).and_then(|o| o.surf.as_ref()) else { return };
+        if depth > 16 {
+            return;
+        }
+        let (x0, y0) = (ox + s.pos.0, oy + s.pos.1);
+        let (w, h) = s.size;
+        for y in 0..h as i32 {
+            let dy = y0 + y;
+            if dy < 0 || dy >= dh as i32 {
+                continue;
+            }
+            for x in 0..w as i32 {
+                let dx = x0 + x;
+                if dx < 0 || dx >= dw as i32 {
+                    continue;
+                }
+                let src = s.pixels[(y as u32 * w + x as u32) as usize];
+                let d = &mut dst[(dy as u32 * dw + dx as u32) as usize];
+                *d = over(src, *d);
+            }
+        }
+        for &c in &s.children {
+            self.blend_into(dst, dw, dh, c, x0, y0, depth + 1);
+        }
     }
 
     fn bind(&mut self, p: &[u8]) -> Result<(), Error> {
@@ -683,6 +837,24 @@ impl Server {
 
 fn new_obj(iface: Iface, version: u32) -> Obj {
     Obj { iface, version, surface: None, pool: None, buffer: None, surf: None, title: String::new(), app_id: String::new(), geometry: None }
+}
+
+/// Premultiplied-alpha "over": `src` drawn on top of `dst`.
+fn over(src: u32, dst: u32) -> u32 {
+    let a = src >> 24;
+    if a == 255 {
+        return src;
+    }
+    if a == 0 {
+        return dst;
+    }
+    let inv = 255 - a;
+    let ch = |shift: u32| -> u32 {
+        let s = (src >> shift) & 0xff;
+        let d = (dst >> shift) & 0xff;
+        (s + (d * inv + 127) / 255).min(255) << shift
+    };
+    ch(24) | ch(16) | ch(8) | ch(0)
 }
 
 /// Copy a wl_shm buffer out of its (live) pool as `0xAARRGGBB`.

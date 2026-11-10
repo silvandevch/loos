@@ -36,6 +36,7 @@ pub mod at {
     pub const HWCAP2: u64 = 26;
     pub const EXECFN: u64 = 31;
     pub const MINSIGSTKSZ: u64 = 51;
+    pub const SYSINFO_EHDR: u64 = 33;
 }
 
 /// Result of loading a program.
@@ -218,8 +219,14 @@ fn load_depth(fs: &mut dyn LinFs, mem: &mut UserMem, path: &str, argv: &[String]
         (at::HWCAP2, 0),
         (at::EXECFN, execfn),
         (at::MINSIGSTKSZ, 2048),
-        (at::NULL, 0),
     ];
+    let mut auxv = auxv;
+    if let Some(img) = crate::vdso::memory_image() {
+        // The vDSO: clock_gettime & co. without system calls (the time page is mapped by the caller).
+        mem.map_fixed(crate::vdso::VDSO_ADDR, img.len() as u64, PROT_READ | PROT_EXEC, &img, "[vdso]")?;
+        auxv.push((at::SYSINFO_EHDR, crate::vdso::VDSO_ADDR));
+    }
+    auxv.push((at::NULL, 0));
     let words = 1 + argv_ptrs.len() + 1 + envp_ptrs.len() + 1 + auxv.len() * 2;
     sp &= !15;
     sp -= (words as u64) * 8;

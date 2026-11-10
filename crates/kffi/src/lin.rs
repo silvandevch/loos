@@ -10,7 +10,7 @@ use loos_lin::fs::MemFs;
 use loos_lin::mem::{UserMem, PROT_EXEC, PROT_WRITE};
 use loos_lin::sys::{Delivery, LinSystem, Pid, Sys, TState};
 use loos_win32k::adjust_window_rect;
-use loos_win32k::{Hwnd, Point, Rect, SC_CLOSE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSCOMMAND, WS_OVERLAPPEDWINDOW, WS_VISIBLE};
+use loos_win32k::{Hwnd, Point, Rect, SC_CLOSE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSCOMMAND, WS_OVERLAPPEDWINDOW, WS_VISIBLE};
 
 #[derive(Clone, Copy)]
 #[repr(C, align(16))]
@@ -24,16 +24,16 @@ pub(crate) struct UFrame {
     pub(crate) rsp: u64,
     pub(crate) ss: u64,
     pub(crate) cr3: u64,
-    pub(crate) _pad: u64,
+    /// FXSAVE image; usermode.S does `fxsave`/`fxrstor 192(frame)`.
     pub(crate) fx: [u8; 512],
 }
 
+const _: () = assert!(core::mem::offset_of!(UFrame, fx) == 192, "UFrame.fx must sit where usermode.S saves the FPU state");
+
 extern "C" {
     pub(crate) fn run_user(f: *mut UFrame) -> u64;
-    fn kalloc(size: u64, align: u64) -> *mut u8;
     fn serial_putc(c: i8);
     fn serial_puts(s: *const u8);
-    fn serial_dec(v: u64);
     pub(crate) fn time_us() -> u64;
     fn rtc_unix() -> u64;
     pub(crate) fn user_init();
@@ -61,21 +61,123 @@ const U: u64 = 4;
 const NX: u64 = 1 << 63;
 pub(crate) const MSR_FS_BASE: u32 = 0xC000_0100;
 
+/// Decimal / hex number on the serial line and the on-screen console.
+fn dec(v: u64) {
+    say(&alloc::format!("{v}"));
+}
+fn hex(v: u64) {
+    say(&alloc::format!("{v:#018x}"));
+}
+
 pub(crate) fn say(s: &str) {
     for b in s.bytes() {
         // SAFETY: serial_putc is plain port I/O.
         unsafe { serial_putc(b as i8) };
     }
+    console_log(s.as_bytes());
 }
 
-unsafe fn new_table() -> *mut u64 {
-    // SAFETY: kalloc returns identity-mapped zero-unknown memory or null.
-    unsafe {
-        let p = kalloc(4096, 4096) as *mut u64;
-        if !p.is_null() {
-            core::ptr::write_bytes(p, 0, 512);
+/// The on-screen console: the last lines of serial output (program output and `lin:` messages),
+/// so a running Linux program is visibly alive before it opens a window.
+struct ConsoleLog {
+    lines: alloc::collections::VecDeque<Vec<u8>>,
+    changed: bool,
+}
+
+struct LogCell(core::cell::UnsafeCell<Option<ConsoleLog>>);
+// SAFETY: the kernel runs this code on one CPU, never from interrupts.
+unsafe impl Sync for LogCell {}
+static LOG: LogCell = LogCell(core::cell::UnsafeCell::new(None));
+const LOG_LINES: usize = 40;
+
+fn console_log(bytes: &[u8]) {
+    // SAFETY: single-threaded kernel (see LogCell).
+    let log = unsafe { &mut *LOG.0.get() }.get_or_insert_with(|| ConsoleLog { lines: alloc::collections::VecDeque::from([Vec::new()]), changed: true });
+    for &b in bytes {
+        match b {
+            b'\n' => {
+                log.lines.push_back(Vec::new());
+                if log.lines.len() > LOG_LINES {
+                    log.lines.pop_front();
+                }
+            }
+            b'\r' => {}
+            _ => {
+                let l = log.lines.back_mut().unwrap();
+                if l.len() < 240 {
+                    l.push(if b == b'\t' { b' ' } else { b });
+                }
+            }
         }
-        p
+    }
+    log.changed = true;
+}
+
+/// Draw the console panel over the bottom of `fb`. Returns false when there is nothing to draw.
+fn draw_console(fb: &mut [u32], screen: (i32, i32)) {
+    use loos_shell::draw::{Canvas, Rect as SRect};
+    // SAFETY: single-threaded kernel (see LogCell).
+    let Some(log) = (unsafe { &mut *LOG.0.get() }) else { return };
+    log.changed = false;
+    let (w, h) = screen;
+    let line_h = 16;
+    let rows = log.lines.len() as i32;
+    let panel_h = (rows * line_h + 34).min(h * 2 / 3);
+    let mut c = Canvas { px: &mut fb[..(w * h) as usize], w, h, stride: w, scale: 0 };
+    let all = SRect::new(0, 0, w, h);
+    let top = h - panel_h;
+    c.fill(all, SRect::new(0, top, w, panel_h), 0xE0101418);
+    let font = loos_shell::font_data::regular();
+    loos_shell::text::draw(&mut c, all, 12, top + 6, b"Linux console  (F12 hides/shows)", 0xFF8FB4FF, &font, 13);
+    let visible = ((panel_h - 28) / line_h).max(0) as usize;
+    let first = log.lines.len().saturating_sub(visible);
+    for (i, l) in log.lines.iter().skip(first).enumerate() {
+        let color = if l.starts_with(b"lin:") { 0xFFFFD27F } else { 0xFFE6E6E6 };
+        loos_shell::text::draw(&mut c, all, 12, top + 26 + i as i32 * line_h, l, color, &font, 13);
+    }
+}
+
+fn console_changed() -> bool {
+    // SAFETY: single-threaded kernel (see LogCell).
+    unsafe { &*LOG.0.get() }.as_ref().is_some_and(|l| l.changed)
+}
+
+const TABLE: core::alloc::Layout = match core::alloc::Layout::from_size_align(4096, 4096) {
+    Ok(l) => l,
+    Err(_) => panic!(),
+};
+
+/// A zeroed page-table page from the kernel heap (identity mapped), or null.
+unsafe fn new_table() -> *mut u64 {
+    // SAFETY: non-zero-sized layout.
+    unsafe { alloc::alloc::alloc_zeroed(TABLE) as *mut u64 }
+}
+
+/// Free a user page-table tree from [`build_pml4`]: every table below the user half, never the
+/// shared kernel entry (511). The CPU must not be using it (run_user switches back to the kernel CR3).
+pub(crate) fn free_pml4(pml4: u64) {
+    unsafe fn level(t: *mut u64, depth: u32) {
+        // SAFETY: `t` is a table from new_table; present non-leaf entries point at tables we allocated.
+        unsafe {
+            if depth < 3 {
+                for i in 0..512 {
+                    let e = *t.add(i);
+                    if e & P != 0 {
+                        level((e & 0x000f_ffff_ffff_f000) as *mut u64, depth + 1);
+                    }
+                }
+            }
+            alloc::alloc::dealloc(t as *mut u8, TABLE);
+        }
+    }
+    if pml4 == 0 {
+        return;
+    }
+    let t = pml4 as *mut u64;
+    // SAFETY: as above; entry 511 is the kernel's, cleared so it is not walked.
+    unsafe {
+        *t.add(511) = 0;
+        level(t, 0);
     }
 }
 
@@ -84,6 +186,26 @@ fn read_cr3() -> u64 {
     // SAFETY: reading CR3 is side-effect free.
     unsafe { asm!("mov {}, cr3", out(reg) v, options(nomem, nostack)) };
     v
+}
+
+pub(crate) fn rdtsc() -> u64 {
+    let (lo, hi): (u32, u32);
+    // SAFETY: rdtsc only reads the timestamp counter.
+    unsafe { asm!("rdtsc", out("eax") lo, out("edx") hi, options(nomem, nostack)) };
+    (u64::from(hi) << 32) | u64::from(lo)
+}
+
+/// Nanoseconds per TSC tick in 32.32 fixed point, measured against the kernel clock over 20 ms.
+fn tsc_mult() -> u64 {
+    // SAFETY: monotonic microsecond clock.
+    let (u0, t0) = (unsafe { time_us() }, rdtsc());
+    let mut u1 = u0;
+    while u1 - u0 < 20_000 {
+        // SAFETY: as above.
+        u1 = unsafe { time_us() };
+    }
+    let ticks = rdtsc().wrapping_sub(t0).max(1);
+    ((((u1 - u0) * 1000) as u128) << 32).checked_div(ticks as u128).unwrap_or(1 << 32) as u64
 }
 
 pub(crate) fn read_cr2() -> u64 {
@@ -111,6 +233,7 @@ pub(crate) fn build_pml4(mem: &UserMem) -> u64 {
         let mut ok = true;
         mem.for_each_page(|va, pa, prot| ok &= map_page(pml4, va, pa, prot));
         if !ok {
+            free_pml4(pml4 as u64);
             return 0;
         }
         pml4 as u64
@@ -168,16 +291,6 @@ fn draw_cursor(fb: &mut [u32], screen: (i32, i32), at: (i32, i32)) {
     }
 }
 
-fn signal_for_vector(v: u64) -> u32 {
-    match v {
-        0 | 16 | 19 => 8,
-        1 | 3 => 5,
-        6 => 4,
-        17 => 7,
-        _ => 11,
-    }
-}
-
 /// The Linux layer's view of the kernel network: the NIC-backed stack and its pump.
 struct KLinNet;
 
@@ -197,10 +310,6 @@ struct Lin {
     desk: alloc::rc::Rc<core::cell::RefCell<loos_win32k::Win32k>>,
     /// LoOS windows showing Wayland surfaces, keyed by (connection, wl_surface id).
     wayland_windows: BTreeMap<(usize, u32), Hwnd>,
-    /// Saved x87/SSE state (FXSAVE image) of threads not currently loaded in the frame.
-    fx: BTreeMap<Pid, alloc::boxed::Box<[u8; 512]>>,
-    /// Thread whose FPU state is in the frame now; new threads/children inherit it (like Linux's copy on clone).
-    fx_owner: Pid,
     /// Kernel video backbuffer (`screen.0 * screen.1` pixels) or null when headless.
     back: *mut u32,
     screen: (i32, i32),
@@ -213,13 +322,30 @@ struct Lin {
     /// Held modifiers as XKB masks (Shift 1, Ctrl 4, Alt 8, Super 64) and Caps Lock (2).
     mods: u32,
     caps: bool,
+    /// The console panel is shown (until the first window appears; F12 toggles).
+    show_console: bool,
+    /// Heartbeat: when the run started, when the last status line went out, syscalls so far.
+    started_us: u64,
+    beat_us: u64,
+    syscalls: u64,
+    /// Syscalls in the current heartbeat window, by (thread, number).
+    hot: BTreeMap<(Pid, u64), u32>,
+    /// Wayland frames shown so far.
+    frames_shown: u64,
+    presents: u64,
+    /// Input diagnostics: raw (mouse packets, keys) and what reached Wayland clients (pointer, keys).
+    input_stats: [u64; 4],
 }
 
 impl Lin {
     fn flush_console(&mut self) {
-        for b in self.sys.console_take() {
+        let out = self.sys.console_take();
+        for &b in &out {
             // SAFETY: port I/O.
             unsafe { serial_putc(b as i8) };
+        }
+        if !out.is_empty() {
+            console_log(&out);
         }
     }
 
@@ -241,7 +367,15 @@ impl Lin {
         }
         let p = self.sys.process(pid).unwrap();
         let cr3 = build_pml4(&p.mem);
-        self.pml4.insert(pid, (ver, cr3));
+        if let Some((_, old)) = self.pml4.insert(pid, (ver, cr3)) {
+            free_pml4(old);
+        }
+        // Tables of processes that are gone.
+        let sys = &self.sys;
+        let dead: Vec<Pid> = self.pml4.keys().copied().filter(|p| sys.process(*p).is_none()).collect();
+        for d in dead {
+            free_pml4(self.pml4.remove(&d).unwrap().1);
+        }
         cr3
     }
 
@@ -264,6 +398,9 @@ impl Lin {
                 let n = self.wayland_windows.len() as i32;
                 let outer = adjust_window_rect(style, false, Rect { left: 0, top: 0, right: frame.width as i32, bottom: frame.height as i32 });
                 let Ok(h) = self.desk.borrow_mut().create_window_ex(0, "LooSLinux", if title.is_empty() { "Linux application" } else { &title }, style, 40 + 24 * n, 40 + 24 * n, outer.right - outer.left, outer.bottom - outer.top, 0, 0, 0) else { continue };
+                if self.wayland_windows.is_empty() {
+                    self.show_console = false; // the app is up: give it the screen (F12 brings the log back)
+                }
                 self.wayland_windows.insert(key, h);
                 if frame.toplevel {
                     // A new top-level window gets the focus, like on any desktop.
@@ -271,24 +408,8 @@ impl Lin {
                     let surface = frame.surface;
                     self.sys.wayland_input(conn, |w| w.keyboard_focus(surface));
                 }
-                say("lin: wayland window \"");
-                say(&title);
-                say("\" ");
-                // SAFETY: serial output.
-                unsafe {
-                    serial_dec(frame.width as u64);
-                    say("x");
-                    serial_dec(frame.height as u64);
-                }
                 let o = self.desk.borrow().client_to_screen(h, Point { x: 0, y: 0 }).unwrap_or_default();
-                say(" client at ");
-                // SAFETY: serial output.
-                unsafe {
-                    serial_dec(o.x as u64);
-                    say(",");
-                    serial_dec(o.y as u64);
-                }
-                say("\n");
+                say(&alloc::format!("lin: wayland window \"{title}\" {}x{} client at {},{}\n", frame.width, frame.height, o.x, o.y));
                 h
             };
             {
@@ -303,6 +424,7 @@ impl Lin {
                 d.import_window_pixels(hwnd, frame.width as i32, frame.height as i32, &frame.pixels);
             }
             self.dirty = true;
+            self.frames_shown += 1;
         }
         let mut gone = self.sys.take_wayland_closed();
         gone.extend(self.wayland_windows.keys().filter(|k| !self.sys.wayland_alive(k.0)).copied());
@@ -327,6 +449,7 @@ impl Lin {
         while unsafe { ps2_poll_raw(&mut ev) } != 0 {
             any = true;
             if ev.ty == 2 {
+                self.input_stats[0] += 1;
                 self.cursor = ((self.cursor.0 + ev.dx).clamp(0, self.screen.0 - 1), (self.cursor.1 + ev.dy).clamp(0, self.screen.1 - 1));
                 let mut d = self.desk.borrow_mut();
                 d.inject_mouse_move(self.cursor.0, self.cursor.1);
@@ -338,6 +461,7 @@ impl Lin {
                 self.buttons = ev.buttons;
                 self.dirty = true;
             } else {
+                self.input_stats[1] += 1;
                 self.key(ev.key, ev.down != 0);
             }
         }
@@ -347,6 +471,13 @@ impl Lin {
     }
 
     fn key(&mut self, code: u32, down: bool) {
+        if code == 88 {
+            if down {
+                self.show_console = !self.show_console; // F12: console panel on/off
+                self.dirty = true;
+            }
+            return;
+        }
         let bit = match code {
             42 | 54 => 1,
             29 | 97 => 4,
@@ -367,6 +498,7 @@ impl Lin {
         // SAFETY: monotonic clock.
         let ms = (unsafe { time_us() } / 1000) as u32;
         let (mods, lock) = (self.mods, if self.caps { 2 } else { 0 });
+        self.input_stats[3] += 1;
         self.sys.wayland_input(conn, |w| {
             w.keyboard_focus(surface);
             w.key(code, down, (mods, 0, lock), ms);
@@ -389,15 +521,59 @@ impl Lin {
                     _ => None,
                 };
                 let pressed = matches!(m.message, WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN);
+                if m.message != WM_PAINT {
+                    self.input_stats[2] += 1;
+                }
                 match m.message {
                     WM_MOUSEMOVE => self.sys.wayland_input(conn, |w| w.pointer_motion(surface, x, y, ms)),
                     _ if button.is_some() => self.sys.wayland_input(conn, |w| {
                         w.pointer_motion(surface, x, y, ms);
                         w.pointer_button(button.unwrap(), pressed, ms);
                     }),
+                    // The pixels come from the client's buffer: nothing to repaint, and an unvalidated
+                    // window would get WM_PAINT forever.
+                    WM_PAINT => {
+                        self.desk.borrow_mut().validate_rect(h).ok();
+                    }
                     WM_SYSCOMMAND if m.wparam & 0xfff0 == SC_CLOSE => self.sys.wayland_input(conn, |w| w.close(surface)),
                     _ => {}
                 }
+            }
+        }
+    }
+
+    /// One status line every 10 s, so a long start-up is visibly alive (serial and on-screen console).
+    fn heartbeat(&mut self, now: u64) {
+        let (procs, threads) = self.sys.counts();
+        say(&alloc::format!(
+            "lin: {}s running, {} syscalls, {} processes, {} threads, {} windows, {} frames, {} screen updates, input mouse/keys {}/{} -> app pointer/keys {}/{}\n",
+            (now - self.started_us) / 1_000_000,
+            self.syscalls,
+            procs,
+            threads,
+            self.wayland_windows.len(),
+            self.frames_shown,
+            self.presents,
+            self.input_stats[0],
+            self.input_stats[1],
+            self.input_stats[2],
+            self.input_stats[3]
+        ));
+        // The busiest thread/syscall pairs of the last 10 s: shows what a busy-but-stuck program spins on.
+        let mut hot: Vec<((Pid, u64), u32)> = core::mem::take(&mut self.hot).into_iter().collect();
+        hot.sort_by(|a, b| b.1.cmp(&a.1));
+        let top: Vec<String> = hot.iter().take(5).map(|((t, nr), n)| alloc::format!("{}x {}#{} [{}]", n, loos_lin::syscalls_generated::syscall_name(*nr), nr, t)).collect();
+        say(&alloc::format!("lin:   busiest: {}\n", top.join(", ")));
+        // What the busiest threads' processes last saw as ready (a poll loop spinning on one fd shows here).
+        let mut shown = Vec::new();
+        for ((t, _), _) in hot.iter().take(3) {
+            let Some(pid) = self.sys.thread(*t).map(|t| t.pid) else { continue };
+            if shown.contains(&pid) {
+                continue;
+            }
+            shown.push(pid);
+            if let Some(r) = self.sys.last_ready.get(&pid) {
+                say(&alloc::format!("lin:   pid {pid} last ready: {r}\n"));
             }
         }
     }
@@ -406,27 +582,36 @@ impl Lin {
     fn show(&mut self) {
         // SAFETY: monotonic clock.
         let now = unsafe { time_us() };
+        if self.show_console && console_changed() {
+            self.dirty = true;
+        }
         if !self.dirty || self.back.is_null() || now.saturating_sub(self.last_present_us) < 16_000 {
             return;
         }
         // SAFETY: the kernel owns a writable `w * h` backbuffer for the whole run.
         let frame = unsafe { core::slice::from_raw_parts_mut(self.back, (self.screen.0 * self.screen.1) as usize) };
         self.desk.borrow_mut().compose(frame);
+        if self.show_console {
+            draw_console(frame, self.screen);
+        }
         if self.input {
             draw_cursor(frame, self.screen, self.cursor);
         }
         // SAFETY: plain kernel call; gui_vid was set before loos_lin_boot.
         unsafe { gui_present() };
+        self.presents += 1;
         self.dirty = false;
         self.last_present_us = now;
     }
 
     /// Run until process `main` ends. Returns its wait status (exit code << 8, or signal number).
     fn run(&mut self, main: Pid) -> i32 {
-        let mut clock = unsafe { time_us() };
+        // The Linux clock runs on the TSC (the vDSO reads the same counter): calibrate it once.
+        let mult = tsc_mult();
+        let mut clock = rdtsc();
         let mut status = None;
         let mut idle_spins = 0u32;
-        let mut frame: UFrame = UFrame { gpr: [0; 16], vector: 0, error: 0, rip: 0, cs: 0x23, rflags: 2, rsp: 0, ss: 0x1b, cr3: 0, _pad: 0, fx: [0; 512] };
+        let mut frame: UFrame = UFrame { gpr: [0; 16], vector: 0, error: 0, rip: 0, cs: 0x23, rflags: 2, rsp: 0, ss: 0x1b, cr3: 0, fx: [0; 512] };
         // Default x87/SSE state: FCW=0x37f, MXCSR=0x1f80.
         frame.fx[0] = 0x7f;
         frame.fx[1] = 0x03;
@@ -434,12 +619,17 @@ impl Lin {
         while status.is_none() {
             // SAFETY: monotonic microsecond clock.
             let now = unsafe { time_us() };
-            self.sys.advance((now - clock) * 1000);
-            clock = now;
+            let t = rdtsc();
+            self.sys.advance(((t.wrapping_sub(clock) as u128 * mult as u128) >> 32) as u64);
+            clock = t;
             if self.sys.net_attached() {
                 self.sys.poll_net(now / 1000);
             }
             self.poll_input();
+            if now.saturating_sub(self.beat_us) >= 10_000_000 {
+                self.beat_us = now;
+                self.heartbeat(now);
+            }
             let Some(tid) = self.pick() else {
                 self.last_present_us = 0; // idle: show any frame the throttle held back
                 self.show();
@@ -483,17 +673,9 @@ impl Lin {
             frame.rsp = r.rsp;
             frame.rflags = (r.rflags & 0xcd5) | 2;
             frame.cr3 = cr3;
-            if self.fx_owner != tid {
-                if self.sys.thread(self.fx_owner).is_some() {
-                    self.fx.insert(self.fx_owner, alloc::boxed::Box::new(frame.fx));
-                }
-                if let Some(saved) = self.fx.remove(&tid) {
-                    frame.fx = *saved;
-                }
-                self.fx_owner = tid;
-                let sys = &self.sys;
-                self.fx.retain(|t, _| sys.thread(*t).is_some());
-            }
+            frame.fx = *self.sys.thread(tid).unwrap().fx;
+            // vDSO clock: now_ns at TSC `clock`; advance() above uses the same reference, so it is continuous.
+            self.sys.set_clock_page(clock, mult);
             // SAFETY: FS base MSR; run_user enters ring 3 with a fully initialised frame and returns on trap.
             let vector = unsafe {
                 wrmsr(MSR_FS_BASE, r.fs_base);
@@ -507,10 +689,13 @@ impl Lin {
                 r.rip = frame.rip;
                 r.rsp = frame.rsp;
                 r.rflags = frame.rflags;
+                *t.fx = frame.fx;
             }
             if vector == 0x100 {
                 idle_spins = 0;
                 let (nr, a) = (g[0], [g[7], g[6], g[2], g[10], g[8], g[9]]);
+                self.syscalls += 1;
+                *self.hot.entry((tid, nr)).or_insert(0) += 1;
                 match self.sys.syscall(tid, nr, a) {
                     Sys::ProcessExit(st) if pid == main => status = Some(st),
                     _ => {}
@@ -535,13 +720,20 @@ impl Lin {
                     }
                     say("lin: fault vector ");
                     // SAFETY: serial output.
-                    unsafe { serial_dec(vector) };
+                    dec(vector);
                     say(" rip ");
-                    unsafe { serial_dec(frame.rip) };
+                    dec(frame.rip);
                     say(" cr2 ");
-                    unsafe { serial_dec(cr2) };
+                    dec(cr2);
+                    if let Some((name, off)) = self.sys.process(pid).and_then(|p| p.mem.locate(frame.rip)) {
+                        say(" in ");
+                        say(name);
+                        say(" +");
+                        // SAFETY: serial output.
+                        hex(off);
+                    }
                     say("\n");
-                    self.sys.send_signal(pid, Some(tid), signal_for_vector(vector));
+                    self.sys.fault(tid, vector, frame.error, cr2);
                 }
             }
             self.flush_console();
@@ -583,16 +775,32 @@ pub unsafe extern "C" fn loos_lin_boot(
     let files = fs.load_tar(tar);
     say("lin: rootfs ");
     // SAFETY: serial output.
-    unsafe { serial_dec(files as u64) };
+    dec(files as u64);
     say(" entries\n");
     // The kernel command line ends at a space, so arguments spell space/comma as %20 / %2C.
     let mut argv: Vec<String> = cmd.split(',').map(|a| a.replace("%20", " ").replace("%2C", ",").replace("%25", "%")).collect();
-    let trace = argv.first().is_some_and(|a| a == "strace");
+    let fs_args = argv.first().filter(|a| a.starts_with('@')).map(|a| a[1..].to_string());
+    // loos.lin=@/file: one entry per line (strace, VAR=value..., program, arguments) for command lines
+    // longer than the kernel's.
+    if let Some(path) = fs_args {
+        match fs.file(&path) {
+            Some(text) => argv = String::from_utf8_lossy(text).lines().filter(|l| !l.is_empty()).map(String::from).collect(),
+            None => {
+                say("lin: argument file not in the rootfs\n");
+                return -1;
+            }
+        }
+    }
+    // `strace` traces every syscall, `strace:46,47` only those numbers.
+    let trace_arg = argv.first().filter(|a| *a == "strace" || a.starts_with("strace:")).cloned();
+    let trace = trace_arg.is_some();
     if trace {
         argv.remove(0);
     }
+    let trace_only = trace_arg.and_then(|a| a.strip_prefix("strace:").map(|l| l.split(|c: char| !c.is_ascii_digit()).filter_map(|n| n.parse::<u64>().ok()).collect::<Vec<u64>>()));
     let mut sys = LinSystem::new(fs);
     sys.trace = trace;
+    sys.trace_only = trace_only;
     if !back.is_null() {
         sys.wayland_screen = (width.max(1) as u32, height.max(1) as u32);
     }
@@ -630,12 +838,12 @@ pub unsafe extern "C" fn loos_lin_boot(
         Err(e) => {
             say("lin: cannot execute (errno ");
             // SAFETY: serial output.
-            unsafe { serial_dec(e as u64) };
+            dec(e as u64);
             say(")\n");
             return -1;
         }
     };
-    let mut lin = Lin { sys, pml4: BTreeMap::new(), last: 0, desk: desk.clone(), wayland_windows: BTreeMap::new(), fx: BTreeMap::new(), fx_owner: 0, back, screen: (screen_w, screen_h), dirty: false, last_present_us: 0, input: !back.is_null(), cursor: (screen_w / 2, screen_h / 2), buttons: 0, mods: 0, caps: false };
+    let mut lin = Lin { sys, pml4: BTreeMap::new(), last: 0, desk: desk.clone(), wayland_windows: BTreeMap::new(), back, screen: (screen_w, screen_h), dirty: false, last_present_us: 0, input: !back.is_null(), cursor: (screen_w / 2, screen_h / 2), buttons: 0, mods: 0, caps: false, show_console: true, started_us: unsafe { time_us() }, beat_us: unsafe { time_us() }, syscalls: 0, hot: BTreeMap::new(), frames_shown: 0, presents: 0, input_stats: [0; 4] };
     if lin.input {
         // SAFETY: polled i8042 setup, as the desktop does.
         unsafe { ps2_init() };
@@ -646,9 +854,9 @@ pub unsafe extern "C" fn loos_lin_boot(
         for (nr, n) in &lin.sys.missing {
             say(" ");
             // SAFETY: serial output.
-            unsafe { serial_dec(*nr) };
+            dec(*nr);
             say("x");
-            unsafe { serial_dec(*n as u64) };
+            dec(*n as u64);
         }
         say("\n");
     }
@@ -666,11 +874,11 @@ pub unsafe extern "C" fn loos_lin_boot(
     let green = frame.iter().filter(|&&p| p == 0xff00_c800).count();
     say("lin: gui composed green pixels ");
     // SAFETY: serial output.
-    unsafe { serial_dec(green as u64) };
+    dec(green as u64);
     say("\n");
     // SAFETY: NUL-terminated literal.
     unsafe { serial_puts(b"lin: program finished, status \0".as_ptr()) };
-    unsafe { serial_dec(st as u32 as u64) };
+    dec(st as u32 as u64);
     say("\n");
     st
 }

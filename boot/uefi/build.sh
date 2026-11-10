@@ -44,7 +44,10 @@ cfg=$out/BOOT.CFG
   [ -n "$cmdline" ] && echo "cmdline=$cmdline"; true; } > "$cfg"
 
 img=$out/uefi.img
-rm -f "$img"; truncate -s 192M "$img"
+# 192 MiB, or room for the modules plus 64 MiB (a Linux rootfs with Firefox is ~450 MiB).
+mods=0; for m in "${modules[@]}"; do mods=$(( mods + $(stat -c %s "${m#*=}") )); done
+mib=$(( mods / 1048576 + 64 )); [ $mib -lt 192 ] && mib=192
+rm -f "$img"; truncate -s ${mib}M "$img"
 sgdisk -o -n 1:2048:0 -t 1:ef00 -c 1:LOOS-ESP "$img" >/dev/null
 psize=$(sgdisk -i 1 "$img" | awk '/^Partition size:/ {print $3}')
 mkfs.fat -F 32 --offset 2048 -S 512 "$img" $(( psize / 2 )) >/dev/null 2>&1

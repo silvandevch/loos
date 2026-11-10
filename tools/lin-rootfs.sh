@@ -15,7 +15,7 @@ for b in "$@"; do
     if [ -d "$b" ]; then
         mkdir -p "$stage$b"
         tar -C "$b" --exclude=test --exclude=tests --exclude=__pycache__ --exclude=site-packages --exclude=idlelib --exclude=tkinter -cf - . | tar -C "$stage$b" -xf -
-        find "$b" -name '*.so*' -type f -not -path '*/site-packages/*' | while read -r s; do deps "$s"; done
+        find "$b" -type f \( -name '*.so*' -o -perm -u+x \) -not -path '*/site-packages/*' | while read -r s; do deps "$s"; done
     else
         add "$b"; deps "$b"
     fi
@@ -24,6 +24,9 @@ add /lib64/ld-linux-x86-64.so.2
 for l in bin sbin lib; do [ -e "$stage/$l" ] || ln -s "usr/$l" "$stage/$l"; done   # merged-/usr layout
 [ -e "$stage/usr/sbin" ] || ln -s bin "$stage/usr/sbin"
 mkdir -p "$stage/usr/share/loos"
+if [ -e "$stage/usr/bin/bash" ] || [ -e "$stage/bin/bash" ]; then   # bwrap stand-in (no namespaces yet: runs unsandboxed)
+    install -m 755 "$here/bwrap-shim.sh" "$stage/usr/bin/bwrap"; add /usr/bin/env
+fi
 python3 "$here/xkb-keymap.py" > "$stage/usr/share/loos/keymap.xkb" || rm -f "$stage/usr/share/loos/keymap.xkb"   # wl_keyboard keymap
 mkdir -p "$stage/etc" "$stage/tmp" "$stage/dev/shm" "$stage/proc" "$stage/home" "$stage/run"
 echo "loos" > "$stage/etc/hostname"

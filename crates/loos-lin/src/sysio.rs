@@ -20,6 +20,7 @@ const EPOLLERR: u32 = 8;
 const EPOLLHUP: u32 = 0x10;
 const EPOLLRDHUP: u32 = 0x2000;
 const EPOLLONESHOT: u32 = 1 << 30;
+const EPOLLET: u32 = 1 << 31;
 
 /// What a file descriptor can do right now.
 #[derive(Clone, Copy, Default)]
@@ -70,6 +71,7 @@ impl<F: LinFs> LinSystem<F> {
             PipeW(usize),
             Event(usize),
             Sock(usize),
+            Timer(usize),
         }
         let k = match f.borrow().kind {
             FKind::Tty => K::Tty,
@@ -77,6 +79,7 @@ impl<F: LinFs> LinSystem<F> {
             FKind::PipeW(i) => K::PipeW(i),
             FKind::EventFd(i) => K::Event(i),
             FKind::Sock(i) => K::Sock(i),
+            FKind::TimerFd(i) => K::Timer(i),
             _ => K::Plain,
         };
         match k {
@@ -92,6 +95,10 @@ impl<F: LinFs> LinSystem<F> {
             }
             K::Event(i) => Ready { read: self.eventfds[i].0 > 0, write: self.eventfds[i].0 < u64::MAX - 1, ..Ready::default() },
             K::Sock(i) => self.sock_ready(i),
+            K::Timer(i) => {
+                let t = self.timers[i];
+                Ready { read: t.next != 0 && self.now_ns >= t.next, ..Ready::default() }
+            }
         }
     }
 
@@ -102,6 +109,13 @@ impl<F: LinFs> LinSystem<F> {
         let Some(ent) = p.fds.get(&fd) else { return POLLNVAL };
         let f = ent.file.clone();
         let r = self.readiness(&f);
+        if r.read || r.hup || r.err {
+            let extra = match f.borrow().kind {
+                FKind::Sock(i) => format!(" rx={} peer={:?} closed={}", self.socks[i].rx.len(), self.socks[i].peer, self.socks[i].peer_closed),
+                _ => String::new(),
+            };
+            self.last_ready.insert(p.pid, format!("fd {fd} {}{extra} read={} hup={}", Self::fd_link(&f), r.read, r.hup));
+        }
         let mut rev = 0;
         if r.read && want & POLLIN != 0 {
             rev |= POLLIN;
@@ -228,7 +242,7 @@ impl<F: LinFs> LinSystem<F> {
                 match (a[1], pos) {
                     (1, Some(_)) => err(EEXIST),
                     (1, None) => {
-                        list.push((fd, events, data));
+                        list.push((fd, events, data, u64::MAX));
                         ok(0)
                     }
                     (2, Some(i)) => {
@@ -236,7 +250,7 @@ impl<F: LinFs> LinSystem<F> {
                         ok(0)
                     }
                     (3, Some(i)) => {
-                        list[i] = (fd, events, data);
+                        list[i] = (fd, events, data, u64::MAX); // re-armed: report current state again
                         ok(0)
                     }
                     _ => err(ENOENT),
@@ -253,12 +267,17 @@ impl<F: LinFs> LinSystem<F> {
                 let rel = (ms >= 0).then(|| ms as u64 * 1_000_000);
                 let entries = self.epolls[ep].clone();
                 let mut hits: Vec<(usize, u32, u64)> = Vec::new();
-                for (idx, (fd, want, data)) in entries.iter().enumerate() {
+                for (idx, (fd, want, data, seen)) in entries.iter().enumerate() {
                     if hits.len() >= max || *want == 0 {
                         continue;
                     }
                     let Some(ent) = p.fds.get(fd) else { continue };
                     let f = ent.file.clone();
+                    // EPOLLET: only report when something happened since the last report.
+                    let act = self.activity(&f);
+                    if want & EPOLLET != 0 && act == *seen {
+                        continue;
+                    }
                     let r = self.readiness(&f);
                     let mut ev = 0;
                     if r.read && want & EPOLLIN != 0 {
@@ -275,6 +294,9 @@ impl<F: LinFs> LinSystem<F> {
                     }
                     if ev != 0 {
                         hits.push((idx, ev, *data));
+                        if want & EPOLLET != 0 {
+                            self.epolls[ep][idx].3 = act;
+                        }
                     }
                 }
                 let deadline = self.wait_deadline(tid, rel);
@@ -301,6 +323,77 @@ impl<F: LinFs> LinSystem<F> {
                 p.fds.insert(fd, FdEnt { file: f, cloexec: flags & 0o2000000 != 0 });
                 ok(fd as i64)
             }
+            // timerfd_create(clock, flags): REALTIME (0), MONOTONIC (1), BOOTTIME (7) and *_ALARM variants
+            283 => {
+                if !matches!(a[0], 0 | 1 | 7 | 8 | 9) {
+                    return err(EINVAL);
+                }
+                self.timers.push(Timer { next: 0, interval: 0, realtime: a[0] == 0 || a[0] == 8 });
+                let i = self.timers.len() - 1;
+                let f = self.new_fd(FKind::TimerFd(i), if a[1] & 0o4000 != 0 { 0o4000 } else { 0 });
+                let fd = self.alloc_fd(p, 0)?;
+                p.fds.insert(fd, FdEnt { file: f, cloexec: a[1] & 0o2000000 != 0 });
+                ok(fd as i64)
+            }
+            // timerfd_settime(fd, flags, new, old) / timerfd_gettime(fd, cur)
+            286 | 287 => {
+                let i = match self.fd(p, a[0] as i32)?.borrow().kind {
+                    FKind::TimerFd(i) => i,
+                    _ => return err(EINVAL),
+                };
+                let ts = |v: u64| -> (u64, u64) { (v / 1_000_000_000, v % 1_000_000_000) };
+                let cur = self.timers[i];
+                let remain = if cur.next == 0 { 0 } else { cur.next.saturating_sub(self.now_ns).max(1) };
+                let old = [ts(cur.interval).0, ts(cur.interval).1, ts(remain).0, ts(remain).1];
+                let out = if nr == 287 { a[1] } else { a[3] };
+                if out != 0 {
+                    for (k, v) in old.iter().enumerate() {
+                        p.mem.write_u64(out + k as u64 * 8, *v)?;
+                    }
+                }
+                if nr == 286 {
+                    let rd = |p: &mut Process, at: u64| -> Result<u64, i64> {
+                        let (sec, ns) = (p.mem.read_u64(at)?, p.mem.read_u64(at + 8)?);
+                        if ns >= 1_000_000_000 {
+                            return Err(EINVAL);
+                        }
+                        Ok(sec.saturating_mul(1_000_000_000).saturating_add(ns))
+                    };
+                    let (interval, value) = (rd(p, a[2])?, rd(p, a[2] + 16)?);
+                    let next = if value == 0 {
+                        0
+                    } else if a[1] & 1 != 0 {
+                        // TFD_TIMER_ABSTIME: an absolute time on the timer's clock
+                        let base = if self.timers[i].realtime { self.epoch_base_s.saturating_mul(1_000_000_000) } else { 0 };
+                        value.saturating_sub(base).max(1)
+                    } else {
+                        self.now_ns + value
+                    };
+                    self.timers[i].next = next;
+                    self.timers[i].interval = interval;
+                }
+                ok(0)
+            }
+            // inotify_init / inotify_init1(flags): files never change behind a program's back here,
+            // so the fd is a silent event source (pollable, never readable).
+            253 | 294 => {
+                let flags = if nr == 294 { a[0] } else { 0 };
+                self.eventfds.push((0, false));
+                let i = self.eventfds.len() - 1;
+                let f = self.new_fd(FKind::EventFd(i), if flags & 0o4000 != 0 { 0o4000 } else { 0 });
+                let fd = self.alloc_fd(p, 0)?;
+                p.fds.insert(fd, FdEnt { file: f, cloexec: flags & 0o2000000 != 0 });
+                ok(fd as i64)
+            }
+            // inotify_add_watch(fd, path, mask) -> watch descriptor; inotify_rm_watch(fd, wd)
+            254 => {
+                let path = p.mem.read_cstr(a[1], 4096)?;
+                let abs = self.path_for(p, AT_FDCWD, &path, true)?;
+                self.stat_abs(p, &abs)?;
+                self.next_id = self.next_id.wrapping_add(1);
+                ok((self.next_id & 0x7fff_ffff) as i64)
+            }
+            255 => ok(0),
             // getresuid / getresgid: everything is root (uid 0)
             118 | 120 => {
                 for k in 0..3 {

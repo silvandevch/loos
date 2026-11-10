@@ -4,7 +4,7 @@
 //! Cooperative: a process runs until it exits, parks itself (`Sleep(INFINITE)`, a resident service), or
 //! faults. Resident processes keep their address space but are not scheduled again until threads/timers exist.
 
-use crate::lin::{build_pml4, map_page, read_cr2, run_user, say, time_us, user_init, wrmsr, UFrame, MSR_FS_BASE};
+use crate::lin::{build_pml4, free_pml4, map_page, read_cr2, run_user, say, time_us, user_init, wrmsr, UFrame, MSR_FS_BASE};
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -98,11 +98,8 @@ static mut ANY_IDLE: bool = false;
 static mut TICKS: u32 = 0;
 
 fn new_frame(p: &Process) -> UFrame {
-    let mut frame = UFrame { gpr: [0; 16], vector: 0, error: 0, rip: p.entry, cs: 0x23, rflags: 2, rsp: p.rsp, ss: 0x1b, cr3: 0, _pad: 0, fx: [0; 512] };
-    // The FXSAVE area (offset 192 of the frame) starts in `_pad`: FCW is its low half, MXCSR sits at FXSAVE byte 24 = fx[16].
-    frame._pad = 0x037f;
-    frame.fx[16..20].copy_from_slice(&0x1f80u32.to_le_bytes());
-    frame
+    // Default FPU state: x87 control word 0x37f, MXCSR 0x1f80 (all exceptions masked).
+    UFrame { gpr: [0; 16], vector: 0, error: 0, rip: p.entry, cs: 0x23, rflags: 2, rsp: p.rsp, ss: 0x1b, cr3: 0, fx: *loos_lin::sys::fx_default() }
 }
 
 /// Runs `frame` in ring 3, serving syscalls. With a window manager `w`, user32/gdi32 calls are served too.
@@ -111,6 +108,7 @@ fn drive(p: &mut Process, frame: &mut UFrame, mut w: Option<&mut Win32k>) -> Sto
     loop {
         if p.mem.version != ver {
             ver = p.mem.version;
+            free_pml4(cr3);
             cr3 = build_pml4(&p.mem);
             if cr3 == 0 {
                 say("win: out of memory building page tables\n");

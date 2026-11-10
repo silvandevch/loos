@@ -485,6 +485,11 @@ fn map_shared_survives_fork_and_vfork_shares_memory() {
     let t = sys.thread(pid).unwrap();
     assert_eq!((t.state.clone(), t.regs.rax), (loos_lin::sys::TState::Runnable, v as u64), "exec releases the parent with the child pid");
     assert_eq!(sys.process_mut(pid).unwrap().mem.read_u64(private).unwrap(), 0xCC);
+    // after the vfork child exec'd, the parent's memory is private again: a later fork child gets a
+    // copy-on-write snapshot, so parent writes after the fork stay invisible to it
+    let f2 = sc(&mut sys, pid, 57, &[]) as u32;
+    sys.process_mut(pid).unwrap().mem.write_u64(private, 0xEE).unwrap();
+    assert_eq!(sys.process_mut(f2).unwrap().mem.read_u64(private).unwrap(), 0xCC, "fork after vfork is a snapshot");
     // partial munmap of a shared region keeps both halves coherent
     assert_eq!(sc(&mut sys, pid, 11, &[shared, 0x1000]), 0);
 }
@@ -592,4 +597,274 @@ fn file_backed_map_shared_writes_back_on_msync_munmap_and_exit() {
     assert_eq!(sys.syscall(pid, 231, [0; 6]), Sys::ProcessExit(0)); // exit flushes the rest
     assert_eq!(sys.fs.file("/tmp/data.bin").unwrap()[20], b'Q');
     assert_eq!(sys.fs.file("/tmp/data.bin").unwrap().len(), 8192, "file never grows");
+}
+
+#[test]
+fn fault_signal_frame_carries_fault_info_and_fpu_state() {
+    let mut sys = new_sys();
+    let pid = spawn_nop(&mut sys);
+    let act = put(&mut sys, pid, &"\0".repeat(32));
+    {
+        let m = &mut sys.process_mut(pid).unwrap().mem;
+        m.write_u64(act, 0x400100).unwrap();
+        m.write_u64(act + 8, 0x0400_0000).unwrap(); // SA_RESTORER
+        m.write_u64(act + 16, 0x400200).unwrap();
+    }
+    assert_eq!(sc(&mut sys, pid, 13, &[11, act, 0, 8]), 0);
+    // The program had changed its FPU state (MXCSR rounding toward zero) before faulting.
+    sys.thread_mut(pid).unwrap().fx[24..28].copy_from_slice(&0x7f80u32.to_le_bytes());
+    sys.fault(pid, 14, 4, 0xdead_0000); // user-mode read of an unmapped page
+    assert_eq!(sys.deliver_signal(pid), Delivery::Handler(11));
+    let t = sys.thread(pid).unwrap().clone();
+    assert_eq!(&t.fx[24..28], &0x1f80u32.to_le_bytes(), "handler runs with a clean FPU state");
+    let m = &mut sys.process_mut(pid).unwrap().mem;
+    let (info, mc) = (t.regs.rsi, t.regs.rdx + 40);
+    assert_eq!(m.read_u32(info + 8).unwrap(), 1, "SEGV_MAPERR");
+    assert_eq!(m.read_u64(info + 16).unwrap(), 0xdead_0000, "si_addr");
+    assert_eq!((m.read_u64(mc + 20 * 8).unwrap(), m.read_u64(mc + 22 * 8).unwrap()), (14, 0xdead_0000), "trapno, cr2");
+    let fpregs = m.read_u64(mc + 23 * 8).unwrap();
+    assert!(fpregs != 0 && fpregs % 16 == 0, "uc_mcontext.fpregs points at an aligned FXSAVE image");
+    assert_eq!(m.read_u32(fpregs + 24).unwrap(), 0x7f80);
+    // sigreturn brings the interrupted FPU state back
+    sys.thread_mut(pid).unwrap().regs.rsp += 8;
+    assert_eq!(sys.syscall(pid, 15, [0; 6]), Sys::Restored);
+    assert_eq!(&sys.thread(pid).unwrap().fx[24..28], &0x7f80u32.to_le_bytes());
+}
+
+#[test]
+fn unlinked_file_lives_until_its_last_descriptor_closes() {
+    let mut sys = new_sys();
+    let pid = spawn_nop(&mut sys);
+    sys.fs.mkdir("/dev/shm", 0o777).ok();
+    let path = put(&mut sys, pid, "/dev/shm/org.mozilla.ipc.1");
+    let fd = sc(&mut sys, pid, 257, &[(-100i64) as u64, path, 0o2 | 0o100 | 0o200, 0o600]) as u64; // O_RDWR|O_CREAT|O_EXCL
+    let fd2 = sc(&mut sys, pid, 257, &[(-100i64) as u64, path, 0, 0]) as u64;
+    assert_eq!(sc(&mut sys, pid, 87, &[path]), 0, "unlink");
+    assert_eq!(sc(&mut sys, pid, 257, &[(-100i64) as u64, path, 0, 0]), -ENOENT, "the name is gone");
+    assert_eq!(sc(&mut sys, pid, 285, &[fd, 0, 0, 8]), 0, "fallocate through the open fd");
+    let buf = put(&mut sys, pid, "shared!");
+    assert_eq!(sc(&mut sys, pid, 1, &[fd, buf, 7]), 7);
+    let out = put(&mut sys, pid, "........");
+    assert_eq!(sc(&mut sys, pid, 0, &[fd2, out, 7]), 7, "the other descriptor sees the same file");
+    assert_eq!(sys.process_mut(pid).unwrap().mem.read_vec(out, 7).unwrap(), b"shared!");
+    sc(&mut sys, pid, 3, &[fd]);
+    let map = sc(&mut sys, pid, 9, &[0, 8, 1, 1, fd2, 0]);
+    assert!(map > 0, "still mappable through the other descriptor");
+    sc(&mut sys, pid, 3, &[fd2]);
+    assert_eq!(sys.fs.list("/.loos-unlinked").unwrap().len(), 1, "a mapping keeps it too");
+    sc(&mut sys, pid, 11, &[map as u64, 8]);
+    let left: Vec<_> = sys.fs.list("/.loos-unlinked").map(|v| v.len()).into_iter().collect();
+    assert_eq!(left, vec![0], "storage freed with the last descriptor");
+}
+
+#[test]
+fn seqpacket_socketpair_keeps_message_boundaries() {
+    let mut sys = new_sys();
+    let pid = spawn_nop(&mut sys);
+    let sv = put(&mut sys, pid, "........");
+    assert_eq!(sc(&mut sys, pid, 53, &[1, 5 | 0o2000000, 0, sv]), 0, "socketpair(AF_UNIX, SOCK_SEQPACKET|SOCK_CLOEXEC)");
+    let (a, b) = {
+        let m = &mut sys.process_mut(pid).unwrap().mem;
+        (m.read_u32(sv).unwrap() as u64, m.read_u32(sv + 4).unwrap() as u64)
+    };
+    let one = put(&mut sys, pid, "first");
+    let two = put(&mut sys, pid, "second!");
+    assert_eq!(sc(&mut sys, pid, 1, &[a, one, 5]), 5);
+    assert_eq!(sc(&mut sys, pid, 1, &[a, two, 7]), 7);
+    let out = put(&mut sys, pid, &".".repeat(32));
+    assert_eq!(sc(&mut sys, pid, 0, &[b, out, 32]), 5, "one message per read");
+    assert_eq!(sc(&mut sys, pid, 0, &[b, out, 3]), 3, "a short buffer truncates the message");
+    assert_eq!(sys.process_mut(pid).unwrap().mem.read_vec(out, 3).unwrap(), b"sec");
+    assert_eq!(sc_nonblock_empty(&mut sys, pid, b), -EAGAIN, "the truncated rest is gone");
+}
+
+fn sc_nonblock_empty(sys: &mut LinSystem<loos_lin::fs::MemFs>, pid: u32, fd: u64) -> i64 {
+    // MSG_DONTWAIT recv on an empty socket reports EAGAIN instead of blocking
+    let buf = put(sys, pid, "....");
+    sc(sys, pid, 45, &[fd, buf, 4, 0x40, 0, 0])
+}
+
+#[test]
+fn sendmsg_and_recvmsg_use_every_iovec() {
+    let mut sys = new_sys();
+    let pid = spawn_nop(&mut sys);
+    let sv = put(&mut sys, pid, "........");
+    assert_eq!(sc(&mut sys, pid, 53, &[1, 1, 0, sv]), 0);
+    let (a, b) = {
+        let m = &mut sys.process_mut(pid).unwrap().mem;
+        (m.read_u32(sv).unwrap() as u64, m.read_u32(sv + 4).unwrap() as u64)
+    };
+    // msghdr { name, namelen, iov, iovlen, control, controllen, flags } with two iovecs
+    let (h1, h2) = (put(&mut sys, pid, "HEAD"), put(&mut sys, pid, "payload"));
+    let iov = put(&mut sys, pid, &"\0".repeat(32));
+    let msg = put(&mut sys, pid, &"\0".repeat(56));
+    {
+        let m = &mut sys.process_mut(pid).unwrap().mem;
+        for (k, v) in [h1, 4, h2, 7].iter().enumerate() {
+            m.write_u64(iov + k as u64 * 8, *v).unwrap();
+        }
+        m.write_u64(msg + 16, iov).unwrap();
+        m.write_u64(msg + 24, 2).unwrap();
+    }
+    assert_eq!(sc(&mut sys, pid, 46, &[a, msg, 0]), 11, "both buffers are sent");
+    let (r1, r2) = (put(&mut sys, pid, "...."), put(&mut sys, pid, "......."));
+    {
+        let m = &mut sys.process_mut(pid).unwrap().mem;
+        for (k, v) in [r1, 4, r2, 7].iter().enumerate() {
+            m.write_u64(iov + k as u64 * 8, *v).unwrap();
+        }
+    }
+    assert_eq!(sc(&mut sys, pid, 47, &[b, msg, 0]), 11);
+    let m = &mut sys.process_mut(pid).unwrap().mem;
+    assert_eq!((m.read_vec(r1, 4).unwrap(), m.read_vec(r2, 7).unwrap()), (b"HEAD".to_vec(), b"payload".to_vec()), "scattered back in order");
+}
+
+#[test]
+fn passed_fds_arrive_with_the_bytes_they_were_sent_with() {
+    let mut sys = new_sys();
+    let pid = spawn_nop(&mut sys);
+    let sv = put(&mut sys, pid, "........");
+    assert_eq!(sc(&mut sys, pid, 53, &[1, 1, 0, sv]), 0);
+    let (a, b) = {
+        let m = &mut sys.process_mut(pid).unwrap().mem;
+        (m.read_u32(sv).unwrap() as u64, m.read_u32(sv + 4).unwrap() as u64)
+    };
+    let msg = put(&mut sys, pid, &"\0".repeat(56));
+    let iov = put(&mut sys, pid, &"\0".repeat(16));
+    let ctl = put(&mut sys, pid, &"\0".repeat(24));
+    let send = |sys: &mut LinSystem<loos_lin::fs::MemFs>, text: &str, fd: Option<u64>| {
+        let data = put(sys, pid, text);
+        let m = &mut sys.process_mut(pid).unwrap().mem;
+        m.write_u64(iov, data).unwrap();
+        m.write_u64(iov + 8, text.len() as u64).unwrap();
+        m.write_u64(msg + 16, iov).unwrap();
+        m.write_u64(msg + 24, 1).unwrap();
+        match fd {
+            Some(fd) => {
+                m.write_u64(ctl, 20).unwrap(); // cmsg_len
+                m.write_u32(ctl + 8, 1).unwrap(); // SOL_SOCKET
+                m.write_u32(ctl + 12, 1).unwrap(); // SCM_RIGHTS
+                m.write_u32(ctl + 16, fd as u32).unwrap();
+                m.write_u64(msg + 32, ctl).unwrap();
+                m.write_u64(msg + 40, 24).unwrap();
+            }
+            None => {
+                m.write_u64(msg + 32, 0).unwrap();
+                m.write_u64(msg + 40, 0).unwrap();
+            }
+        }
+        sc(sys, pid, 46, &[a, msg, 0])
+    };
+    assert_eq!(send(&mut sys, "plain", None), 5);
+    assert_eq!(send(&mut sys, "withfd", Some(1)), 6);
+    let buf = put(&mut sys, pid, &".".repeat(64));
+    let recv = |sys: &mut LinSystem<loos_lin::fs::MemFs>| {
+        let m = &mut sys.process_mut(pid).unwrap().mem;
+        m.write_u64(iov, buf).unwrap();
+        m.write_u64(iov + 8, 64).unwrap();
+        m.write_u64(msg + 32, ctl).unwrap();
+        m.write_u64(msg + 40, 24).unwrap();
+        let n = sc(sys, pid, 47, &[b, msg, 0]);
+        let m = &mut sys.process_mut(pid).unwrap().mem;
+        (n, m.read_u64(msg + 40).unwrap())
+    };
+    assert_eq!(recv(&mut sys), (5, 0), "stops before the fd-carrying message; no control data");
+    let (n, clen) = recv(&mut sys);
+    assert_eq!((n, clen), (6, 24), "the fd comes with its own bytes");
+}
+
+#[test]
+fn sealed_or_read_only_shared_memory_cannot_be_mapped_writable() {
+    let mut sys = new_sys();
+    let pid = spawn_nop(&mut sys);
+    let name = put(&mut sys, pid, "shm");
+    let fd = sc(&mut sys, pid, 319, &[name, 1 | 2]) as u64; // MFD_CLOEXEC | MFD_ALLOW_SEALING
+    assert_eq!(sc(&mut sys, pid, 77, &[fd, 4096]), 0);
+    assert!(sc(&mut sys, pid, 9, &[0, 4096, 3, 1, fd, 0]) > 0, "writable shared map of an unsealed memfd");
+    assert_eq!(sc(&mut sys, pid, 72, &[fd, 1033, 8 | 2 | 4]), 0, "F_ADD_SEALS write|shrink|grow");
+    assert_eq!(sc(&mut sys, pid, 72, &[fd, 1034]), 8 | 2 | 4);
+    assert_eq!(sc(&mut sys, pid, 9, &[0, 4096, 3, 1, fd, 0]), -EPERM, "write-sealed: no writable mapping");
+    assert!(sc(&mut sys, pid, 9, &[0, 4096, 1, 1, fd, 0]) > 0, "read-only mapping still fine");
+    let buf = put(&mut sys, pid, "x");
+    assert_eq!(sc(&mut sys, pid, 1, &[fd, buf, 1]), -EPERM, "write() refused too");
+    assert_eq!(sc(&mut sys, pid, 77, &[fd, 0]), -EPERM, "shrink refused");
+    // a read-only descriptor of an ordinary file cannot back a writable shared mapping
+    sys.fs.add_file("/tmp/ro", &[0; 4096], 0o644);
+    let path = put(&mut sys, pid, "/tmp/ro");
+    let ro = sc(&mut sys, pid, 257, &[(-100i64) as u64, path, 0, 0]) as u64;
+    assert_eq!(sc(&mut sys, pid, 9, &[0, 4096, 3, 1, ro, 0]), -EACCES);
+    assert_eq!(sc(&mut sys, pid, 72, &[ro, 1034]), -EINVAL, "only memfds have seals");
+}
+
+#[test]
+fn proc_self_fd_reopens_the_same_file_read_only() {
+    let mut sys = new_sys();
+    let pid = spawn_nop(&mut sys);
+    let name = put(&mut sys, pid, "shm");
+    let fd = sc(&mut sys, pid, 319, &[name, 0]) as u64;
+    let data = put(&mut sys, pid, "frozen");
+    assert_eq!(sc(&mut sys, pid, 1, &[fd, data, 6]), 6);
+    let link = put(&mut sys, pid, &format!("/proc/self/fd/{fd}"));
+    let ro = sc(&mut sys, pid, 257, &[(-100i64) as u64, link, 0, 0]) as u64; // O_RDONLY
+    assert!(ro as i64 > 0);
+    assert_eq!(sc(&mut sys, pid, 72, &[ro, 3]) & 3, 0, "the new descriptor is read-only");
+    assert_eq!(sc(&mut sys, pid, 9, &[0, 4096, 3, 1, ro, 0]), -EACCES, "so it cannot be mapped writable");
+    let out = put(&mut sys, pid, "......");
+    assert_eq!(sc(&mut sys, pid, 17, &[ro, out, 6, 0]), 6, "pread sees the same bytes");
+    assert_eq!(sys.process_mut(pid).unwrap().mem.read_vec(out, 6).unwrap(), b"frozen");
+    let buf = put(&mut sys, pid, &".".repeat(64));
+    let n = sc(&mut sys, pid, 89, &[link, buf, 64]);
+    assert!(n > 0 && sys.process_mut(pid).unwrap().mem.read_vec(buf, n as usize).unwrap().starts_with(b"/tmp/.loos-memfd"), "readlink names the file");
+}
+
+#[test]
+fn timerfd_expires_on_the_clock_and_wakes_its_reader() {
+    let mut sys = new_sys();
+    let pid = spawn_nop(&mut sys);
+    let fd = sc(&mut sys, pid, 283, &[1, 0o4000]) as u64; // CLOCK_MONOTONIC, TFD_NONBLOCK
+    // it_interval = 10 ms, it_value = 50 ms
+    let spec = put(&mut sys, pid, &"\0".repeat(32));
+    {
+        let m = &mut sys.process_mut(pid).unwrap().mem;
+        m.write_u64(spec + 8, 10_000_000).unwrap();
+        m.write_u64(spec + 24, 50_000_000).unwrap();
+    }
+    assert_eq!(sc(&mut sys, pid, 286, &[fd, 0, spec, 0]), 0);
+    let buf = put(&mut sys, pid, "........");
+    assert_eq!(sc(&mut sys, pid, 0, &[fd, buf, 8]), -EAGAIN, "not yet expired");
+    sys.advance(75_000_000); // 25 ms past the first expiry: 1 + 2 periodic expirations
+    assert_eq!(sc(&mut sys, pid, 0, &[fd, buf, 8]), 8);
+    assert_eq!(sys.process_mut(pid).unwrap().mem.read_u64(buf).unwrap(), 3);
+    // a blocking read sleeps until the next expiry and then returns its count
+    assert_eq!(sc(&mut sys, pid, 72, &[fd, 4, 0]), 0, "clear O_NONBLOCK");
+    assert_eq!(sys.syscall(pid, 0, [fd, buf, 8, 0, 0, 0]), Sys::Blocked);
+    assert!(sys.next_deadline().is_some(), "the expiry is a deadline the scheduler waits for");
+    sys.advance(10_000_000);
+    let t = sys.thread(pid).unwrap();
+    assert_eq!((t.state.clone(), t.regs.rax), (TState::Runnable, 8));
+    assert_eq!(sys.process_mut(pid).unwrap().mem.read_u64(buf).unwrap(), 1);
+}
+
+#[test]
+fn edge_triggered_epoll_reports_changes_not_levels() {
+    let mut sys = new_sys();
+    let pid = spawn_nop(&mut sys);
+    let sv = put(&mut sys, pid, "........");
+    assert_eq!(sc(&mut sys, pid, 53, &[1, 1, 0, sv]), 0);
+    let (a, b) = {
+        let m = &mut sys.process_mut(pid).unwrap().mem;
+        (m.read_u32(sv).unwrap() as u64, m.read_u32(sv + 4).unwrap() as u64)
+    };
+    let ep = sc(&mut sys, pid, 291, &[0]) as u64;
+    let ev = put(&mut sys, pid, &"\0".repeat(12));
+    sys.process_mut(pid).unwrap().mem.write_u32(ev, 0x1 | 0x4 | (1 << 31)).unwrap(); // EPOLLIN|EPOLLOUT|EPOLLET
+    assert_eq!(sc(&mut sys, pid, 233, &[ep, 1, b, ev]), 0);
+    let out = put(&mut sys, pid, &"\0".repeat(48));
+    assert_eq!(sc(&mut sys, pid, 232, &[ep, out, 4, 0]), 1, "first report: writable");
+    assert_eq!(sc(&mut sys, pid, 232, &[ep, out, 4, 0]), 0, "still writable, but nothing new: no busy loop");
+    let data = put(&mut sys, pid, "hi");
+    assert_eq!(sc(&mut sys, pid, 1, &[a, data, 2]), 2);
+    assert_eq!(sc(&mut sys, pid, 232, &[ep, out, 4, 0]), 1, "data arrived: reported again");
+    assert_ne!(sys.process_mut(pid).unwrap().mem.read_u32(out).unwrap() & 1, 0, "with EPOLLIN");
+    assert_eq!(sc(&mut sys, pid, 232, &[ep, out, 4, 0]), 0);
 }

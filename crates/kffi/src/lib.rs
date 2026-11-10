@@ -1,10 +1,12 @@
 //! Freestanding C ABI linked into the stage-0 kernel (`boot/build-kernel.sh`).
-//! Allocation goes to the kernel's `kalloc` (a bump allocator: frees are dropped).
+//! Allocation goes to [`heap`], which recycles freed memory and grows from the kernel's bump `kalloc`.
 // Host builds (cargo test --workspace) use std; only the kernel target supplies alloc/panic.
 #![cfg_attr(target_os = "none", no_std)]
 #![allow(clippy::missing_safety_doc)]
 
 extern crate alloc;
+
+pub mod heap;
 
 #[cfg(target_os = "none")]
 mod lin;
@@ -26,18 +28,29 @@ extern "C" {
 }
 
 #[cfg(target_os = "none")]
-struct KAlloc;
+struct KAlloc(UnsafeCell<heap::Heap>);
+// SAFETY: the kernel runs Rust code on one CPU and never from interrupt handlers.
+#[cfg(target_os = "none")]
+unsafe impl Sync for KAlloc {}
+#[cfg(target_os = "none")]
+fn kalloc_grow(size: usize, align: usize) -> *mut u8 {
+    // SAFETY: plain C bump allocation (identity-mapped RAM).
+    unsafe { kalloc(size as u64, align as u64) }
+}
 #[cfg(target_os = "none")]
 unsafe impl GlobalAlloc for KAlloc {
     unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        // SAFETY: kalloc returns aligned memory or null.
-        unsafe { kalloc(l.size() as u64, l.align().max(8) as u64) }
+        // SAFETY: single-threaded kernel (see `Sync` above).
+        unsafe { (*self.0.get()).alloc(l) }
     }
-    unsafe fn dealloc(&self, _: *mut u8, _: Layout) {}
+    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
+        // SAFETY: as above; `p` came from `alloc(l)`.
+        unsafe { (*self.0.get()).dealloc(p, l) }
+    }
 }
 #[cfg(target_os = "none")]
 #[global_allocator]
-static A: KAlloc = KAlloc;
+static A: KAlloc = KAlloc(UnsafeCell::new(heap::Heap::new(kalloc_grow)));
 
 #[cfg(target_os = "none")]
 #[panic_handler]

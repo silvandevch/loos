@@ -28,6 +28,9 @@ pub type Pid = u32;
 /// Base of the `liblooswin` bridge syscall range ("LO" << 16).
 pub const BRIDGE_BASE: u64 = 0x4C4F_0000;
 const AT_FDCWD: i32 = -100;
+/// Where unlinked-but-open files live until their last descriptor closes.
+const UNLINKED: &str = "/.loos-unlinked/";
+
 /// Wall-clock epoch offset (2025-10-09) added to the monotonic clock.
 pub const EPOCH_BASE_S: u64 = 1_760_000_000;
 const PIPE_CAP: usize = 64 * 1024;
@@ -97,6 +100,8 @@ pub enum Wait {
     Event(usize),
     /// `CLONE_VFORK` parent: until child (pid) execs or exits; resumes returning the child pid.
     VFork(Pid),
+    /// A timerfd read waiting for its expiry.
+    Timer(usize),
 }
 
 /// Thread scheduling state.
@@ -138,6 +143,20 @@ pub struct Thread {
     pub robust: u64,
     /// Deadline of a poll that is being re-run after a wake-up (so waking does not restart its timeout).
     pub resume_deadline: Option<u64>,
+    /// x87/SSE register state (FXSAVE image), saved and restored by the kernel around each run.
+    pub fx: Box<[u8; 512]>,
+    /// CPU exception behind the signal being delivered: (vector, error code, cr2).
+    pub fault: Option<(u64, u64, u64)>,
+}
+
+/// Initial FPU state: x87 control word 0x37f, MXCSR 0x1f80 (all exceptions masked).
+pub fn fx_default() -> Box<[u8; 512]> {
+    let mut fx = Box::new([0u8; 512]);
+    fx[0] = 0x7f;
+    fx[1] = 0x03;
+    fx[24..28].copy_from_slice(&0x1f80u32.to_le_bytes());
+    fx[28..32].copy_from_slice(&0xffffu32.to_le_bytes()); // MXCSR_MASK
+    fx
 }
 
 /// Signal action (`struct kernel_sigaction`).
@@ -166,6 +185,16 @@ enum FKind {
     Sock(usize),
     EventFd(usize),
     Epoll(usize),
+    /// timerfd: index into `timers`.
+    TimerFd(usize),
+}
+
+/// A timerfd: next expiry on the monotonic clock (`now_ns` domain; 0 = disarmed) and the period.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Timer {
+    next: u64,
+    interval: u64,
+    realtime: bool,
 }
 
 struct OpenFile {
@@ -197,14 +226,23 @@ struct Sock {
     /// Default destination of a connected UDP socket.
     udp_peer: Option<(Ipv4Addr, u16)>,
     datagram: bool,
-    rights: VecDeque<Vec<FileRef>>,
+    /// Passed fds by the stream position of the first byte of the message that carried them.
+    rights: VecDeque<(u64, Vec<FileRef>)>,
+    /// Bytes ever queued / consumed on `rx` (stream positions for `rights`).
+    rx_tail: u64,
+    rx_head: u64,
     wayland: Option<WaylandServer>,
+    /// Local SOCK_SEQPACKET / SOCK_DGRAM: `rx` holds whole messages whose lengths are in `msgs`.
+    packet: bool,
+    msgs: VecDeque<usize>,
 }
 
 struct Pipe {
     buf: VecDeque<u8>,
     readers: usize,
     writers: usize,
+    /// Bumped whenever bytes go in or out (edge-triggered epoll).
+    gen: u64,
 }
 
 /// A Linux process.
@@ -276,6 +314,12 @@ pub struct LinSystem<F: LinFs> {
     /// Page cache of files mapped `MAP_SHARED` (or handed to the compositor): every mapping of a
     /// path aliases these pages, so a client's drawing into a memfd is live for the compositor.
     page_cache: BTreeMap<String, SharedBuf>,
+    /// memfd seals by file (files without an entry are sealed against new seals).
+    seals: BTreeMap<String, u32>,
+    /// Unlinked files kept for open descriptors: hidden path -> open-file objects still referring to it.
+    unlinked_open: BTreeMap<String, usize>,
+    /// The vDSO time page shared (read-only) by every process; see [`Self::set_clock_page`].
+    vvar: SharedBuf,
     /// Output size advertised to Wayland clients.
     pub wayland_screen: (u32, u32),
     procs: BTreeMap<Pid, Process>,
@@ -293,6 +337,13 @@ pub struct LinSystem<F: LinFs> {
     pub console_out: Vec<u8>,
     /// Log every syscall to the console (strace-style).
     pub trace: bool,
+    /// When set, trace only these syscall numbers.
+    pub trace_only: Option<Vec<u64>>,
+    /// Last I/O fingerprint pollers were checked against, and when they were last swept.
+    io_seen: u64,
+    poll_sweep_ns: u64,
+    /// Diagnostics: per process, the last fd poll/epoll reported ready ("fd N <what> ev X").
+    pub last_ready: BTreeMap<Pid, String>,
     /// When set, reads from the console return EOF instead of blocking (batch runs).
     pub stdin_eof: bool,
     console_in: VecDeque<u8>,
@@ -303,7 +354,10 @@ pub struct LinSystem<F: LinFs> {
     /// Optional LoOS network stack used by AF_INET datagram sockets.
     net: Option<Box<dyn LinNet>>,
     eventfds: Vec<(u64, bool)>,
-    epolls: Vec<Vec<(i32, u32, u64)>>,
+    /// timerfds.
+    pub(crate) timers: Vec<Timer>,
+    /// epoll sets: (fd, events, data, activity seen at the last report for EPOLLET).
+    epolls: Vec<Vec<(i32, u32, u64, u64)>>,
 }
 
 #[path = "sysio.rs"]
@@ -323,13 +377,24 @@ impl<F: LinFs> LinSystem<F> {
             pipes: Vec::new(),
             socks: vec![Sock { key: Some("unix:/run/user/1000/wayland-0".into()), listening: true, ..Sock::default() }],
             page_cache: BTreeMap::new(),
+            seals: BTreeMap::new(),
+            unlinked_open: BTreeMap::new(),
             wayland_screen: (1024, 768),
+            vvar: {
+                let mut pb = PageBuf::default();
+                pb.write_at(0, &[1; 8]); // allocate the page now: its address must never change
+                Rc::new(RefCell::new(pb))
+            },
             next_id: 100,
             now_ns: 0,
             epoch_base_s: EPOCH_BASE_S,
             missing: BTreeMap::new(),
             console_out: Vec::new(),
             trace: false,
+            trace_only: None,
+            last_ready: BTreeMap::new(),
+            io_seen: 0,
+            poll_sweep_ns: 0,
             stdin_eof: false,
             console_in: VecDeque::new(),
             bridge: None,
@@ -338,6 +403,7 @@ impl<F: LinFs> LinSystem<F> {
             deferred: Vec::new(),
             net: None,
             eventfds: Vec::new(),
+            timers: Vec::new(),
             epolls: Vec::new(),
         }
     }
@@ -390,6 +456,60 @@ impl<F: LinFs> LinSystem<F> {
         let b = Rc::new(RefCell::new(pb));
         self.page_cache.insert(path.into(), b.clone());
         Ok(b)
+    }
+
+    /// Activity counter of an open file: moves whenever its readiness may have changed
+    /// (data in or out, counters, timers). Edge-triggered epoll reports only when it moved.
+    pub(crate) fn activity(&self, f: &FileRef) -> u64 {
+        match f.borrow().kind {
+            FKind::Sock(i) => {
+                let s = &self.socks[i];
+                let drained = s.peer.map_or(0, |pe| self.socks[pe].rx_head);
+                s.rx_tail.wrapping_add(drained).wrapping_add(s.backlog.len() as u64).wrapping_add(s.peer_closed as u64)
+            }
+            FKind::PipeR(i) | FKind::PipeW(i) => self.pipes[i].gen.wrapping_add(self.pipes[i].writers as u64 * 7 + self.pipes[i].readers as u64 * 13),
+            FKind::EventFd(i) => self.eventfds[i].0,
+            FKind::TimerFd(i) => self.timers[i].next ^ (self.now_ns >= self.timers[i].next) as u64,
+            _ => 0,
+        }
+    }
+
+    /// Queue a message for local socket `i`; `fds` travel with its first byte (SCM_RIGHTS).
+    fn sock_push(&mut self, i: usize, data: &[u8], fds: Vec<FileRef>) {
+        let s = &mut self.socks[i];
+        if !fds.is_empty() {
+            s.rights.push_back((s.rx_tail, fds));
+        }
+        s.rx.extend(data);
+        s.rx_tail += data.len() as u64;
+        if s.packet {
+            s.msgs.push_back(data.len());
+        }
+    }
+
+    /// Take up to `max` received bytes from local socket `i`, plus the fds sent with them. Like Linux,
+    /// a read never runs into a later message that carries fds, so every fd set arrives with exactly
+    /// the bytes it was sent with. Packet sockets return one whole message (excess is discarded).
+    fn sock_pop(&mut self, i: usize, max: usize) -> (Vec<u8>, Vec<FileRef>) {
+        let s = &mut self.socks[i];
+        let start = s.rx_head;
+        let fds = match s.rights.front() {
+            Some((pos, _)) if *pos <= start => s.rights.pop_front().unwrap().1,
+            _ => Vec::new(),
+        };
+        let (take, keep) = if s.packet {
+            let l = s.msgs.pop_front().unwrap_or(s.rx.len());
+            (l, l.min(max))
+        } else {
+            let limit = s.rights.front().map_or(usize::MAX, |(pos, _)| (pos - start) as usize);
+            let n = max.min(s.rx.len()).min(limit);
+            (n, n)
+        };
+        let take = take.min(s.rx.len());
+        let mut out: Vec<u8> = s.rx.drain(..take).collect();
+        out.truncate(keep);
+        s.rx_head += take as u64;
+        (out, fds)
     }
 
     fn wake_pollers(&mut self) {
@@ -451,10 +571,7 @@ impl<F: LinFs> LinSystem<F> {
             let kind = if path == "/dev/null" { FKind::Null } else { FKind::Reg(path) };
             files.push(self.new_fd(kind, 0));
         }
-        if !files.is_empty() {
-            self.socks[cli].rights.push_back(files);
-        }
-        self.socks[cli].rx.extend(events);
+        self.sock_push(cli, &events, files);
         self.wake_where(|t| matches!(t.state, TState::Blocked { wait: Wait::Sock(q), .. } if q == cli));
         self.wake_pollers();
     }
@@ -482,12 +599,34 @@ impl<F: LinFs> LinSystem<F> {
         self.procs.get_mut(&pid)
     }
     /// All thread ids, ascending.
+    /// Live processes (zombies excluded) and threads, for status reports.
+    pub fn counts(&self) -> (usize, usize) {
+        (self.procs.values().filter(|p| p.exit.is_none()).count(), self.threads.len())
+    }
+    /// All thread ids.
     pub fn thread_ids(&self) -> Vec<Pid> {
         self.threads.keys().copied().collect()
     }
     /// Earliest blocking deadline (ns) of any thread, if one exists.
     pub fn next_deadline(&self) -> Option<u64> {
-        self.threads.values().filter_map(|t| if let TState::Blocked { deadline, .. } = &t.state { *deadline } else { None }).min()
+        let timers = self.timers.iter().filter(|t| t.next > self.now_ns).map(|t| t.next);
+        self.threads.values().filter_map(|t| if let TState::Blocked { deadline, .. } = &t.state { *deadline } else { None }).chain(timers).min()
+    }
+
+    /// Expirations of timerfd `i` up to now; consumes them (re-arming periodic timers).
+    fn timer_take(&mut self, i: usize) -> u64 {
+        let now = self.now_ns;
+        let t = &mut self.timers[i];
+        if t.next == 0 || now < t.next {
+            return 0;
+        }
+        if t.interval == 0 {
+            t.next = 0;
+            return 1;
+        }
+        let n = 1 + (now - t.next) / t.interval;
+        t.next += n * t.interval;
+        n
     }
     /// Thread by tid.
     pub fn thread(&self, tid: Pid) -> Option<&Thread> {
@@ -532,8 +671,98 @@ impl<F: LinFs> LinSystem<F> {
         Rc::new(RefCell::new(OpenFile { kind, off: 0, flags }))
     }
 
+    /// Unlink a file. Open descriptors keep an unlinked file alive (Linux semantics programs rely on,
+    /// e.g. shared memory that is created, opened, unlinked, then resized through the fd): such a file
+    /// moves to a hidden path that its descriptors follow, and goes away with the last of them.
+    fn unlink(&mut self, p: &mut Process, abs: &str) -> Result<(), i64> {
+        let open: Vec<FileRef> = p
+            .fds
+            .values()
+            .chain(self.procs.values().flat_map(|q| q.fds.values()))
+            .map(|e| e.file.clone())
+            .filter(|f| matches!(&f.borrow().kind, FKind::Reg(x) if x == abs))
+            .collect();
+        if open.is_empty() && !self.page_cache.contains_key(abs) {
+            return self.fs.remove(abs, false);
+        }
+        self.fs.lstat(abs)?;
+        let hidden = format!("{UNLINKED}{}", self.next_id);
+        self.next_id = self.next_id.wrapping_add(1);
+        if self.fs.lstat(UNLINKED.trim_end_matches('/')).is_err() {
+            self.fs.mkdir(UNLINKED.trim_end_matches('/'), 0o700)?;
+        }
+        self.fs.rename(abs, &hidden)?;
+        // Distinct open-file objects (dup'd and inherited descriptors share one).
+        let mut objs: Vec<FileRef> = Vec::new();
+        for f in open {
+            if !objs.iter().any(|o| Rc::ptr_eq(o, &f)) {
+                f.borrow_mut().kind = FKind::Reg(hidden.clone());
+                objs.push(f);
+            }
+        }
+        self.unlinked_open.insert(hidden.clone(), objs.len());
+        if let Some(b) = self.page_cache.remove(abs) {
+            self.page_cache.insert(hidden.clone(), b);
+        }
+        if let Some(sl) = self.seals.remove(abs) {
+            self.seals.insert(hidden.clone(), sl);
+        }
+        for q in self.procs.values_mut().map(|q| &mut q.fmaps).chain(core::iter::once(&mut p.fmaps)) {
+            for m in q.iter_mut().filter(|m| m.2 == abs) {
+                m.2 = hidden.clone();
+            }
+        }
+        Ok(())
+    }
+
+    /// Map the shared vDSO time page into a fresh program image (only when there is a vDSO).
+    fn map_clock_page(&self, mem: &mut UserMem) -> Result<(), i64> {
+        if crate::vdso::memory_image().is_some() {
+            mem.map_shared_buf(Some(crate::vdso::VVAR_ADDR), PAGE, PROT_READ, self.vvar.clone(), 0, "[vvar]")?;
+        }
+        Ok(())
+    }
+
+    /// Refresh the vDSO time page before user code runs: the monotonic clock is `now_ns` at TSC
+    /// value `tsc`, and `mult` converts TSC ticks to nanoseconds (32.32 fixed point). The kernel must
+    /// advance `now_ns` by the same TSC-derived amount afterwards, so the clock never runs backwards.
+    pub fn set_clock_page(&mut self, tsc: u64, mult: u64) {
+        let mut page = [0u8; 40];
+        for (k, v) in [self.now_ns, tsc, mult, self.epoch_base_s].iter().enumerate() {
+            page[k * 8..k * 8 + 8].copy_from_slice(&v.to_le_bytes());
+        }
+        self.vvar.borrow_mut().write_at(0, &page);
+    }
+
+    /// Delete unlinked files that no descriptor and no mapping uses any more.
+    fn reap_unlinked(&mut self) {
+        let dead: Vec<String> = self
+            .unlinked_open
+            .iter()
+            .filter(|(p, &n)| n == 0 && !self.page_cache.get(*p).is_some_and(|b| Rc::strong_count(b) > 1))
+            .map(|(p, _)| p.clone())
+            .collect();
+        for path in dead {
+            self.unlinked_open.remove(&path);
+            let _ = self.fs.remove(&path, false);
+            self.page_cache.remove(&path);
+            self.seals.remove(&path);
+        }
+    }
+
     fn release(&mut self, f: FileRef) {
+        self.release_inner(f);
+        self.reap_unlinked();
+    }
+
+    fn release_inner(&mut self, f: FileRef) {
         if Rc::strong_count(&f) == 1 {
+            // Last descriptor of an unlinked file: now it really goes.
+            if let FKind::Reg(path) = &f.borrow().kind {
+                if let Some(n) = self.unlinked_open.get_mut(path) {
+                    *n = n.saturating_sub(1);
+                }
+            }
             if let FKind::Sock(i) = f.borrow().kind {
                 if let Some(h) = self.socks[i].udp.take() {
                     if let Some(net) = self.stack_mut() {
@@ -572,6 +801,12 @@ impl<F: LinFs> LinSystem<F> {
 
     /// A `CLONE_VFORK` child exec'd or exited: its parent may run again.
     fn vfork_done(&mut self, child: Pid) {
+        let parents: Vec<Pid> = self.threads.values().filter(|t| matches!(t.state, TState::Blocked { wait: Wait::VFork(c), .. } if c == child)).map(|t| t.pid).collect();
+        for pid in parents {
+            if let Some(p) = self.procs.get_mut(&pid) {
+                p.mem.end_vfork();
+            }
+        }
         self.wake_where(|t| matches!(t.state, TState::Blocked { wait: Wait::VFork(c), .. } if c == child));
     }
 
@@ -585,6 +820,7 @@ impl<F: LinFs> LinSystem<F> {
         let mut mem = UserMem::new();
         let seed = self.rand_u64();
         let l = loader::load(&mut self.fs, &mut mem, path, argv, envp, seed)?;
+        self.map_clock_page(&mut mem)?;
         let pid = self.alloc_id();
         let tty = self.new_fd(FKind::Tty, 2);
         let mut fds = BTreeMap::new();
@@ -598,14 +834,27 @@ impl<F: LinFs> LinSystem<F> {
             pid,
             Process { pid, ppid: 0, mem, fds, cwd: "/".into(), exe: l.exe, argv: argv.to_vec(), acts, threads: vec![pid], exit: None, umask: 0o022, fmaps: Vec::new() },
         );
-        self.threads.insert(pid, Thread { tid: pid, pid, regs, state: TState::Runnable, sigmask: 0, pending: 0, altstack: (0, 0), clear_tid: 0, robust: 0, resume_deadline: None });
+        self.threads.insert(pid, Thread { tid: pid, pid, regs, state: TState::Runnable, sigmask: 0, pending: 0, altstack: (0, 0), clear_tid: 0, robust: 0, resume_deadline: None, fx: fx_default(), fault: None });
         Ok(pid)
     }
 
     /// Advance the clock: fires sleep/futex timeouts.
     pub fn advance(&mut self, ns: u64) {
+        let before = self.now_ns;
         self.now_ns += ns;
         let now = self.now_ns;
+        // timerfds that expired in this step: their readers and pollers re-check.
+        // Safety net: sweep pollers every 10 ms even without a visible I/O change.
+        if now.saturating_sub(self.poll_sweep_ns) >= 10_000_000 {
+            self.poll_sweep_ns = now;
+            self.wake_pollers();
+            self.drain();
+        }
+        let fired: Vec<usize> = (0..self.timers.len()).filter(|&i| self.timers[i].next != 0 && self.timers[i].next > before && self.timers[i].next <= now).collect();
+        if !fired.is_empty() {
+            self.wake_where(|t| matches!(t.state, TState::Blocked { wait: Wait::Poll, .. } | TState::Blocked { wait: Wait::Timer(_), .. }));
+            self.drain();
+        }
         let due: Vec<(Pid, Wait)> = self
             .threads
             .values()
@@ -614,10 +863,19 @@ impl<F: LinFs> LinSystem<F> {
                 _ => None,
             })
             .collect();
+        let mut restart = false;
         for (tid, w) in due {
+            if matches!(w, Wait::Timer(_)) {
+                self.wakeq.push(tid); // re-run the read: it now returns the expiration count
+                restart = true;
+                continue;
+            }
             let t = self.threads.get_mut(&tid).unwrap();
             t.state = TState::Runnable;
             t.regs.rax = if matches!(w, Wait::Sleep | Wait::Poll) { 0 } else { (-ETIMEDOUT) as u64 };
+        }
+        if restart {
+            self.drain();
         }
     }
 
@@ -641,6 +899,22 @@ impl<F: LinFs> LinSystem<F> {
         for (pid, tid, sig) in d {
             self.send_signal(pid, tid, sig);
         }
+    }
+
+    /// A CPU exception in user mode: queue the matching signal with the fault details
+    /// (si_addr, cr2, trapno and error code in the signal frame).
+    pub fn fault(&mut self, tid: Pid, vector: u64, error: u64, cr2: u64) {
+        let sig = match vector {
+            0 | 16 | 19 => 8,
+            1 | 3 => 5,
+            6 => 4,
+            17 => 7,
+            _ => 11,
+        };
+        let Some(t) = self.threads.get_mut(&tid) else { return };
+        t.fault = Some((vector, error, cr2));
+        let pid = t.pid;
+        self.send_signal(pid, Some(tid), sig);
     }
 
     /// Queue signal `sig` for `pid` (or a specific `tid`). Wakes interruptible sleepers.
@@ -704,9 +978,10 @@ impl<F: LinFs> LinSystem<F> {
         let r = t.regs;
         let on_alt = act.flags & 0x0800_0000 != 0 && t.altstack.1 != 0;
         let mut sp = if on_alt { t.altstack.0 + t.altstack.1 } else { r.rsp.wrapping_sub(128) };
-        sp = (sp.wrapping_sub(560)) & !15;
+        // [pretcode][ucontext 8..432][siginfo 432..560][pad][fpstate 584..1096, 16-aligned]
+        sp = (sp.wrapping_sub(1104)) & !15;
         let frame = sp.wrapping_sub(8);
-        let mut buf = vec![0u8; 560];
+        let mut buf = vec![0u8; 1096];
         let put = |b: &mut Vec<u8>, off: usize, v: u64| b[off..off + 8].copy_from_slice(&v.to_le_bytes());
         put(&mut buf, 0, act.restorer);
         // ucontext @8: flags, link, stack_t(sp, flags, size)
@@ -717,9 +992,30 @@ impl<F: LinFs> LinSystem<F> {
         for (i, v) in order.iter().enumerate() {
             put(&mut buf, mc + i * 8, *v);
         }
+        // sigcontext tail: cs/gs/fs/ss, err, trapno, oldmask, cr2, fpstate pointer
+        let fault = t.fault.take();
+        let (vector, error, cr2) = fault.unwrap_or((0, 0, 0));
+        put(&mut buf, mc + 18 * 8, 0x002b_0000_0000_0033);
+        put(&mut buf, mc + 19 * 8, error);
+        put(&mut buf, mc + 20 * 8, vector);
+        put(&mut buf, mc + 21 * 8, t.sigmask);
+        put(&mut buf, mc + 22 * 8, cr2);
+        put(&mut buf, mc + 23 * 8, frame + 584);
         put(&mut buf, 8 + 296 - 8 + 8, t.sigmask); // uc_sigmask @ mcontext+256
-        // siginfo @ 8+424: si_signo, errno, code
+        // siginfo @432: si_signo, si_errno, si_code, then si_addr for faults
         buf[432..436].copy_from_slice(&sig.to_le_bytes());
+        if fault.is_some() {
+            let code: u32 = match (sig, vector) {
+                (11, _) => if error & 1 != 0 { 2 } else { 1 }, // SEGV_ACCERR / SEGV_MAPERR
+                (8, 0) => 1,                                    // FPE_INTDIV
+                (8, _) => 7,                                    // FPE_FLTINV
+                (4, _) => 2,                                    // ILL_ILLOPN
+                _ => 128,                                       // SI_KERNEL
+            };
+            buf[440..444].copy_from_slice(&code.to_le_bytes());
+            put(&mut buf, 448, if sig == 11 { cr2 } else { r.rip });
+        }
+        buf[584..1096].copy_from_slice(&t.fx[..]);
         let ok = p.mem.write(frame, &buf).is_ok();
         if !ok {
             self.procs.insert(pid, p);
@@ -727,6 +1023,7 @@ impl<F: LinFs> LinSystem<F> {
             return Delivery::Killed(11);
         }
         t.sigmask |= act.mask | if act.flags & 0x4000_0000 != 0 { 0 } else { 1 << (sig - 1) };
+        t.fx = fx_default(); // handlers start with a clean FPU state, as on Linux
         t.regs.rsp = frame;
         t.regs.rip = act.handler;
         t.regs.rdi = sig as u64;
@@ -756,6 +1053,7 @@ impl<F: LinFs> LinSystem<F> {
             self.release(f.file);
         }
         p.exit = Some(status);
+        p.mem = UserMem::new(); // a zombie keeps no memory (and releases what it shared with a vfork parent)
         self.vfork_done(pid);
         let ppid = p.ppid;
         // Orphans are reparented to nobody and auto-reaped.
@@ -796,15 +1094,43 @@ impl<F: LinFs> LinSystem<F> {
     /// Execute a syscall for `tid`. The result is also written to the thread's RAX.
     pub fn syscall(&mut self, tid: Pid, nr: u64, a: [u64; 6]) -> Sys {
         let r = self.syscall_inner(tid, nr, a);
-        if self.trace {
+        if self.trace && self.trace_only.as_ref().is_none_or(|only| only.contains(&nr)) {
             let name = crate::syscalls_generated::syscall_name(nr);
-            let line = format!("[{tid}] {name}({:#x}, {:#x}, {:#x}, {:#x}) = {r:?}\n", a[0], a[1], a[2], a[3]);
+            let line = format!("[{tid}] {name}#{nr}({:#x}, {:#x}, {:#x}, {:#x}) = {r:?}\n", a[0], a[1], a[2], a[3]);
             self.console_out.extend(line.as_bytes());
         }
         self.drain();
-        self.wake_pollers();
-        self.drain();
+        // Re-check poll/epoll sleepers only when I/O state changed: re-running every sleeper's
+        // scan after every syscall made each syscall cost dozens.
+        let fp = self.io_fingerprint();
+        if fp != self.io_seen {
+            self.io_seen = fp;
+            self.wake_pollers();
+            self.drain();
+        }
         r
+    }
+
+    /// Cheap digest of everything poll/epoll readiness depends on (sockets, pipes, counters, timers).
+    fn io_fingerprint(&self) -> u64 {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut mix = |v: u64| h = (h ^ v).wrapping_mul(0x100_0000_01b3);
+        for s in &self.socks {
+            mix(s.rx_tail);
+            mix(s.rx_head);
+            mix(s.backlog.len() as u64 | (s.peer_closed as u64) << 32 | (s.closed as u64) << 33 | (s.peer.is_some() as u64) << 34);
+        }
+        for p in &self.pipes {
+            mix(p.gen ^ (p.readers as u64) << 40 ^ (p.writers as u64) << 48);
+        }
+        for e in &self.eventfds {
+            mix(e.0);
+        }
+        for t in &self.timers {
+            mix(t.next);
+        }
+        mix(self.socks.len() as u64 ^ (self.pipes.len() as u64) << 20);
+        h
     }
 
     fn syscall_inner(&mut self, tid: Pid, nr: u64, a: [u64; 6]) -> Sys {
@@ -893,6 +1219,12 @@ impl<F: LinFs> LinSystem<F> {
         if path == "/proc/self/exe" {
             return Ok(Stat { ino: 8, kind: Kind::Symlink, mode: 0o777, size: p.exe.len() as u64, nlink: 1, uid: 0, gid: 0, mtime: 0 });
         }
+        if let Some(f) = Self::proc_fd(p, path) {
+            return match &f?.borrow().kind {
+                FKind::Reg(target) | FKind::Dir(target) => self.fs.lstat(target),
+                _ => Ok(Stat { ino: 13, kind: Kind::Fifo, mode: 0o600, size: 0, nlink: 1, uid: 0, gid: 0, mtime: 0 }),
+            };
+        }
         self.fs.lstat(path)
     }
 
@@ -931,7 +1263,51 @@ impl<F: LinFs> LinSystem<F> {
         mem.write(addr, &b)
     }
 
+    /// The open file behind `/proc/self/fd/N` (also `/proc/<own pid>/fd/N`, `/proc/thread-self/fd/N`).
+    fn proc_fd(p: &Process, abs: &str) -> Option<Result<FileRef, i64>> {
+        let rest = abs.strip_prefix("/proc/")?;
+        let (who, n) = rest.split_once("/fd/")?;
+        if who != "self" && who != "thread-self" && who.parse::<Pid>().ok() != Some(p.pid) {
+            return None;
+        }
+        Some(n.parse::<i32>().ok().and_then(|n| p.fds.get(&n)).map(|e| e.file.clone()).ok_or(ENOENT))
+    }
+
+    /// What `readlink("/proc/self/fd/N")` shows.
+    pub(crate) fn fd_link(f: &FileRef) -> String {
+        match &f.borrow().kind {
+            FKind::Reg(path) | FKind::Dir(path) => path.clone(),
+            FKind::Sock(i) => format!("socket:[{}]", 10000 + i),
+            FKind::PipeR(i) | FKind::PipeW(i) => format!("pipe:[{}]", 20000 + i),
+            FKind::Null => "/dev/null".into(),
+            FKind::Tty => "/dev/tty".into(),
+            FKind::EventFd(_) => "anon_inode:[eventfd]".into(),
+            FKind::TimerFd(_) => "anon_inode:[timerfd]".into(),
+            FKind::Epoll(_) => "anon_inode:[eventpoll]".into(),
+            _ => "anon_inode:[loos]".into(),
+        }
+    }
+
     fn open_path(&mut self, p: &mut Process, abs: &str, flags: u32, mode: u32) -> Result<FileRef, i64> {
+        // /proc/self/fd/N: a fresh open of the same file (new access mode, e.g. a read-only reopen);
+        // pipes, sockets and devices are shared as they are.
+        if let Some(f) = Self::proc_fd(p, abs) {
+            let f = f?;
+            let target = match &f.borrow().kind {
+                FKind::Reg(path) => Some(path.clone()),
+                _ => None,
+            };
+            return match target {
+                Some(path) => {
+                    let f = self.open_path(p, &path, flags & !0o300, mode)?; // no O_CREAT/O_EXCL on the link
+                    if let Some(n) = self.unlinked_open.get_mut(&path) {
+                        *n += 1; // another open of an unlinked file keeps it alive too
+                    }
+                    Ok(f)
+                }
+                None => Ok(f),
+            };
+        }
         let acc = flags & 3;
         let kind = match abs {
             "/dev/null" => Some(FKind::Null),
@@ -1031,12 +1407,12 @@ impl<F: LinFs> LinSystem<F> {
                 }
                 return Ok(self.block(tid, Wait::Sock(i), nr, a, None, true));
             }
-            let n = count.min(sk.rx.len());
-            for b in data.iter_mut().take(n) {
-                *b = sk.rx.pop_front().unwrap();
+            let (got, fds) = self.sock_pop(i, count);
+            for f in fds {
+                self.release(f); // read() has nowhere to put passed fds: they are closed, as on Linux
             }
-            p.mem.write(buf, &data[..n])?;
-            return Ok(Sys::Ret(n as i64));
+            p.mem.write(buf, &got)?;
+            return Ok(Sys::Ret(got.len() as i64));
         }
         let n = {
             let kind_off = {
@@ -1108,10 +1484,28 @@ impl<F: LinFs> LinSystem<F> {
                     let n = count.min(pipe.buf.len());
                     for b in data.iter_mut().take(n) {
                         *b = pipe.buf.pop_front().unwrap();
+                        pipe.gen += 1;
                     }
                     self.wake_where(|t| matches!(t.state, TState::Blocked { wait: Wait::Pipe(q), .. } if q == i));
                     fb = f.borrow_mut();
                     n
+                }
+                FKind::TimerFd(i) => {
+                    let i = *i;
+                    drop(fb);
+                    if count < 8 {
+                        return err(EINVAL);
+                    }
+                    let n = self.timer_take(i);
+                    if n == 0 {
+                        if flags & 0o4000 != 0 {
+                            return err(EAGAIN);
+                        }
+                        let at = self.timers[i].next;
+                        return Ok(self.block(tid, Wait::Timer(i), nr, a, (at != 0).then_some(at), true));
+                    }
+                    p.mem.write(buf, &n.to_le_bytes())?;
+                    return Ok(Sys::Ret(8));
                 }
                 FKind::EventFd(i) => {
                     let i = *i;
@@ -1184,11 +1578,11 @@ impl<F: LinFs> LinSystem<F> {
                 }
                 return Ok(self.block(tid, Wait::Sock(pe), nr, a, None, true));
             }
-            let n = room.min(data.len());
+            let n = if self.socks[pe].packet { data.len() } else { room.min(data.len()) };
             if self.socks[pe].wayland.is_some() {
                 self.wayland_feed(pe, &data[..n], Vec::new())?;
             } else {
-                self.socks[pe].rx.extend(&data[..n]);
+                self.sock_push(pe, &data[..n], Vec::new());
                 self.wake_where(|t| matches!(t.state, TState::Blocked { wait: Wait::Sock(q), .. } if q == pe));
             }
             return Ok(Sys::Ret(n as i64));
@@ -1225,6 +1619,11 @@ impl<F: LinFs> LinSystem<F> {
                     return err(EBADF);
                 }
                 let o = if flags & 0o2000 != 0 { self.fs.lstat(&path)?.size } else { at.unwrap_or(off) };
+                if let Some(&sl) = self.seals.get(&path) {
+                    if sl & 0x18 != 0 || (sl & 4 != 0 && o + data.len() as u64 > self.fs.lstat(&path)?.size) {
+                        return err(EPERM); // write / future-write / grow seals
+                    }
+                }
                 let n = self.fs.write(&path, o, &data)?;
                 if let Some(b) = self.page_cache.get(&path) {
                     b.borrow_mut().write_at(o as usize, &data[..n]);
@@ -1248,6 +1647,7 @@ impl<F: LinFs> LinSystem<F> {
                 }
                 let n = room.min(data.len());
                 self.pipes[i].buf.extend(&data[..n]);
+                self.pipes[i].gen += 1;
                 self.wake_where(|t| matches!(t.state, TState::Blocked { wait: Wait::Pipe(q), .. } if q == i));
                 n
             }
@@ -1431,11 +1831,18 @@ impl<F: LinFs> LinSystem<F> {
                 }
                 if flags & 0x20 == 0 && flags & 1 != 0 {
                     // MAP_SHARED of a regular file: alias its page cache.
-                    let path = match &self.fd(p, fd)?.borrow().kind {
-                        FKind::Reg(path) => Some(path.clone()),
-                        _ => None,
+                    let (path, acc) = match &self.fd(p, fd)?.borrow() {
+                        o => (if let FKind::Reg(path) = &o.kind { Some(path.clone()) } else { None }, o.flags & 3),
                     };
                     if let Some(path) = path {
+                        if prot & PROT_WRITE != 0 {
+                            if acc == 0 {
+                                return err(EACCES); // shared writable map needs a writable fd
+                            }
+                            if self.seals.get(&path).is_some_and(|s| s & 0x18 != 0) {
+                                return err(EPERM); // F_SEAL_WRITE / F_SEAL_FUTURE_WRITE
+                            }
+                        }
                         let fixed = flags & 0x10 != 0 || flags & 0x10_0000 != 0;
                         let at = if fixed {
                             if addr % PAGE != 0 || addr == 0 || addr.checked_add(ceil(len)).is_none_or(|e| e > USER_TOP) {
@@ -1557,6 +1964,7 @@ impl<F: LinFs> LinSystem<F> {
                     }
                 }
                 p.mem.unmap(a[0], a[1])?;
+                self.reap_unlinked();
                 ok(0)
             }
             12 => ok(if a[0] == 0 { p.mem.brk as i64 } else { p.mem.set_brk(a[0]) as i64 }),
@@ -1632,6 +2040,15 @@ impl<F: LinFs> LinSystem<F> {
                     *s = p.mem.read_u64(mc + i as u64 * 8)?;
                 }
                 let mask = p.mem.read_u64(mc + 256)?;
+                let fpstate = p.mem.read_u64(mc + 23 * 8)?;
+                if fpstate != 0 {
+                    let mut fx = [0u8; 512];
+                    p.mem.read(fpstate, &mut fx)?;
+                    // Reserved MXCSR bits would make FXRSTOR fault in the kernel: keep the defined ones.
+                    let mxcsr = u32::from_le_bytes(fx[24..28].try_into().unwrap()) & 0xffff;
+                    fx[24..28].copy_from_slice(&mxcsr.to_le_bytes());
+                    t.fx = Box::new(fx);
+                }
                 let r = &mut t.regs;
                 [r.r8, r.r9, r.r10, r.r11, r.r12, r.r13, r.r14, r.r15, r.rdi, r.rsi, r.rbp, r.rbx, r.rdx, r.rax, r.rcx, r.rsp, r.rip, r.rflags] = v;
                 r.rflags = (r.rflags & 0xDD5) | 0x202;
@@ -1741,7 +2158,7 @@ impl<F: LinFs> LinSystem<F> {
             }
             22 | 293 => {
                 // pipe / pipe2
-                self.pipes.push(Pipe { buf: VecDeque::new(), readers: 0, writers: 0 });
+                self.pipes.push(Pipe { buf: VecDeque::new(), readers: 0, writers: 0, gen: 0 });
                 let i = self.pipes.len() - 1;
                 let fl = if nr == 293 { a[1] as u32 } else { 0 };
                 let r = self.new_fd(FKind::PipeR(i), fl & 0o4000);
@@ -1774,6 +2191,35 @@ impl<F: LinFs> LinSystem<F> {
                             let f = self.fd(p, a[0] as i32)?;
                             let mut fb = f.borrow_mut();
                             fb.flags = (fb.flags & !0o6000) | (a[2] as u32 & 0o6000);
+                            ok(0)
+                        }
+                        // Record locks: one process owns the files it locks here, so every lock is granted.
+                        6 | 7 | 37 | 38 => {
+                            self.fd(p, a[0] as i32)?;
+                            ok(0)
+                        }
+                        5 | 36 => {
+                            self.fd(p, a[0] as i32)?;
+                            p.mem.write(a[2], &2u16.to_le_bytes())?; // l_type = F_UNLCK: no conflicting lock
+                            ok(0)
+                        }
+                        8 | 9 | 15 | 16 => ok(0), // F_SETOWN / F_GETOWN (+_EX): no SIGIO delivery
+                        1031 => ok(65536),       // F_SETPIPE_SZ
+                        1032 => ok(65536),       // F_GETPIPE_SZ
+                        // File seals (memfd): recorded per file; F_SEAL_SEAL (1) forbids adding more.
+                        1033 | 1034 => {
+                            let path = match &self.fd(p, a[0] as i32)?.borrow().kind {
+                                FKind::Reg(x) => x.clone(),
+                                _ => return err(EINVAL),
+                            };
+                            let Some(seals) = self.seals.get(&path).copied() else { return err(EINVAL) }; // only memfds have seals
+                            if a[1] == 1034 {
+                                return ok(seals as i64);
+                            }
+                            if seals & 1 != 0 {
+                                return err(EPERM);
+                            }
+                            self.seals.insert(path, seals | a[2] as u32 & 0x1f);
                             ok(0)
                         }
                         _ => err(EINVAL),
@@ -1864,7 +2310,13 @@ impl<F: LinFs> LinSystem<F> {
                 let (dirfd, pp, buf, sz) = if nr == 89 { (AT_FDCWD, a[0], a[1], a[2]) } else { (a[0] as i32, a[1], a[2], a[3]) };
                 let path = p.mem.read_cstr(pp, 4096)?;
                 let abs = self.path_for(p, dirfd, &path, false)?;
-                let t = if abs == "/proc/self/exe" { p.exe.clone() } else { self.fs.readlink(&abs)? };
+                let t = if abs == "/proc/self/exe" {
+                    p.exe.clone()
+                } else if let Some(f) = Self::proc_fd(p, &abs) {
+                    Self::fd_link(&f?)
+                } else {
+                    self.fs.readlink(&abs)?
+                };
                 let n = t.len().min(sz as usize);
                 p.mem.write(buf, &t.as_bytes()[..n])?;
                 ok(n as i64)
@@ -1894,7 +2346,11 @@ impl<F: LinFs> LinSystem<F> {
                         };
                         let path = p.mem.read_cstr(pp, 4096)?;
                         let abs = self.path_for(p, d, &path, false)?;
-                        self.fs.remove(&abs, dir)?;
+                        if dir {
+                            self.fs.remove(&abs, true)?;
+                        } else {
+                            self.unlink(p, &abs)?;
+                        }
                     }
                     82 | 264 => {
                         let (d1, p1, d2, p2) = if nr == 82 { (AT_FDCWD, a[0], AT_FDCWD, a[1]) } else { (a[0] as i32, a[1], a[2] as i32, a[3]) };
@@ -1911,6 +2367,39 @@ impl<F: LinFs> LinSystem<F> {
                 }
                 ok(0)
             }
+            // sched_get_priority_max / _min: SCHED_FIFO and SCHED_RR use 1..99, the others only 0.
+            // capget(header, data): every process runs as root with all capabilities (v3: two 32-bit sets).
+            125 => {
+                p.mem.write_u32(a[0], 0x2008_0522)?; // _LINUX_CAPABILITY_VERSION_3
+                if a[1] != 0 {
+                    let set = [u32::MAX, u32::MAX, 0, 0x1ff, 0x1ff, 0];
+                    for (k, word) in [set[0], set[1], set[2], set[3], set[4], set[5]].iter().enumerate() {
+                        p.mem.write_u32(a[1] + k as u64 * 4, *word)?;
+                    }
+                }
+                ok(0)
+            }
+            126 => ok(0), // capset: accepted
+            // getpriority returns 20 - nice (every process runs at nice 0); setpriority is accepted.
+            140 => ok(20),
+            141 => ok(0),
+            146 | 147 => match a[0] {
+                1 | 2 => ok(if nr == 146 { 99 } else { 1 }),
+                0 | 3 | 5 | 6 => ok(0),
+                _ => err(EINVAL),
+            },
+            285 => {
+                // fallocate(fd, mode, offset, len): mode 0 grows the file; punching/zeroing ranges is accepted as-is.
+                let path = match &self.fd(p, a[0] as i32)?.borrow().kind {
+                    FKind::Reg(x) => x.clone(),
+                    _ => return err(ENODEV),
+                };
+                let end = a[2].checked_add(a[3]).ok_or(EFBIG)?;
+                if a[1] == 0 && end > self.fs.lstat(&path)?.size {
+                    self.fs.truncate(&path, end)?;
+                }
+                ok(0)
+            }
             77 | 76 => {
                 // ftruncate / truncate
                 let path = if nr == 77 {
@@ -1922,6 +2411,12 @@ impl<F: LinFs> LinSystem<F> {
                     let s = p.mem.read_cstr(a[0], 4096)?;
                     self.path_for(p, AT_FDCWD, &s, true)?
                 };
+                if let Some(&sl) = self.seals.get(&path) {
+                    let size = self.fs.lstat(&path)?.size;
+                    if (sl & 2 != 0 && a[1] < size) || (sl & 4 != 0 && a[1] > size) {
+                        return err(EPERM); // F_SEAL_SHRINK / F_SEAL_GROW
+                    }
+                }
                 self.fs.truncate(&path, a[1])?;
                 ok(0)
             }
@@ -1931,8 +2426,11 @@ impl<F: LinFs> LinSystem<F> {
                 let path = format!("/tmp/.loos-memfd-{}-{}", p.pid, self.next_id);
                 self.next_id = self.next_id.wrapping_add(1);
                 self.fs.create(&path, 0o600)?;
+                // MFD_ALLOW_SEALING starts unsealed; otherwise F_SEAL_SEAL forbids adding any.
+                self.seals.insert(path.clone(), if a[1] & 2 != 0 { 0 } else { 1 });
                 let fd = self.alloc_fd(p, 0)?;
-                p.fds.insert(fd, FdEnt { file: self.new_fd(FKind::Reg(path), a[1] as u32), cloexec: false });
+                // MFD_CLOEXEC (1) is the close-on-exec flag; the file itself is read-write.
+                p.fds.insert(fd, FdEnt { file: self.new_fd(FKind::Reg(path), 2), cloexec: a[1] & 1 != 0 });
                 ok(fd as i64)
             }
             // identity
@@ -2121,7 +2619,18 @@ impl<F: LinFs> LinSystem<F> {
             }
             44 | 45 => self.dontwait(p, a[0], a[3], |s, p| s.sys_socket(p, tid, nr, a)),
             41..=55 | 288 => self.sys_socket(p, tid, nr, a),
-            7 | 23 | 270 | 271 | 213 | 291 | 233 | 232 | 281 | 284 | 290 | 118 | 120 | 307 => self.sys_io(p, tid, nr, a),
+            7 | 23 | 270 | 271 | 213 | 291 | 233 | 232 | 281 | 284 | 290 | 118 | 120 | 307 | 253..=255 | 294 | 283 | 286 | 287 => self.sys_io(p, tid, nr, a),
+            280 => {
+                // utimensat(dirfd, path, times, flags): timestamps are not stored; the target must exist.
+                if a[1] == 0 {
+                    self.fd(p, a[0] as i32)?;
+                } else {
+                    let path = p.mem.read_cstr(a[1], 4096)?;
+                    let abs = self.path_for(p, a[0] as i32, &path, a[3] & 0x100 == 0)?;
+                    self.stat_abs(p, &abs)?;
+                }
+                ok(0)
+            }
             _ => err(ENOSYS),
         }
     }
@@ -2221,15 +2730,23 @@ impl<F: LinFs> LinSystem<F> {
                 self.do_read(p, tid, nr, a, &f, base, len, None)
             };
         }
+        // Local sockets: the whole iovec array (header + payload buffers are common, e.g. Firefox IPC).
         let iov = p.mem.read_u64(msg + 16)?;
         let iovlen = p.mem.read_u64(msg + 24)?;
-        if iovlen == 0 || iovlen > 1024 {
+        if iovlen > 1024 {
             return err(EINVAL);
         }
-        let base = p.mem.read_u64(iov)?;
-        let len = p.mem.read_u64(iov + 8)?.min(1 << 20) as usize;
+        let mut iovs = Vec::with_capacity(iovlen as usize);
+        for k in 0..iovlen {
+            iovs.push((p.mem.read_u64(iov + k * 16)?, p.mem.read_u64(iov + k * 16 + 8)? as usize));
+        }
+        let len = iovs.iter().map(|v| v.1).sum::<usize>().min(1 << 22);
         if nr == 46 {
-            let data = p.mem.read_vec(base, len)?;
+            let mut data = Vec::with_capacity(len);
+            for &(b, l) in &iovs {
+                let l = l.min(len - data.len());
+                data.extend(p.mem.read_vec(b, l)?);
+            }
             let control = p.mem.read_u64(msg + 32)?;
             let control_len = p.mem.read_u64(msg + 40)?.min(1 << 20) as usize;
             let mut rights = Vec::new();
@@ -2249,8 +2766,7 @@ impl<F: LinFs> LinSystem<F> {
             if self.socks[pe].wayland.is_some() {
                 self.wayland_feed(pe, &data, rights)?;
             } else {
-                self.socks[pe].rx.extend(&data);
-                self.socks[pe].rights.push_back(rights);
+                self.sock_push(pe, &data, rights);
             }
             let wake = if self.socks[pe].wayland.is_some() { si } else { pe };
             self.wake_where(|t| matches!(t.state, TState::Blocked { wait: Wait::Sock(q), .. } if q == wake));
@@ -2266,31 +2782,49 @@ impl<F: LinFs> LinSystem<F> {
             }
             return Ok(self.block(tid, Wait::Sock(si), nr, a, None, true));
         }
-        let n = len.min(self.socks[si].rx.len());
-        let mut bytes = vec![0u8; n];
-        for b in &mut bytes {
-            *b = self.socks[si].rx.pop_front().unwrap();
+        let (bytes, fds) = self.sock_pop(si, len);
+        let n = bytes.len();
+        let mut done = 0;
+        for &(b, l) in &iovs {
+            if done == n {
+                break;
+            }
+            let k = l.min(n - done);
+            p.mem.write(b, &bytes[done..done + k])?;
+            done += k;
         }
-        p.mem.write(base, &bytes)?;
         let control = p.mem.read_u64(msg + 32)?;
         let control_len = p.mem.read_u64(msg + 40)? as usize;
-        if let Some(rights) = self.socks[si].rights.pop_front() {
-            if control == 0 || control_len < 16 + rights.len() * 4 {
-                return err(EMSGSIZE);
+        let mut flags = 0u32;
+        let mut used = 0usize;
+        if !fds.is_empty() {
+            // As many fds as fit in the control buffer; the rest are closed (MSG_CTRUNC).
+            let fit = if control == 0 { 0 } else { control_len.saturating_sub(16) / 4 };
+            let given = fds.len().min(fit);
+            if given < fds.len() {
+                flags |= 8;
             }
-            let clen = 16 + rights.len() * 4;
-            let mut c = vec![0u8; (clen + 3) & !3];
-            c[..8].copy_from_slice(&(clen as u64).to_ne_bytes());
-            c[8..12].copy_from_slice(&1i32.to_ne_bytes());
-            c[12..16].copy_from_slice(&1i32.to_ne_bytes());
-            for (j, r) in rights.into_iter().enumerate() {
-                let fd = self.alloc_fd(p, 0)?;
-                p.fds.insert(fd, FdEnt { file: r, cloexec: false });
-                c[16 + j * 4..20 + j * 4].copy_from_slice(&(fd as i32).to_ne_bytes());
+            let mut it = fds.into_iter();
+            if given > 0 {
+                let clen = 16 + given * 4;
+                let mut c = vec![0u8; (clen + 7) & !7];
+                c[..8].copy_from_slice(&(clen as u64).to_ne_bytes());
+                c[8..12].copy_from_slice(&1i32.to_ne_bytes());
+                c[12..16].copy_from_slice(&1i32.to_ne_bytes());
+                for j in 0..given {
+                    let fd = self.alloc_fd(p, 0)?;
+                    p.fds.insert(fd, FdEnt { file: it.next().unwrap(), cloexec: a[2] & 0x4000_0000 != 0 });
+                    c[16 + j * 4..20 + j * 4].copy_from_slice(&(fd as i32).to_ne_bytes());
+                }
+                used = c.len().min(control_len);
+                p.mem.write(control, &c[..used])?;
             }
-            p.mem.write(control, &c)?;
-            p.mem.write_u64(msg + 40, c.len() as u64)?;
+            for f in it {
+                self.release(f);
+            }
         }
+        p.mem.write_u64(msg + 40, used as u64)?;
+        p.mem.write_u32(msg + 48, flags)?;
         Ok(Sys::Ret(n as i64))
     }
 
@@ -2371,6 +2905,12 @@ impl<F: LinFs> LinSystem<F> {
                 if dom != 1 && dom != 2 {
                     return err(97);
                 }
+                if dom == 1 && (ty == 2 || ty == 5) {
+                    // local datagram / sequenced-packet socket
+                    self.socks.push(Sock { packet: true, ..Sock::default() });
+                    let i = self.socks.len() - 1;
+                    return Ok(Sys::Ret(new_sock(self, p, i, a[1] & 0o2000000 != 0, a[1] & 0o4000 != 0)?));
+                }
                 if ty != 1 && ty != 2 {
                     return err(93); // EPROTONOSUPPORT
                 }
@@ -2383,17 +2923,22 @@ impl<F: LinFs> LinSystem<F> {
                 Ok(Sys::Ret(new_sock(self, p, i, a[1] & 0o2000000 != 0, a[1] & 0o4000 != 0)?))
             }
             53 => {
-                if a[0] != 1 || a[1] & 0xf != 1 {
+                let ty = a[1] & 0xf;
+                if a[0] != 1 {
                     return err(97);
                 }
-                self.socks.push(Sock::default());
-                self.socks.push(Sock::default());
+                if !matches!(ty, 1 | 2 | 5) {
+                    return err(93); // EPROTONOSUPPORT
+                }
+                let packet = ty != 1;
+                self.socks.push(Sock { packet, ..Sock::default() });
+                self.socks.push(Sock { packet, ..Sock::default() });
                 let (x, y) = (self.socks.len() - 2, self.socks.len() - 1);
                 self.socks[x].peer = Some(y);
                 self.socks[y].peer = Some(x);
-                let cx = a[1] & 0o2000000 != 0;
-                let fx = new_sock(self, p, x, cx, false)?;
-                let fy = new_sock(self, p, y, cx, false)?;
+                let (cx, nb) = (a[1] & 0o2000000 != 0, a[1] & 0o4000 != 0);
+                let fx = new_sock(self, p, x, cx, nb)?;
+                let fy = new_sock(self, p, y, cx, nb)?;
                 p.mem.write_u32(a[3], fx as u32)?;
                 p.mem.write_u32(a[3] + 4, fy as u32)?;
                 Ok(Sys::Ret(0))
@@ -2452,7 +2997,8 @@ impl<F: LinFs> LinSystem<F> {
                 if self.socks[l].backlog.len() >= 128 {
                     return err(111);
                 }
-                self.socks.push(Sock::default());
+                let packet = self.socks[l].packet;
+                self.socks.push(Sock { packet, ..Sock::default() });
                 let srv = self.socks.len() - 1;
                 self.socks[srv].key = Some(key.clone());
                 self.socks[srv].peer = Some(i);
@@ -2556,18 +3102,37 @@ impl<F: LinFs> LinSystem<F> {
             }
             54 => Ok(Sys::Ret(0)),
             55 => {
-                if a[3] != 0 && a[4] != 0 {
-                    let (i, _) = sid(self, p, a[0])?;
-                    let mut v = 0u32;
-                    if a[1] == 1 && a[2] == 4 {
+                // getsockopt(fd, level, name, optval, optlen)
+                let (i, _) = sid(self, p, a[0])?;
+                if a[3] == 0 || a[4] == 0 {
+                    return Ok(Sys::Ret(0));
+                }
+                let inet = self.socks[i].tcp.is_some() || self.socks[i].udp.is_some() || self.socks[i].key.as_deref().is_some_and(|k| !k.starts_with("unix:"));
+                let mut out: Vec<u8> = match (a[1], a[2]) {
+                    (1, 4) => {
                         // SO_ERROR: the outcome of a non-blocking connect
-                        v = self.socks[i].tcp.map_or(0, |h| match self.stack_mut() {
+                        let v = self.socks[i].tcp.map_or(0, |h| match self.stack_mut() {
                             Some(net) if net.tcp_failure(h).is_some() || net.tcp_state(h) == Some(State::Closed) => ECONNREFUSED as u32,
                             _ => 0,
                         });
+                        v.to_ne_bytes().to_vec()
                     }
-                    p.mem.write_u32(a[3], v)?;
-                }
+                    (1, 3) => (if self.socks[i].datagram { 2u32 } else { 1 }).to_ne_bytes().to_vec(), // SO_TYPE
+                    (1, 7) | (1, 8) => 212_992u32.to_ne_bytes().to_vec(),                               // SO_SNDBUF / SO_RCVBUF
+                    (1, 30) => (self.socks[i].listening as u32).to_ne_bytes().to_vec(),                 // SO_ACCEPTCONN
+                    (1, 39) => (if inet { 2u32 } else { 1 }).to_ne_bytes().to_vec(),                    // SO_DOMAIN
+                    (1, 17) => {
+                        // SO_PEERCRED: struct ucred { pid, uid, gid } (every process here runs as root)
+                        let mut c = p.pid.to_ne_bytes().to_vec();
+                        c.extend_from_slice(&[0; 8]);
+                        c
+                    }
+                    _ => 0u32.to_ne_bytes().to_vec(),
+                };
+                let cap = p.mem.read_u32(a[4])? as usize;
+                out.truncate(cap);
+                p.mem.write(a[3], &out)?;
+                p.mem.write_u32(a[4], out.len() as u32)?;
                 Ok(Sys::Ret(0))
             }
             _ => err(ENOSYS),
@@ -2749,6 +3314,7 @@ impl<F: LinFs> LinSystem<F> {
         }
         let new = self.alloc_id();
         let mask = self.threads[&tid].sigmask;
+        let parent_fx = self.threads[&tid].fx.clone(); // children start with the parent's FPU state
         if flags & 0x1_0000 != 0 {
             // thread: needs VM|SIGHAND|FS|FILES semantics
             if flags & 0x100 == 0 || flags & 0x800 == 0 {
@@ -2765,7 +3331,7 @@ impl<F: LinFs> LinSystem<F> {
             }
             let clear = if flags & 0x20_0000 != 0 { ctid } else { 0 };
             p.threads.push(new);
-            self.threads.insert(new, Thread { tid: new, pid: p.pid, regs, state: TState::Runnable, sigmask: mask, pending: 0, altstack: (0, 0), clear_tid: clear, robust: 0, resume_deadline: None });
+            self.threads.insert(new, Thread { tid: new, pid: p.pid, regs, state: TState::Runnable, sigmask: mask, pending: 0, altstack: (0, 0), clear_tid: clear, robust: 0, resume_deadline: None, fx: parent_fx.clone(), fault: None });
             return Ok(Sys::Ret(new as i64));
         }
         // fork / vfork / CLONE_VM|CLONE_VFORK (posix_spawn): copy semantics
@@ -2791,7 +3357,7 @@ impl<F: LinFs> LinSystem<F> {
         }
         let clear = if flags & 0x20_0000 != 0 { ctid } else { 0 };
         self.procs.insert(new, child);
-        self.threads.insert(new, Thread { tid: new, pid: new, regs, state: TState::Runnable, sigmask: mask, pending: 0, altstack: (0, 0), clear_tid: clear, robust: 0, resume_deadline: None });
+        self.threads.insert(new, Thread { tid: new, pid: new, regs, state: TState::Runnable, sigmask: mask, pending: 0, altstack: (0, 0), clear_tid: clear, robust: 0, resume_deadline: None, fx: parent_fx.clone(), fault: None });
         if flags & 0x4000 != 0 {
             return Ok(self.block(tid, Wait::VFork(new), 0, a, None, false));
         }
@@ -2814,6 +3380,7 @@ impl<F: LinFs> LinSystem<F> {
         let seed = self.rand_u64();
         let argv = if argv.is_empty() { vec![path.clone()] } else { argv };
         let l = loader::load(&mut self.fs, &mut mem, &abs, &argv, &envp, seed)?;
+        self.map_clock_page(&mut mem)?;
         // Point of no return.
         p.mem = mem;
         p.exe = l.exe;
@@ -2836,6 +3403,7 @@ impl<F: LinFs> LinSystem<F> {
         p.threads = vec![tid];
         let t = self.threads.get_mut(&tid).unwrap();
         t.regs = Regs { rip: l.entry, rsp: l.sp, rflags: 0x202, ..Regs::default() };
+        t.fx = fx_default();
         t.altstack = (0, 0);
         t.clear_tid = 0;
         t.pending = 0;

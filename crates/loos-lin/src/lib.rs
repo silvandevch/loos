@@ -26,6 +26,7 @@ pub mod syscalls_generated {
     use crate::sys::BRIDGE_BASE;
     include!("syscalls_generated.rs");
 }
+pub mod vdso;
 pub mod vfs;
 pub mod wayland;
 

@@ -6,7 +6,7 @@
  *   0 kernel rsp left by run_user   8 user rsp scratch   16 spare   24 kernel CR3   32 struct uframe *   48 entry stack top
  *
  * struct uframe (layout shared with crates/kffi/src/lin.rs): gpr[16] in x86 encoding order (rax rcx rdx rbx rsp rbp rsi rdi
- * r8-r15), vector, error, rip, cs, rflags, rsp, ss, cr3 (23 qwords, then pad), 512-byte fxsave area at offset 192. */
+ * r8-r15), vector, error, rip, cs, rflags, rsp, ss, cr3 (24 qwords), 512-byte fxsave area at offset 192 (16-byte aligned). */
 .text
 .global run_user
 run_user:                               /* uint64_t run_user(struct uframe *f): returns the trap vector (0x100 = syscall) */
