@@ -39,7 +39,7 @@ fi
 cleanup() { [ -n "$web_pid" ] && kill "$web_pid" 2>/dev/null || true; [ -n "$web_dir" ] && rm -rf "$web_dir" || true; }
 trap cleanup EXIT INT TERM
 echo "LoOS: $mode boot. Super opens Start, F8 at boot opens the startup menu, Ctrl+Alt+G frees the mouse." >&2
-qemu-system-x86_64 -name LoOS $accel -smp 4 -m 1G -vga std "${display[@]}" -serial stdio \
+qemu-system-x86_64 -name LoOS $accel -smp 4 -m ${QEMU_MEM:-4G} -vga std "${display[@]}" -serial stdio \
     -drive "file=$img,format=raw,if=ide" "${web_args[@]}" "${fw[@]}"
 rc=$?
 cleanup

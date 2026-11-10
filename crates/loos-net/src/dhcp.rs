@@ -87,7 +87,9 @@ impl Dhcp {
                 self.state = State::Bound; // keep the old lease; try again at the next half-lease check
                 self.bound_at = now.saturating_sub(u64::from(self.lease?.secs) * 500).saturating_add(60_000);
             } else {
-                self.state = State::Failed;
+                self.tries = 0; // keep asking: the link may only come up seconds after the NIC reset
+                self.last_tx = None;
+                self.state = State::Discover;
             }
             return None;
         }
@@ -250,13 +252,11 @@ mod tests {
         other[14 + 20 + 8 + 4] ^= 1; // wrong xid
         assert!(!c.rx(&other, 0));
         assert!(!c.rx(&other[..n - 100], 0));
-        let mut t = 0;
         let mut sent = 0;
-        while !c.failed() && t < 100_000 {
+        for t in (0..100_000).step_by(500) {
             sent += usize::from(c.poll(t).is_some());
-            t += 500;
         }
-        assert!(c.failed());
-        assert_eq!(sent, usize::from(GIVE_UP_TRIES));
+        assert!(!c.failed() && c.lease().is_none());
+        assert!(sent > 10, "keeps retrying");
     }
 }

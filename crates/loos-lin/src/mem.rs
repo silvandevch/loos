@@ -18,10 +18,16 @@ static NEXT_EPOCH: AtomicU64 = AtomicU64::new(1);
 #[derive(Clone)]
 pub struct Page(pub [u8; 4096]);
 
-/// Page-aligned, zero-initialised byte buffer (length is a multiple of the page size).
+/// A physical page slot: `None` is a not-yet-touched zero page (demand-zero); a page whose
+/// `Rc` is shared with another address space is copy-on-write.
+type Slot = Option<Rc<Box<Page>>>;
+
+static ZERO: Page = Page([0; 4096]);
+
+/// Page-granular, lazily allocated, copy-on-write byte buffer (length is a multiple of the page size).
 #[derive(Clone, Default)]
 pub struct PageBuf {
-    pages: Vec<Page>,
+    pages: Vec<Slot>,
 }
 
 impl core::fmt::Debug for PageBuf {
@@ -31,9 +37,9 @@ impl core::fmt::Debug for PageBuf {
 }
 
 impl PageBuf {
-    /// Zeroed buffer of `len` bytes (rounded up to pages).
+    /// Zeroed buffer of `len` bytes (rounded up to pages); nothing is allocated yet.
     pub fn zeroed(len: u64) -> Self {
-        Self { pages: vec![Page([0; 4096]); (len as usize).div_ceil(4096)] }
+        Self { pages: vec![None; (len as usize).div_ceil(4096)] }
     }
     /// Length in bytes.
     pub fn len(&self) -> usize {
@@ -43,15 +49,76 @@ impl PageBuf {
     pub fn is_empty(&self) -> bool {
         self.pages.is_empty()
     }
-    /// Bytes.
-    pub fn as_slice(&self) -> &[u8] {
-        // SAFETY: Page is repr(C) [u8; 4096] with no padding; the Vec owns len()*4096 contiguous bytes.
-        unsafe { core::slice::from_raw_parts(self.pages.as_ptr().cast::<u8>(), self.len()) }
+    /// Bytes of page `i` (the shared zero page when untouched).
+    pub fn page(&self, i: usize) -> &[u8; 4096] {
+        match &self.pages[i] {
+            Some(p) => &p.0,
+            None => &ZERO.0,
+        }
     }
-    /// Mutable bytes.
-    pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        // SAFETY: as above, exclusive borrow.
-        unsafe { core::slice::from_raw_parts_mut(self.pages.as_mut_ptr().cast::<u8>(), self.len()) }
+    /// Writable page `i`: allocates a zero page or breaks copy-on-write.
+    /// The flag is true when the page's physical address changed (its PTE must be refreshed).
+    pub fn page_mut(&mut self, i: usize) -> (&mut [u8; 4096], bool) {
+        let slot = &mut self.pages[i];
+        let moved = match slot {
+            None => {
+                *slot = Some(Rc::new(Box::new(Page([0; 4096]))));
+                true
+            }
+            Some(p) => Rc::strong_count(p) > 1,
+        };
+        (&mut Rc::make_mut(slot.as_mut().unwrap()).0, moved)
+    }
+    /// Make every present page exclusively owned (shared-memory buffers never copy-on-write).
+    pub fn unshare(&mut self) {
+        for i in 0..self.pages.len() {
+            if self.pages[i].as_ref().is_some_and(|p| Rc::strong_count(p) > 1) {
+                self.page_mut(i);
+            }
+        }
+    }
+    /// Physical address of page `i` and whether it may be mapped writable (exclusively owned);
+    /// `None` for an untouched page (left unmapped, filled on first fault).
+    pub fn page_addr(&self, i: usize) -> Option<(u64, bool)> {
+        self.pages[i].as_ref().map(|p| (&***p as *const Page as u64, Rc::strong_count(p) == 1))
+    }
+    /// Extend with demand-zero pages to at least `len` bytes (existing pages never move).
+    pub fn grow_to(&mut self, len: usize) {
+        let n = len.div_ceil(4096);
+        if n > self.pages.len() {
+            self.pages.resize(n, None);
+        }
+    }
+    /// Copy `out.len()` bytes starting at `off` (zero beyond the end).
+    pub fn read_at(&self, off: usize, out: &mut [u8]) {
+        let mut done = 0;
+        while done < out.len() {
+            let (i, po) = ((off + done) / 4096, (off + done) % 4096);
+            let n = (4096 - po).min(out.len() - done);
+            if i < self.pages.len() {
+                out[done..done + n].copy_from_slice(&self.page(i)[po..po + n]);
+            } else {
+                out[done..done + n].fill(0);
+            }
+            done += n;
+        }
+    }
+    /// Write `data` at `off`, growing as needed.
+    pub fn write_at(&mut self, off: usize, data: &[u8]) {
+        self.grow_to(off + data.len());
+        let mut done = 0;
+        while done < data.len() {
+            let (i, po) = ((off + done) / 4096, (off + done) % 4096);
+            let n = (4096 - po).min(data.len() - done);
+            if data[done..done + n].iter().any(|&b| b != 0) || self.pages[i].is_some() {
+                self.page_mut(i).0[po..po + n].copy_from_slice(&data[done..done + n]);
+            }
+            done += n;
+        }
+    }
+    /// Pages actually backed by memory.
+    pub fn resident(&self) -> usize {
+        self.pages.iter().filter(|p| p.is_some()).count()
     }
     /// Split at `byte` (page aligned), returning the tail.
     pub fn split_off(&mut self, byte: usize) -> PageBuf {
@@ -59,13 +126,9 @@ impl PageBuf {
     }
     /// Prepend `bytes` of zero pages (stack growth).
     pub fn prepend_zero(&mut self, bytes: usize) {
-        let mut v = vec![Page([0; 4096]); bytes / 4096];
+        let mut v = vec![None; bytes / 4096];
         v.append(&mut self.pages);
         self.pages = v;
-    }
-    /// Address of page `i` (identity-mapped kernel memory: this is its physical address).
-    pub fn page_addr(&self, i: usize) -> u64 {
-        &self.pages[i] as *const Page as u64
     }
 }
 
@@ -88,8 +151,8 @@ pub const STACK_TOP: u64 = 0x7fff_ffff_f000;
 pub const STACK_MAX: u64 = 8 << 20;
 /// Top of the mmap area (grows down).
 pub const MMAP_TOP: u64 = 0x7fff_f7e0_0000;
-/// Per-process mapped-memory cap for the model.
-pub const MEM_CAP: u64 = 2 << 30;
+/// Per-process cap on mapped (virtual) memory; physical pages are only allocated on first touch.
+pub const MEM_CAP: u64 = 64 << 30;
 
 /// Round down to page.
 pub fn floor(a: u64) -> u64 {
@@ -143,6 +206,9 @@ pub struct UserMem {
     total: u64,
     /// Bumped on every change of the mapping layout / protections (page-table cache key).
     pub version: u64,
+    /// Pages whose physical backing changed outside a fault (kernel writes allocating or
+    /// breaking copy-on-write); the page-table owner refreshes them via [`UserMem::take_remap`].
+    remap: Vec<u64>,
 }
 
 impl Default for UserMem {
@@ -154,7 +220,7 @@ impl Default for UserMem {
 impl UserMem {
     /// Empty address space.
     pub fn new() -> Self {
-        Self { regions: BTreeMap::new(), brk_start: 0, brk: 0, mmap_next: MMAP_TOP, stack: None, total: 0, version: NEXT_EPOCH.fetch_add(1 << 20, Ordering::Relaxed) }
+        Self { regions: BTreeMap::new(), brk_start: 0, brk: 0, mmap_next: MMAP_TOP, stack: None, total: 0, version: NEXT_EPOCH.fetch_add(1 << 20, Ordering::Relaxed), remap: Vec::new() }
     }
 
     /// All regions in address order.
@@ -206,8 +272,11 @@ impl UserMem {
         }
         self.unmap(start, len)?;
         let mut data = PageBuf::zeroed(len);
-        let n = init.len().min(data.len());
-        data.as_mut_slice()[..n].copy_from_slice(&init[..n]);
+        for (i, c) in init[..init.len().min(data.len())].chunks(4096).enumerate() {
+            if c.iter().any(|&b| b != 0) {
+                data.page_mut(i).0[..c.len()].copy_from_slice(c);
+            }
+        }
         self.version += 1;
         self.regions.insert(start, Region { start, prot, data, name: name.to_string(), shared: None });
         self.total += len;
@@ -222,7 +291,8 @@ impl UserMem {
         self.version += 1;
         for (_, r) in self.regions.range_mut(start..end) {
             if r.shared.is_none() {
-                let d = core::mem::take(&mut r.data);
+                let mut d = core::mem::take(&mut r.data);
+                d.unshare();
                 let n = d.len();
                 r.shared = Some((Rc::new(RefCell::new(d)), 0, n));
             }
@@ -242,8 +312,34 @@ impl UserMem {
         c
     }
 
-    /// Find a free gap below the mmap pointer and map it.
-    pub fn map_anywhere(&mut self, len: u64, prot: u32, init: &[u8], name: &str) -> Result<u64, i64> {
+    /// Address space for a `fork` child: private pages become copy-on-write in both spaces
+    /// (the parent's page tables are rebuilt read-only), shared mappings stay shared.
+    pub fn fork(&mut self) -> UserMem {
+        self.version += 1;
+        let mut c = self.clone();
+        c.version = NEXT_EPOCH.fetch_add(1 << 20, Ordering::Relaxed);
+        c.remap.clear();
+        c
+    }
+
+    /// Pages to refresh in the page tables (see `remap`).
+    pub fn take_remap(&mut self) -> Vec<u64> {
+        core::mem::take(&mut self.remap)
+    }
+
+    /// Current page-table entry for `va`: (physical address, effective prot), `None` if unmapped/untouched.
+    pub fn pte(&self, va: u64) -> Option<(u64, u32)> {
+        let r = self.find(va)?;
+        let i = ((floor(va) - r.start) / PAGE) as usize;
+        let (pa, own) = match &r.shared {
+            Some((b, o, _)) => b.borrow().page_addr(o / 4096 + i)?,
+            None => r.data.page_addr(i)?,
+        };
+        Some((pa, if own { r.prot } else { r.prot & !PROT_WRITE }))
+    }
+
+    /// A free gap of `len` bytes below the mmap pointer.
+    pub fn gap(&self, len: u64) -> Result<u64, i64> {
         if len == 0 {
             return Err(EINVAL);
         }
@@ -253,13 +349,49 @@ impl UserMem {
             let start = top.checked_sub(len).filter(|&s| s >= 0x1_0000).ok_or(ENOMEM)?;
             match self.regions.values().find(|r| r.start < top && r.end() > start) {
                 Some(r) => top = r.start,
-                None => {
-                    self.map_fixed(start, len, prot, init, name)?;
-                    self.mmap_next = start;
-                    return Ok(start);
-                }
+                None => return Ok(start),
             }
         }
+    }
+
+    /// Find a free gap below the mmap pointer and map it.
+    pub fn map_anywhere(&mut self, len: u64, prot: u32, init: &[u8], name: &str) -> Result<u64, i64> {
+        let start = self.gap(len)?;
+        self.map_fixed(start, len, prot, init, name)?;
+        self.mmap_next = start;
+        Ok(start)
+    }
+
+    /// Map [start, start+len) onto bytes `off..` of a buffer other address spaces (or a file's
+    /// page cache) also map: writes are visible through every mapping. `start == None` picks a gap.
+    pub fn map_shared_buf(&mut self, start: Option<u64>, len: u64, prot: u32, buf: SharedBuf, off: usize, name: &str) -> Result<u64, i64> {
+        let len = ceil(len);
+        let start = match start {
+            Some(s) => s,
+            None => {
+                let s = self.gap(len)?;
+                self.mmap_next = s;
+                s
+            }
+        };
+        if start % PAGE != 0 || off % 4096 != 0 || len == 0 {
+            return Err(EINVAL);
+        }
+        let end = start.checked_add(len).filter(|&e| e <= USER_TOP).ok_or(ENOMEM)?;
+        let freed: u64 = self.regions.values().filter(|r| r.start < end && r.end() > start).map(|r| r.end().min(end) - r.start.max(start)).sum();
+        if self.total - freed + len > MEM_CAP {
+            return Err(ENOMEM);
+        }
+        self.unmap(start, len)?;
+        {
+            let mut b = buf.borrow_mut();
+            b.grow_to(off + len as usize);
+            b.unshare();
+        }
+        self.version += 1;
+        self.regions.insert(start, Region { start, prot, data: PageBuf::default(), name: name.to_string(), shared: Some((buf, off, len as usize)) });
+        self.total += len;
+        Ok(start)
     }
 
     /// Unmap [start, start+len) (partial regions are split). Unmapped holes are fine.
@@ -340,11 +472,12 @@ impl UserMem {
                 self.grow_stack(a);
             }
             let r = self.find(a).ok_or(EFAULT)?;
-            let n = ((r.end() - a) as usize).min(buf.len() - off);
             let s = (a - r.start) as usize;
+            let n = (4096 - s % 4096).min(buf.len() - off);
+            let (i, po) = (s / 4096, s % 4096);
             match &r.shared {
-                Some((b, o, _)) => buf[off..off + n].copy_from_slice(&b.borrow().as_slice()[o + s..o + s + n]),
-                None => buf[off..off + n].copy_from_slice(&r.data.as_slice()[s..s + n]),
+                Some((b, o, _)) => buf[off..off + n].copy_from_slice(&b.borrow().page(o / 4096 + i)[po..po + n]),
+                None => buf[off..off + n].copy_from_slice(&r.data.page(i)[po..po + n]),
             }
             off += n;
             a = a.checked_add(n as u64).ok_or(EFAULT)?;
@@ -362,11 +495,24 @@ impl UserMem {
             }
             let k = self.find(a).ok_or(EFAULT)?.start;
             let r = self.regions.get_mut(&k).unwrap();
-            let n = ((r.end() - a) as usize).min(data.len() - off);
             let s = (a - r.start) as usize;
-            match &r.shared {
-                Some((b, o, _)) => b.borrow_mut().as_mut_slice()[o + s..o + s + n].copy_from_slice(&data[off..off + n]),
-                None => r.data.as_mut_slice()[s..s + n].copy_from_slice(&data[off..off + n]),
+            let n = (4096 - s % 4096).min(data.len() - off);
+            let (i, po) = (s / 4096, s % 4096);
+            let moved = match &r.shared {
+                Some((b, o, _)) => {
+                    let mut b = b.borrow_mut();
+                    let (pg, m) = b.page_mut(o / 4096 + i);
+                    pg[po..po + n].copy_from_slice(&data[off..off + n]);
+                    m
+                }
+                None => {
+                    let (pg, m) = r.data.page_mut(i);
+                    pg[po..po + n].copy_from_slice(&data[off..off + n]);
+                    m
+                }
+            };
+            if moved {
+                self.remap.push(floor(a));
             }
             off += n;
             a = a.checked_add(n as u64).ok_or(EFAULT)?;
@@ -443,27 +589,53 @@ impl UserMem {
         self.brk
     }
 
-    /// Calls `f(virtual address, backing page address, prot)` for every mapped page.
+    /// Calls `f(virtual address, backing page address, prot)` for every resident page;
+    /// copy-on-write pages are reported without `PROT_WRITE`.
     pub fn for_each_page(&self, mut f: impl FnMut(u64, u64, u32)) {
         for r in self.regions.values() {
+            let sb = r.shared.as_ref().map(|(b, o, _)| (b.borrow(), *o / 4096));
             for i in 0..(r.size() / PAGE) as usize {
-                let pa = match &r.shared {
-                    Some((b, o, _)) => b.borrow().page_addr(o / 4096 + i),
+                let pa = match &sb {
+                    Some((b, o)) => b.page_addr(o + i),
                     None => r.data.page_addr(i),
                 };
-                f(r.start + i as u64 * PAGE, pa, r.prot);
+                if let Some((pa, own)) = pa {
+                    f(r.start + i as u64 * PAGE, pa, if own { r.prot } else { r.prot & !PROT_WRITE });
+                }
             }
         }
     }
 
-    /// Resolve a user page fault at `addr`: grows the stack when the address is just below it.
-    /// Returns true if the access should be retried.
-    pub fn handle_fault(&mut self, addr: u64) -> bool {
-        if self.find(addr).is_some() {
-            return false; // mapped: a protection fault, not ours to fix
+    /// Resolve a user page fault at `addr` (`write` from the error code): grows the stack,
+    /// fills demand-zero pages and breaks copy-on-write. Returns the page to (re)map as
+    /// `(va, pa, prot)`, or `None` when the access is a genuine fault.
+    pub fn handle_fault(&mut self, addr: u64, write: bool) -> Option<(u64, u64, u32)> {
+        if self.find(addr).is_none() {
+            self.grow_stack(addr);
         }
-        self.grow_stack(addr);
-        self.find(addr).is_some()
+        let r = self.find(addr)?;
+        let need = if write { PROT_WRITE } else { PROT_READ | PROT_EXEC };
+        if r.prot & need == 0 {
+            return None;
+        }
+        let k = r.start;
+        let va = floor(addr);
+        let i = ((va - k) / PAGE) as usize;
+        let r = self.regions.get_mut(&k).unwrap();
+        match &r.shared {
+            Some((b, o, _)) => {
+                let mut b = b.borrow_mut();
+                if write || b.page_addr(o / 4096 + i).is_none() {
+                    b.page_mut(o / 4096 + i);
+                }
+            }
+            None => {
+                if write || r.data.page_addr(i).is_none() {
+                    r.data.page_mut(i);
+                }
+            }
+        }
+        self.pte(va).map(|(pa, prot)| (va, pa, prot))
     }
 
     /// `/proc/self/maps` text.

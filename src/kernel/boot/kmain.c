@@ -46,6 +46,22 @@ static void report_selftest(const char *name, uint32_t got, uint32_t want)
 }
 extern int32_t loos_net_config(uint32_t *out);
 static void net_ip(uint32_t ip) { for (int k = 24; k >= 0; k -= 8) { serial_dec((ip >> k) & 255); if (k) serial_puts("."); } }
+/* Lists the PCI network controllers as "8086:100f" words, for the browser's error page. */
+size_t net_nic_summary(char *out, size_t cap)
+{
+    static struct pci_dev devs[64];
+    int n = pci_scan(devs, 64);
+    size_t o = 0;
+    static const char hex[] = "0123456789abcdef";
+    for (int i = 0; i < n; i++) {
+        if (devs[i].class_code != 0x02 || o + 11 >= cap) continue;
+        uint16_t v[2] = { devs[i].vendor, devs[i].device };
+        for (int k = 0; k < 2; k++) { for (int sh = 12; sh >= 0; sh -= 4) out[o++] = hex[(v[k] >> sh) & 15]; out[o++] = k ? ' ' : ':'; }
+    }
+    if (o) o--;
+    out[o] = 0;
+    return o;
+}
 static void net_gpu_probe(void)
 {
     static struct pci_dev devs[64];
@@ -57,7 +73,7 @@ static void net_gpu_probe(void)
             if (!bar || vm_map_mmio(bar, size ? size : 0x1000) < 0) continue;
             serial_puts("gpu: bochs vga, modes "); serial_dec(loos_gpu_probe(bar)); serial_puts("\n");
         }
-        if (devs[i].class_code == 0x02 && devs[i].vendor == 0x8086 && (devs[i].device == 0x100e || devs[i].device == 0x100f)) {   /* e1000: QEMU 82540EM, VMware 82545EM */
+        if (devs[i].class_code == 0x02 && devs[i].vendor == 0x8086 && (devs[i].device == 0x100e || devs[i].device == 0x100f || devs[i].device == 0x10d3)) {   /* QEMU 82540EM, VMware 82545EM, e1000e 82574L */
             bar = pci_bar(&devs[i], 0, &size);
             if (!bar || !size || vm_map_mmio(bar, size) < 0) continue;
             pci_enable(&devs[i]);
@@ -82,7 +98,7 @@ extern int32_t loos_net_fetch(const char *url, uint8_t *out, size_t cap, size_t 
 extern size_t loos_net_last_error(char *out, size_t cap);
 static void web_selftest(const char *url)                   /* loos.fetch=<url>: proves DNS + TCP + TLS + HTTP end to end on the serial log */
 {
-    static uint8_t out[512 * 1024];
+    static uint8_t out[3 * 1024 * 1024];
     static char fin[256], err[256];
     size_t n = 0, raw = 0;
     uint32_t t0 = time_ms();
@@ -209,16 +225,20 @@ void kmain(const struct loos_bootinfo *bi)
 
     for (uint32_t i = 0; i < bi->module_count; i++) {
         const struct loos_boot_module *m = &bi->modules[i];
-        serial_puts("module: "); serial_puts(m->name); serial_puts(" "); serial_dec(m->size); serial_puts(" bytes, crc32 ");
-        serial_hex(crc32((const uint8_t *)(uintptr_t)m->phys, m->size)); serial_puts("\n");
+        /* Checksum only for the boot tests: a bitwise CRC over hundreds of MiB of modules took minutes. */
+        serial_puts("module: "); serial_puts(m->name); serial_puts(" "); serial_dec(m->size); serial_puts(" bytes");
+        if (cmdline_get(bi, "loos.test") && m->size <= (16u << 20)) { serial_puts(", crc32 "); serial_hex(crc32((const uint8_t *)(uintptr_t)m->phys, m->size)); }
+        serial_puts("\n");
     }
     if (bi->cmdline[0]) { serial_puts("cmdline: "); serial_puts(bi->cmdline); serial_puts("\n"); }
 
     const char *lin_cmd = cmdline_get(bi, "loos.lin");          /* run a Linux program from the initrd: loos.lin=/bin/prog,arg,... */
     if (lin_cmd && *lin_cmd) {
+        if (cmdline_get(bi, "loos.net")) net_gpu_probe();                    /* NIC + DHCP before the program starts */
         const uint8_t *rd = 0; size_t rdlen = 0;
         for (uint32_t i = 0; i < bi->module_count; i++)
             if (!strncmp(bi->modules[i].name, "initrd", 6)) { rd = (const uint8_t *)(uintptr_t)bi->modules[i].phys; rdlen = bi->modules[i].size; }
+        if (have_video) gui_vid = &vid;                                   /* live presentation of Linux windows */
         loos_lin_boot(rd, rdlen, lin_cmd, have_video ? vid.back : 0, have_video ? vid.w : 0, have_video ? vid.h : 0);
         if (have_video) video_present(&vid, 0, 0, vid.w, vid.h);
         if (cmdline_get(bi, "loos.lin.stop")) {

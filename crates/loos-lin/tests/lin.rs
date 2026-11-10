@@ -473,13 +473,17 @@ fn map_shared_survives_fork_and_vfork_shares_memory() {
     assert_eq!(sys.process_mut(pid).unwrap().mem.read_u64(shared).unwrap(), 0xAA, "shared visible to parent");
     assert_eq!(sys.process_mut(pid).unwrap().mem.read_u64(private).unwrap(), 0, "private is copy-on-fork");
     // vfork-style CLONE_VM|CLONE_VFORK: child writes (e.g. posix_spawn error slot) are seen by the parent
-    let v = sc(&mut sys, pid, 56, &[0x100 | 0x4000 | 17, 0, 0, 0, 0]) as u32;
+    assert_eq!(sys.syscall(pid, 56, [0x100 | 0x4000 | 17, 0, 0, 0, 0, 0]), Sys::Blocked, "vfork parent waits for exec/exit");
+    let v = *sys.thread_ids().iter().max().unwrap();
     sys.process_mut(v).unwrap().mem.write_u64(private, 0xCC).unwrap();
     assert_eq!(sys.process_mut(pid).unwrap().mem.read_u64(private).unwrap(), 0xCC);
     // child exec gives it a fresh image; parent memory untouched
     let path = put(&mut sys, v, "/bin/nop");
     let argv = put(&mut sys, v, &"\0".repeat(8));
     assert_eq!(sys.syscall(v, 59, [path, argv, 0, 0, 0, 0]), Sys::Exec);
+    sys.advance(1);
+    let t = sys.thread(pid).unwrap();
+    assert_eq!((t.state.clone(), t.regs.rax), (loos_lin::sys::TState::Runnable, v as u64), "exec releases the parent with the child pid");
     assert_eq!(sys.process_mut(pid).unwrap().mem.read_u64(private).unwrap(), 0xCC);
     // partial munmap of a shared region keeps both halves coherent
     assert_eq!(sc(&mut sys, pid, 11, &[shared, 0x1000]), 0);

@@ -41,9 +41,26 @@ static A: KAlloc = KAlloc;
 
 #[cfg(target_os = "none")]
 #[panic_handler]
-fn panic(_: &core::panic::PanicInfo) -> ! {
-    // SAFETY: NUL-terminated literal.
-    unsafe { serial_puts(b"LoOS kernel: Rust panic\n\0".as_ptr()) };
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    // Formatted into a stack buffer: the panic may come from an exhausted heap.
+    struct Buf([u8; 384], usize);
+    impl core::fmt::Write for Buf {
+        fn write_str(&mut self, s: &str) -> core::fmt::Result {
+            for &c in s.as_bytes() {
+                if self.1 < self.0.len() - 2 && c != 0 {
+                    self.0[self.1] = c;
+                    self.1 += 1;
+                }
+            }
+            Ok(())
+        }
+    }
+    let mut b = Buf([0; 384], 0);
+    let _ = core::fmt::write(&mut b, format_args!("LoOS kernel: Rust panic: {info}\n"));
+    let n = b.1;
+    b.0[n] = 0;
+    // SAFETY: NUL-terminated buffer.
+    unsafe { serial_puts(b.0.as_ptr()) };
     loop {
         core::hint::spin_loop();
     }

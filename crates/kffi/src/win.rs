@@ -4,7 +4,7 @@
 //! Cooperative: a process runs until it exits, parks itself (`Sleep(INFINITE)`, a resident service), or
 //! faults. Resident processes keep their address space but are not scheduled again until threads/timers exist.
 
-use crate::lin::{build_pml4, read_cr2, run_user, say, time_us, user_init, wrmsr, UFrame, MSR_FS_BASE};
+use crate::lin::{build_pml4, map_page, read_cr2, run_user, say, time_us, user_init, wrmsr, UFrame, MSR_FS_BASE};
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -114,6 +114,13 @@ fn drive(p: &mut Process, frame: &mut UFrame, mut w: Option<&mut Win32k>) -> Sto
             cr3 = build_pml4(&p.mem);
             if cr3 == 0 {
                 say("win: out of memory building page tables\n");
+                return Stop::Exit(0xc000_0017);
+            }
+            p.mem.take_remap();
+        }
+        for va in p.mem.take_remap() {
+            let (pa, prot) = p.mem.pte(va).unwrap_or((0, 0));
+            if !map_page(cr3 as *mut u64, va, pa, prot) {
                 return Stop::Exit(0xc000_0017);
             }
         }
@@ -228,7 +235,7 @@ fn drive(p: &mut Process, frame: &mut UFrame, mut w: Option<&mut Win32k>) -> Sto
             continue;
         }
         let cr2 = read_cr2();
-        if vector == 14 && p.mem.handle_fault(cr2) {
+        if vector == 14 && p.mem.handle_fault(cr2, frame.error & 2 != 0).is_some_and(|(va, pa, prot)| map_page(cr3 as *mut u64, va, pa, prot)) {
             continue;
         }
         if raise_fault(p, frame, w.as_deref_mut(), vector, cr2) {

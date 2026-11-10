@@ -13,8 +13,13 @@ static int mouse_cmd(uint8_t b)
     outb(PS2_CMD, 0xd4);
     if (!wait_write()) return 0;
     outb(PS2_DATA, b);
-    if (!wait_read()) return 0;
-    return inb(PS2_DATA) == 0xfa;
+    for (int tries = 0; tries < 8; tries++) {               /* skip stray keyboard/mouse bytes until the ACK */
+        if (!wait_read()) return 0;
+        uint8_t r = inb(PS2_DATA);
+        if (r == 0xfa) return 1;
+        if (r == 0xfe) return 0;                             /* resend request */
+    }
+    return 0;
 }
 
 static int have_mouse;
@@ -30,7 +35,12 @@ void ps2_init(void)
     cfg = (uint8_t)((cfg & ~0x20) | 0x01 | 0x02);            /* aux clock on; keep IRQ enables set (unused while polling) */
     if (wait_write()) outb(PS2_CMD, 0x60);
     if (wait_write()) outb(PS2_DATA, cfg);
-    have_mouse = mouse_cmd(0xf6) && mouse_cmd(0xf4);         /* defaults, enable reporting */
+    have_mouse = 0;                                          /* defaults, then enable reporting (retried: the first */
+    for (int i = 0; i < 3 && !have_mouse; i++) {             /* command after enabling the aux port is often lost) */
+        mouse_cmd(0xf6);
+        have_mouse = mouse_cmd(0xf4);
+    }
+    pkt_n = 0;
     while (inb(PS2_CMD) & 1) (void)inb(PS2_DATA);
 }
 
@@ -87,3 +97,39 @@ int ps2_poll(struct kin *out)
 }
 
 int ps2_has_mouse(void) { return have_mouse; }
+
+/* Raw events for the Linux layer: keys as Linux evdev codes (set 1 make codes, E0 keys mapped), modifiers
+ * included; mouse packets as relative motion plus the left/right/middle button bits. */
+int ps2_poll_raw(struct kraw *out)
+{
+    for (int guard = 0; guard < 64 && (inb(PS2_CMD) & 1); guard++) {
+        uint8_t st = inb(PS2_CMD), b = inb(PS2_DATA);
+        if (st & 0x20) {
+            if (pkt_n == 0 && !(b & 8)) continue;
+            pkt[pkt_n++] = b;
+            if (pkt_n < 3) continue;
+            pkt_n = 0;
+            if (pkt[0] & 0xc0) continue;
+            out->type = KIN_MOUSE;
+            out->dx = (int)pkt[1] - ((pkt[0] & 0x10) ? 256 : 0);
+            out->dy = -((int)pkt[2] - ((pkt[0] & 0x20) ? 256 : 0));
+            out->buttons = pkt[0] & 7;
+            return 1;
+        }
+        if (b == 0xe0) { ext = 1; continue; }
+        if (b == 0xe1) continue;                                 /* Pause: ignored */
+        int e = ext; ext = 0;
+        uint8_t code = b & 0x7f;
+        uint32_t ev = code;
+        if (e) {
+            static const uint8_t emap[][2] = { {0x1c, 96}, {0x1d, 97}, {0x35, 98}, {0x38, 100}, {0x47, 102}, {0x48, 103}, {0x49, 104},
+                {0x4b, 105}, {0x4d, 106}, {0x4f, 107}, {0x50, 108}, {0x51, 109}, {0x52, 110}, {0x53, 111}, {0x5b, 125}, {0x5c, 126}, {0x5d, 127} };
+            ev = 0;
+            for (unsigned i = 0; i < sizeof emap / sizeof emap[0]; i++) if (emap[i][0] == code) ev = emap[i][1];
+            if (!ev) continue;                                   /* fake shifts (E0 2A) and unknown keys */
+        }
+        out->type = KIN_KEY; out->key = ev; out->down = !(b & 0x80);
+        return 1;
+    }
+    return 0;
+}

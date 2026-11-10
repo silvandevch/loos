@@ -18,7 +18,7 @@
 use super::term::Host;
 mod css;
 
-use self::css::{Align, Decl, StyleSheet};
+use self::css::{Align, Anc, Decl, StyleSheet};
 use super::{cs, BeHost, Ui, MOD_CTRL};
 use crate::draw::Rect;
 use alloc::boxed::Box;
@@ -40,7 +40,7 @@ const MAX_HISTORY: usize = 80;
 const BOOKMARK_FILE: &str = "/home/user/.config/loos-browser/bookmarks.tsv";
 const HISTORY_FILE: &str = "/home/user/.config/loos-browser/history.tsv";
 const HOME: &str = "loos://home";
-const WEB_COMPRESSED_MAX: usize = 512 * 1024;
+const WEB_COMPRESSED_MAX: usize = 3 * 1024 * 1024;
 const WEB_RAW_MAX: usize = 2 * 1024 * 1024;
 
 extern "C" {
@@ -213,7 +213,7 @@ struct Builder<'a> {
     pre: u32,
     web: bool,
     hidden: u32,
-    elements: Vec<(String, bool)>,
+    elements: Vec<(String, bool, Anc)>,
     block_style: BlockStyle,
     in_color: Option<u32>,
     in_size: Option<i32>,
@@ -583,7 +583,8 @@ impl<'a> Builder<'a> {
         let classes: Vec<String> = class_s.split_whitespace().map(|x| x.to_string()).collect();
         let id = attr(attrs, "id");
         let inline = attr(attrs, "style");
-        self.css.decl_for(name, id.as_deref(), &classes, inline.as_deref())
+        let stack: Vec<Anc> = self.elements.iter().map(|e| e.2.clone()).collect();
+        self.css.decl_for(name, id.as_deref(), &classes, &stack, inline.as_deref())
     }
 
     fn begin_block(&mut self, kind: BlockKind, name: &str, attrs: &str) {
@@ -614,7 +615,7 @@ impl<'a> Builder<'a> {
     }
 
     fn close_element(&mut self, name: &str) {
-        while let Some((n, causes)) = self.elements.pop() {
+        while let Some((n, causes, _)) = self.elements.pop() {
             if causes {
                 self.hidden = self.hidden.saturating_sub(1);
                 #[cfg(test)]
@@ -672,7 +673,9 @@ impl<'a> Builder<'a> {
         let d = if closing { Decl::default() } else { self.decl_for(&name, attrs) };
         if !closing && !is_void(&name) {
             let hide = d.display == Some(true) || d.hidden;
-            self.elements.push((name.clone(), hide));
+            let id = attr(attrs, "id");
+            let classes = attr(attrs, "class").unwrap_or_default().split_whitespace().map(|x| x.to_string()).collect();
+            self.elements.push((name.clone(), hide, Anc { tag: name.clone(), id, classes }));
             if hide {
                 self.hidden += 1;
                 #[cfg(test)]

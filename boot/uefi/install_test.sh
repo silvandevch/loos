@@ -19,7 +19,7 @@ run_case() {
     local target=$work/target_$name.img
     rm -f "$target"; truncate -s 2G "$target"
     local log; log=$(mktemp)
-    timeout 400 qemu-system-x86_64 $accel -display none -vga std -smp 2 -m 1G -serial "file:$log" -bios "$fw" \
+    timeout 400 qemu-system-x86_64 $accel -display none -vga std -smp 2 -m ${QEMU_MEM:-4G} -serial "file:$log" -bios "$fw" \
         -drive "file=$media,format=raw,if=ide,index=0" $target_args -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
     local rc=$?
     for want in "$want_disk" "boot: UEFI" "install: media is installer" "install: ok (verified)" "stage 0 done"; do
@@ -41,7 +41,7 @@ run_case() {
     dd if="$target" of="$work/data.img" bs=512 skip="$data_start" status=none
     btrfs check --readonly "$work/data.img" > "$work/btrfs.log" 2>&1 || { echo "[$name] btrfs check failed"; cat "$work/btrfs.log"; return 1; }
     local log2; log2=$(mktemp)
-    timeout 300 qemu-system-x86_64 $accel -display none -vga std -smp 2 -m 1G -serial "file:$log2" -bios "$fw" $boot_args \
+    timeout 300 qemu-system-x86_64 $accel -display none -vga std -smp 2 -m ${QEMU_MEM:-4G} -serial "file:$log2" -bios "$fw" $boot_args \
         -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
     rc=$?
     for want in "boot: UEFI" "install: media is an installed system" "login: wrong password rejected" "login: ok tester" "module: initrd 30000 bytes" "stage 0 done"; do

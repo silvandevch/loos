@@ -18,6 +18,7 @@ mod input;
 mod menu;
 mod service;
 mod wm;
+pub use wm::adjust_window_rect;
 
 pub use controls::*;
 pub use gdi::*;

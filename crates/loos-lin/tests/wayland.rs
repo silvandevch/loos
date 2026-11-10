@@ -1,4 +1,7 @@
-use loos_lin::wayland::{Error, Server};
+use loos_lin::mem::PageBuf;
+use loos_lin::wayland::{Error, Server, SharedFd};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 fn req(object: u32, opcode: u16, mut body: Vec<u8>) -> Vec<u8> {
     let size = (body.len() + 8) as u32;
@@ -9,13 +12,12 @@ fn req(object: u32, opcode: u16, mut body: Vec<u8>) -> Vec<u8> {
     out
 }
 
-fn u32v(v: u32) -> Vec<u8> {
-    v.to_ne_bytes().to_vec()
+fn u32s(v: &[u32]) -> Vec<u8> {
+    v.iter().flat_map(|x| x.to_ne_bytes()).collect()
 }
 
 fn string(s: &str) -> Vec<u8> {
-    let mut b = Vec::new();
-    b.extend_from_slice(&((s.len() + 1) as u32).to_ne_bytes());
+    let mut b = ((s.len() + 1) as u32).to_ne_bytes().to_vec();
     b.extend_from_slice(s.as_bytes());
     b.push(0);
     while b.len() % 4 != 0 {
@@ -24,84 +26,112 @@ fn string(s: &str) -> Vec<u8> {
     b
 }
 
-#[test]
-fn registry_advertises_compositor_shm_and_xdg_shell() {
-    let mut server = Server::new();
-    server.receive(&req(1, 1, u32v(2))).unwrap();
-    let events = server.take_events();
-    assert!(events.windows(b"wl_compositor\0".len()).any(|w| w == b"wl_compositor\0"));
-    assert!(events.windows(b"wl_shm\0".len()).any(|w| w == b"wl_shm\0"));
-    assert!(events.windows(b"xdg_wm_base\0".len()).any(|w| w == b"xdg_wm_base\0"));
+/// Decoded events: (object, opcode, body).
+fn events(server: &mut Server) -> Vec<(u32, u16, Vec<u8>)> {
+    let e = server.take_events();
+    let mut out = Vec::new();
+    let mut off = 0;
+    while off < e.len() {
+        let obj = u32::from_ne_bytes(e[off..off + 4].try_into().unwrap());
+        let w = u32::from_ne_bytes(e[off + 4..off + 8].try_into().unwrap());
+        let size = (w >> 16) as usize;
+        out.push((obj, (w & 0xffff) as u16, e[off + 8..off + size].to_vec()));
+        off += size;
+    }
+    out
+}
+
+fn bind(server: &mut Server, iface: &str, version: u32, id: u32) {
+    let name = server.globals().iter().find(|g| g.interface == iface).unwrap().name;
+    let mut b = u32s(&[name]);
+    b.extend(string(iface));
+    b.extend(u32s(&[version, id]));
+    server.receive(&req(2, 0, b)).unwrap();
+}
+
+fn connected() -> Server {
+    let mut s = Server::new();
+    s.receive(&req(1, 1, u32s(&[2]))).unwrap();
+    s.take_events();
+    s
 }
 
 #[test]
-fn xdg_surface_lifecycle_accepts_realistic_request_sequence() {
+fn registry_advertises_desktop_globals() {
     let mut server = Server::new();
-    server.receive(&req(1, 1, u32v(2))).unwrap();
-    server.take_events();
-
-    let mut bind = u32v(3);
-    bind.extend(string("wl_compositor"));
-    bind.extend(u32v(4));
-    bind.extend(u32v(10));
-    server.receive(&req(2, 0, bind)).unwrap();
-
-    let mut bind_xdg = u32v(3);
-    bind_xdg.extend(string("xdg_wm_base"));
-    bind_xdg.extend(u32v(6));
-    bind_xdg.extend(u32v(11));
-    server.receive(&req(2, 0, bind_xdg)).unwrap();
-
-    server.receive(&req(10, 0, u32v(12))).unwrap();
-    server.receive(&req(11, 2, u32v(13))).unwrap();
-    let events = server.take_events();
-    assert!(events.len() >= 12, "xdg_surface.configure was not emitted");
-    server.receive(&req(12, 1, u32v(14))).unwrap();
-    server.receive(&req(13, 4, u32v(1))).unwrap();
+    server.receive(&req(1, 1, u32s(&[2]))).unwrap();
+    let ev = server.take_events();
+    for name in ["wl_compositor", "wl_subcompositor", "wl_shm", "wl_seat", "wl_output", "xdg_wm_base", "wl_data_device_manager"] {
+        let needle = format!("{name}\0");
+        assert!(ev.windows(needle.len()).any(|w| w == needle.as_bytes()), "{name} missing");
+    }
 }
 
 #[test]
-fn shm_fd_import_and_surface_commit_produce_argb_frame() {
-    let mut server = Server::new();
-    server.receive(&req(1, 1, u32v(2))).unwrap();
-    server.take_events();
+fn toplevel_configures_and_destroy_recycles_ids() {
+    let mut s = connected();
+    bind(&mut s, "wl_compositor", 5, 10);
+    bind(&mut s, "xdg_wm_base", 5, 11);
+    s.receive(&req(10, 0, u32s(&[12]))).unwrap(); // surface
+    s.receive(&req(11, 2, u32s(&[13, 12]))).unwrap(); // xdg_surface
+    s.take_events();
+    s.receive(&req(13, 1, u32s(&[14]))).unwrap(); // toplevel
+    let ev = events(&mut s);
+    let cfg = ev.iter().find(|e| e.0 == 14 && e.1 == 0).expect("xdg_toplevel.configure");
+    assert_eq!(&cfg.2[..8], &u32s(&[0, 0])[..], "0x0 lets the client pick its size");
+    assert!(ev.iter().any(|e| e.0 == 13 && e.1 == 0), "xdg_surface.configure");
+    assert!(!ev.iter().any(|e| e.0 == 14 && e.1 == 1), "must not ask the new window to close");
+    let mut title = Vec::new();
+    title.extend(string("Demo"));
+    s.receive(&req(14, 2, title)).unwrap();
+    s.receive(&req(14, 0, vec![])).unwrap(); // destroy toplevel
+    let ev = events(&mut s);
+    assert!(ev.contains(&(1, 1, u32s(&[14]))), "wl_display.delete_id");
+    assert_eq!(s.take_closed(), vec![12]);
+    // the id is reusable after delete_id
+    s.receive(&req(13, 1, u32s(&[14]))).unwrap();
+}
 
-    let mut bind = u32v(1);
-    bind.extend(string("wl_shm"));
-    bind.extend(u32v(1));
-    bind.extend(u32v(10));
-    server.receive(&req(2, 0, bind)).unwrap();
+#[test]
+fn shm_pool_is_live_and_frames_crop_to_window_geometry() {
+    let mut s = connected();
+    bind(&mut s, "wl_shm", 1, 10);
+    bind(&mut s, "wl_compositor", 5, 30);
+    bind(&mut s, "xdg_wm_base", 5, 40);
+    let mut pb = PageBuf::default();
+    pb.write_at(0, &[0x33, 0x22, 0x11, 0xff, 0x66, 0x55, 0x44, 0xff]);
+    let buf = Rc::new(RefCell::new(pb));
+    s.receive_with_fds(&req(10, 0, u32s(&[20, 8])), &[SharedFd { buf: buf.clone() }]).unwrap();
+    s.receive(&req(20, 0, u32s(&[21, 0, 2, 1, 8, 0]))).unwrap(); // 2x1 ARGB8888
+    s.receive(&req(30, 0, u32s(&[31]))).unwrap();
+    s.receive(&req(40, 2, u32s(&[41, 31]))).unwrap();
+    s.receive(&req(41, 1, u32s(&[42]))).unwrap();
+    s.receive(&req(31, 1, u32s(&[21, 0, 0]))).unwrap();
+    s.receive(&req(31, 6, vec![])).unwrap();
+    let f = s.take_frames();
+    assert_eq!(f[0].pixels, vec![0xff112233, 0xff445566]);
+    // The client draws again into the same mapping: the next commit shows it.
+    buf.borrow_mut().write_at(0, &[0, 0, 0xff, 0xff]);
+    s.receive(&req(41, 3, u32s(&[1, 0, 1, 1]))).unwrap(); // geometry: right pixel only
+    s.receive(&req(31, 1, u32s(&[21, 0, 0]))).unwrap();
+    s.receive(&req(31, 6, vec![])).unwrap();
+    let f = s.take_frames();
+    assert_eq!((f[0].width, f[0].height, f[0].pixels.clone()), (1, 1, vec![0xff445566]));
+}
 
-    let mut pool = u32v(20);
-    pool.extend(u32v(8));
-    server.receive_with_fds(&req(10, 0, pool), &[loos_lin::wayland::SharedFd {
-        data: vec![0x33, 0x22, 0x11, 0xff, 0x66, 0x55, 0x44, 0xff],
-    }]).unwrap();
-
-    let mut buffer = u32v(21);
-    buffer.extend(u32v(0));
-    buffer.extend(u32v(2));
-    buffer.extend(u32v(1));
-    buffer.extend(u32v(8));
-    buffer.extend(u32v(1));
-    server.receive(&req(20, 0, buffer)).unwrap();
-
-    let mut bind_comp = u32v(1);
-    bind_comp.extend(string("wl_compositor"));
-    bind_comp.extend(u32v(4));
-    bind_comp.extend(u32v(30));
-    server.receive(&req(2, 0, bind_comp)).unwrap();
-    server.receive(&req(30, 0, u32v(31))).unwrap();
-    server.receive(&req(31, 1, {
-        let mut b = u32v(21);
-        b.extend(u32v(0));
-        b.extend(u32v(0));
-        b
-    })).unwrap();
-    server.receive(&req(31, 6, Vec::new())).unwrap();
-    let frames = server.take_frames();
-    assert_eq!(frames.len(), 1);
-    assert_eq!(frames[0].pixels, vec![0xff112233, 0xff445566]);
+#[test]
+fn frame_callbacks_fire_after_presentation() {
+    let mut s = connected();
+    bind(&mut s, "wl_compositor", 5, 10);
+    s.receive(&req(10, 0, u32s(&[11]))).unwrap();
+    s.take_events();
+    s.receive(&req(11, 3, u32s(&[12]))).unwrap();
+    s.receive(&req(11, 6, vec![])).unwrap();
+    assert!(!events(&mut s).iter().any(|e| e.0 == 12), "not before presentation");
+    s.frames_presented(1234);
+    let ev = events(&mut s);
+    assert!(ev.contains(&(12, 0, u32s(&[1234]))));
+    assert!(ev.contains(&(1, 1, u32s(&[12]))));
 }
 
 #[test]

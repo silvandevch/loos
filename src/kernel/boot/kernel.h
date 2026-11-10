@@ -101,6 +101,8 @@ struct kin { int type; uint32_t key, ch, mods; int down; int dx, dy; uint32_t bu
 void ps2_init(void);
 int ps2_poll(struct kin *out);                /* one event; 0 when the controller is idle */
 int ps2_has_mouse(void);
+struct kraw { int type; uint32_t key; int down; int dx, dy; uint32_t buttons; };
+int ps2_poll_raw(struct kraw *out);           /* Linux layer: evdev keycodes, raw mouse packets */
 
 /* video.c: the boot framebuffer plus a back buffer; present() copies a rectangle with the right pixel format */
 struct video {

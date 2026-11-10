@@ -93,6 +93,22 @@ pub trait LinFs {
     fn symlink(&mut self, target: &str, path: &str) -> Result<(), i64>;
     /// Directory listing (without `.` / `..`).
     fn list(&mut self, path: &str) -> Result<Vec<DirEnt>, i64>;
+    /// `link`: the backends store files by path, so a hard link is a snapshot copy (enough for the
+    /// create-then-link-into-place pattern of sem_open/lockfiles; later writes are not shared).
+    fn link(&mut self, from: &str, to: &str) -> Result<(), i64> {
+        let st = self.lstat(from)?;
+        if st.kind == Kind::Dir {
+            return Err(crate::errno::EPERM);
+        }
+        if self.lstat(to).is_ok() {
+            return Err(crate::errno::EEXIST);
+        }
+        let mut data = alloc::vec![0u8; st.size as usize];
+        let n = self.read(from, 0, &mut data)?;
+        self.create(to, st.mode)?;
+        self.write(to, 0, &data[..n])?;
+        Ok(())
+    }
 }
 
 /// Normalise `path` against `cwd` (handles `.`/`..`/repeated slashes); never escapes `/`.

@@ -64,6 +64,6 @@ kstack_guard:                           /* unmapped by trap_init: overflow fault
     .skip 4096
 .global kstack_bottom
 kstack_bottom:
-    .skip 64*1024
+    .skip 2048*1024
 .global kstack_top
 kstack_top:

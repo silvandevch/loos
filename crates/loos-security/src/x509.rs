@@ -496,17 +496,20 @@ impl RootStore {
             }
             w[0].verify_signed_by(&w[1])?;
         }
-        let top = certs.last().unwrap();
-        // Anchor: the top cert is a root itself, or is issued by one.
-        for r in &self.roots {
-            if r.der == top.der {
-                return Ok(());
-            }
-            if r.subject == top.issuer && now >= r.not_before && now <= r.not_after && top.verify_signed_by(r).is_ok() {
-                if r.path_len.is_some_and(|p| (certs.len() as u32 - 1) > p + 1) {
-                    continue;
+        // Anchor: some certificate of the chain, from the top down, is a trusted root itself or is issued by one. Servers often
+        // send a cross-signed root, whose self-signed twin is what the store holds, so the top is not always the anchor.
+        for j in (0..certs.len()).rev() {
+            let c = &certs[j];
+            for r in &self.roots {
+                if r.der == c.der {
+                    return Ok(());
                 }
-                return Ok(());
+                if r.subject == c.issuer && now >= r.not_before && now <= r.not_after && c.verify_signed_by(r).is_ok() {
+                    if r.path_len.is_some_and(|p| (j as u32) > p + 1) {
+                        continue;
+                    }
+                    return Ok(());
+                }
             }
         }
         Err(Error::Untrusted)
