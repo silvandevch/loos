@@ -23,7 +23,7 @@ use loos_kernel::{dispatch, ObjectManager, SyscallArgs};
 
 #[cfg(target_os = "none")]
 extern "C" {
-    fn kalloc(size: u64, align: u64) -> *mut u8;
+    fn kalloc_high(size: u64, align: u64) -> *mut u8;
     fn serial_puts(s: *const u8);
 }
 
@@ -34,8 +34,8 @@ struct KAlloc(UnsafeCell<heap::Heap>);
 unsafe impl Sync for KAlloc {}
 #[cfg(target_os = "none")]
 fn kalloc_grow(size: usize, align: usize) -> *mut u8 {
-    // SAFETY: plain C bump allocation (identity-mapped RAM).
-    unsafe { kalloc(size as u64, align as u64) }
+    // SAFETY: plain C bump allocation (identity-mapped RAM, above 4 GiB when there is any).
+    unsafe { kalloc_high(size as u64, align as u64) }
 }
 #[cfg(target_os = "none")]
 unsafe impl GlobalAlloc for KAlloc {

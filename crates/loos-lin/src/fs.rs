@@ -3,6 +3,7 @@
 //! initial ramdisk.
 
 #[allow(unused_imports)]
+use alloc::borrow::Cow;
 use alloc::{boxed::Box, format, string::{String, ToString}, vec, vec::Vec};
 use crate::errno::*;
 use alloc::collections::BTreeMap;
@@ -183,7 +184,8 @@ fn normalize_keep(cwd: &str, path: &str) -> Vec<String> {
 }
 
 enum Node {
-    File(Vec<u8>),
+    /// Contents: owned, or borrowed from the boot image (copied on the first write).
+    File(Cow<'static, [u8]>),
     Dir,
     Link(String),
 }
@@ -238,7 +240,7 @@ impl MemFs {
     }
     /// Add (or replace) a file, creating parent directories.
     pub fn add_file(&mut self, path: &str, data: &[u8], mode: u32) {
-        self.add(path, Node::File(data.to_vec()), mode);
+        self.add(path, Node::File(Cow::Owned(data.to_vec())), mode);
     }
     /// Add a symlink.
     pub fn add_symlink(&mut self, path: &str, target: &str) {
@@ -251,7 +253,7 @@ impl MemFs {
     /// Every regular file as `(absolute path, contents)`.
     pub fn files(&self) -> impl Iterator<Item = (&str, &[u8])> {
         self.ents.iter().filter_map(|(p, e)| match &e.node {
-            Node::File(d) => Some((p.as_str(), d.as_slice())),
+            Node::File(d) => Some((p.as_str(), &d[..])),
             _ => None,
         })
     }
@@ -268,6 +270,21 @@ impl MemFs {
     /// Populate from a ustar archive (initrd rootfs). Returns the number of entries added.
     /// Unknown entry types are skipped; malformed headers end the archive.
     pub fn load_tar(&mut self, tar: &[u8]) -> usize {
+        self.load_tar_with(tar, |data| Cow::Owned(data.to_vec()))
+    }
+
+    /// [`Self::load_tar`] for an archive that stays in memory for good (the boot module): file
+    /// contents are not copied, only borrowed until something writes to them.
+    pub fn load_tar_static(&mut self, tar: &'static [u8]) -> usize {
+        // SAFETY of the borrow: every slice handed out is a sub-slice of `tar` ('static).
+        let base = tar.as_ptr() as usize;
+        self.load_tar_with(tar, |data| {
+            let off = data.as_ptr() as usize - base;
+            Cow::Borrowed(&tar[off..off + data.len()])
+        })
+    }
+
+    fn load_tar_with(&mut self, tar: &[u8], mut keep: impl FnMut(&[u8]) -> Cow<'static, [u8]>) -> usize {
         let mut off = 0;
         let mut n = 0;
         while off + 512 <= tar.len() {
@@ -289,7 +306,7 @@ impl MemFs {
             let Some(end) = body.checked_add(size as usize).filter(|&e| e <= tar.len()) else { break };
             match h[156] {
                 b'0' | 0 => {
-                    self.add_file(&path, &tar[body..end], (mode & 0o7777) as u32);
+                    self.add(&path, Node::File(keep(&tar[body..end])), (mode & 0o7777) as u32);
                     n += 1;
                 }
                 b'5' => {
@@ -334,6 +351,7 @@ impl LinFs for MemFs {
         match &mut self.ents.get_mut(path).ok_or(ENOENT)?.node {
             Node::File(d) => {
                 let end = (off as usize).checked_add(data.len()).filter(|&e| e <= 1 << 30).ok_or(EINVAL)?;
+                let d = d.to_mut();
                 if d.len() < end {
                     d.resize(end, 0);
                 }
@@ -353,13 +371,13 @@ impl LinFs for MemFs {
             Some(_) => return Err(ENOTDIR),
             None => return Err(ENOENT),
         }
-        self.insert(path, Node::File(Vec::new()), mode);
+        self.insert(path, Node::File(Cow::Owned(Vec::new())), mode);
         Ok(())
     }
     fn truncate(&mut self, path: &str, len: u64) -> Result<(), i64> {
         match &mut self.ents.get_mut(path).ok_or(ENOENT)?.node {
             Node::File(d) => {
-                d.resize(len.min(1 << 30) as usize, 0);
+                d.to_mut().resize(len.min(1 << 30) as usize, 0);
                 Ok(())
             }
             _ => Err(EINVAL),

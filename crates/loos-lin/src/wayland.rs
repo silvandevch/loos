@@ -72,6 +72,8 @@ struct Surface {
     pos: (i32, i32),
     /// Subsurfaces stacked above this surface, bottom to top.
     children: Vec<u32>,
+    /// `wl_surface.enter` was sent: the surface is shown on the (single) output.
+    entered: bool,
 }
 
 #[derive(Debug)]
@@ -87,6 +89,8 @@ struct Obj {
     /// `xdg_surface.set_window_geometry` (x, y, w, h): the visible window inside the buffer
     /// (client-side shadows lie outside it).
     geometry: Option<(u32, u32, u32, u32)>,
+    /// xdg_surface with a toplevel role whose first configure waits for the initial commit.
+    awaiting_initial_commit: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -167,6 +171,8 @@ pub struct Server {
     frames: Vec<Frame>,
     closed: Vec<u32>,
     serial: u32,
+    /// Client-area size a maximized window gets (the output minus the window frame LoOS draws).
+    pub work_area: (u32, u32),
     /// (width, height) of the output.
     pub screen: (u32, u32),
     /// Keymap file size (bytes) for `wl_keyboard.keymap`; 0 sends `no_keymap`.
@@ -188,7 +194,7 @@ impl Server {
         let mut objects = BTreeMap::new();
         objects.insert(1, new_obj(Iface::Display, 1));
         let globals = GLOBALS.iter().take(GLOBALS.len() - 1).enumerate().map(|(i, g)| Global { name: i as u32 + 1, interface: g.0, version: g.1 }).collect();
-        Self { objects, globals, events: Vec::new(), out_fds: Vec::new(), in_fds: VecDeque::new(), frames: Vec::new(), closed: Vec::new(), serial: 1, screen: (1024, 768), keymap_size: 0, pointer_focus: None, key_focus: None, time_ms: 0 }
+        Self { objects, globals, events: Vec::new(), out_fds: Vec::new(), in_fds: VecDeque::new(), frames: Vec::new(), closed: Vec::new(), serial: 1, screen: (1024, 768), work_area: (1024, 720), keymap_size: 0, pointer_focus: None, key_focus: None, time_ms: 0 }
     }
 
     /// The globals `wl_registry.global` advertises.
@@ -380,6 +386,9 @@ impl Server {
                     }
                 }
                 Iface::Surface => {
+                    if let Some(b) = o.surf.as_ref().and_then(|s| s.attached) {
+                        self.release_buffer(b);
+                    }
                     self.closed.push(id);
                     if self.pointer_focus == Some(id) {
                         self.pointer_focus = None;
@@ -392,6 +401,13 @@ impl Server {
             }
         }
         self.event(1, 1, &words(&[id]));
+    }
+
+    /// `wl_buffer.release`: the compositor no longer reads the buffer.
+    fn release_buffer(&mut self, buffer: u32) {
+        if self.objects.get(&buffer).is_some_and(|o| o.iface == Iface::Buffer) {
+            self.event(buffer, 0, &[]);
+        }
     }
 
     /// wl_surface behind an xdg_toplevel/xdg_popup.
@@ -556,16 +572,10 @@ impl Server {
             (XdgSurface, 1) => {
                 let top = self.new_id(p, 0, XdgToplevel, object)?;
                 self.role(object, top);
-                let v = self.objects[&top].version;
-                if v >= 5 {
-                    let mut b = Vec::new();
-                    put_array(&mut b, &words(&[1, 2, 3, 4])); // window menu, maximize, fullscreen, minimize
-                    self.event(top, 3, &b);
-                }
-                if v >= 4 {
-                    self.event(top, 2, &words(&[self.screen.0, self.screen.1.saturating_sub(48)]));
-                }
-                self.configure_toplevel(object, top);
+                // xdg-shell: the first configure answers the client's initial commit, not the role
+                // request. Toolkits realize the window in between (GTK only maps Firefox's content
+                // surface on a size allocation that happens after realization).
+                self.objects.get_mut(&object).unwrap().awaiting_initial_commit = true;
             }
             (XdgSurface, 2) => {
                 let popup = self.new_id(p, 0, XdgPopup, object)?;
@@ -591,7 +601,19 @@ impl Server {
                 let (t, _) = get_string(p)?;
                 self.objects.get_mut(&object).unwrap().app_id = t.into();
             }
-            (XdgToplevel, 1) | (XdgToplevel, 4..=13) => {}
+            // set_maximized / unset_maximized / set_fullscreen / unset_fullscreen: answer with a
+            // configure carrying the size the window now has (toolkits lay out on that size change).
+            (XdgToplevel, 9..=12) => {
+                let (size, state) = match op {
+                    9 => (self.work_area, Some(1)),
+                    11 => (self.screen, Some(2)),
+                    _ => ((0, 0), None),
+                };
+                if let Some(xdg) = self.objects.get(&object).and_then(|o| o.surface) {
+                    self.configure_toplevel_as(xdg, object, size, state);
+                }
+            }
+            (XdgToplevel, 1) | (XdgToplevel, 4..=8) | (XdgToplevel, 13) => {}
             (XdgToplevel, 14) => {}
             (XdgPopup, 1) => {}
             (XdgPopup, 2) => {
@@ -627,9 +649,30 @@ impl Server {
         }
     }
 
+    /// Capabilities, bounds and the first configure of a new toplevel.
+    fn initial_configure(&mut self, xdg: u32, top: u32) {
+        let v = self.objects[&top].version;
+        if v >= 5 {
+            let mut b = Vec::new();
+            put_array(&mut b, &words(&[1, 2, 3, 4])); // window menu, maximize, fullscreen, minimize
+            self.event(top, 3, &b);
+        }
+        if v >= 4 {
+            self.event(top, 2, &words(&[self.work_area.0, self.work_area.1]));
+        }
+        self.configure_toplevel(xdg, top);
+    }
+
     fn configure_toplevel(&mut self, xdg: u32, top: u32) {
-        let mut b = words(&[0, 0]); // 0x0: the client picks its size
-        put_array(&mut b, &words(&[4])); // activated
+        self.configure_toplevel_as(xdg, top, (0, 0), None); // 0x0: the client picks its size
+    }
+
+    /// `xdg_toplevel.configure(size, [state, activated])` + `xdg_surface.configure`.
+    fn configure_toplevel_as(&mut self, xdg: u32, top: u32, size: (u32, u32), state: Option<u32>) {
+        let mut b = words(&[size.0, size.1]);
+        let mut states: Vec<u32> = state.into_iter().collect();
+        states.push(4); // activated
+        put_array(&mut b, &words(&states));
         self.event(top, 0, &b);
         let s = self.next_serial();
         self.event(xdg, 0, &words(&[s]));
@@ -648,12 +691,25 @@ impl Server {
     }
 
     fn commit(&mut self, id: u32) -> Result<(), Error> {
+        let xdg = self.surf(id).xdg;
+        if let Some(xdg) = xdg.filter(|x| self.objects.get(x).is_some_and(|o| o.awaiting_initial_commit)) {
+            self.objects.get_mut(&xdg).unwrap().awaiting_initial_commit = false;
+            if let Some(top) = self.objects.get(&xdg).and_then(|o| o.surf.as_ref()).and_then(|s| s.role_top) {
+                self.initial_configure(xdg, top);
+            }
+        }
         let s = self.surf(id);
         let cbs = core::mem::take(&mut s.pending_cbs);
         s.frame_cbs.extend(cbs);
         let Some(b) = s.pending.take() else { return self.present_tree(id) };
+        let previous = s.attached;
         s.attached = if b == 0 { None } else { Some(b) };
-        match s.attached {
+        // The compositor holds the attached buffer until a newer one replaces it (as desktop
+        // compositors do); toolkits pace and recycle their buffers on that release.
+        if let Some(old) = previous.filter(|&old| Some(old) != self.surf(id).attached) {
+            self.release_buffer(old);
+        }
+        match self.surf(id).attached {
             None => {
                 let s = self.surf(id);
                 s.pixels.clear();
@@ -669,7 +725,6 @@ impl Server {
                 let s = self.surf(id);
                 s.pixels = pixels;
                 s.size = (buffer.width, buffer.height);
-                self.event(bid, 0, &[]); // pixels copied: the client may reuse the buffer at once
             }
         }
         self.present_tree(id)
@@ -725,9 +780,29 @@ impl Server {
             Some(o) => (o.title.as_bytes().to_vec(), o.app_id.as_bytes().to_vec(), o.iface == Iface::XdgToplevel),
             None => (Vec::new(), Vec::new(), xdg.is_none()),
         };
+        self.enter_tree(root, 0);
         self.frames.retain(|f| f.surface != root); // only the newest frame of a window matters
         self.frames.push(Frame { surface: root, width, height, pixels, title, app_id, toplevel });
         Ok(())
+    }
+
+    /// A window is on screen: tell its surfaces (once) that they entered the output. Toolkits use
+    /// this to pick the monitor (scale, refresh rate) a surface is shown on.
+    fn enter_tree(&mut self, id: u32, depth: u32) {
+        let Some(s) = self.objects.get_mut(&id).and_then(|o| o.surf.as_mut()) else { return };
+        if depth > 16 {
+            return;
+        }
+        let kids = s.children.clone();
+        if !s.entered && s.size.0 > 0 {
+            s.entered = true;
+            for out in self.with(Iface::Output) {
+                self.event(id, 0, &words(&[out]));
+            }
+        }
+        for c in kids {
+            self.enter_tree(c, depth + 1);
+        }
     }
 
     /// Bottom-right corner of everything the subsurfaces of `id` cover.
@@ -814,6 +889,11 @@ impl Server {
                 if version >= 2 {
                     self.event(id, 2, &[]);
                 }
+                // Surfaces already on screen are on this output too.
+                let shown: Vec<u32> = self.objects.iter().filter(|(_, o)| o.iface == Iface::Surface && o.surf.as_ref().is_some_and(|s| s.entered)).map(|(&k, _)| k).collect();
+                for surface in shown {
+                    self.event(surface, 0, &words(&[id]));
+                }
             }
             _ => {}
         }
@@ -836,7 +916,7 @@ impl Server {
 }
 
 fn new_obj(iface: Iface, version: u32) -> Obj {
-    Obj { iface, version, surface: None, pool: None, buffer: None, surf: None, title: String::new(), app_id: String::new(), geometry: None }
+    Obj { iface, version, surface: None, pool: None, buffer: None, surf: None, title: String::new(), app_id: String::new(), geometry: None, awaiting_initial_commit: false }
 }
 
 /// Premultiplied-alpha "over": `src` drawn on top of `dst`.

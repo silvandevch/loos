@@ -81,10 +81,14 @@ static void *read_file(const char *path, uint64_t *size_out)
     }
     void *buf = alloc_pages(size + 1, EfiLoaderData, 0);          /* +1: callers may NUL-terminate text */
     if (!buf) { f->Close(f); return 0; }
-    UINTN got = size;
-    EFI_STATUS st = f->Read(f, &got, buf);
+    /* Chunked: firmware FAT drivers fail single reads of very large files (a 1.4 GB rootfs). */
+    for (uint64_t done = 0; done < size;) {
+        UINTN got = size - done < (64ull << 20) ? (UINTN)(size - done) : (UINTN)(64ull << 20);
+        EFI_STATUS st = f->Read(f, &got, (char *)buf + done);
+        if (EFI_ERROR(st) || got == 0) { f->Close(f); return 0; }
+        done += got;
+    }
     f->Close(f);
-    if (EFI_ERROR(st) || got != size) return 0;
     *size_out = size;
     return buf;
 }

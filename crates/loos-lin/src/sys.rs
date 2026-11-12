@@ -24,6 +24,8 @@ use loos_net::tcp::State;
 
 /// Process/thread id (one shared id space, as in Linux).
 pub type Pid = u32;
+/// Tag in a futex key's pid half marking a shared-memory futex (real pids stay far below it).
+const SHARED_FUTEX: Pid = 0x8000_0000;
 
 /// Base of the `liblooswin` bridge syscall range ("LO" << 16).
 pub const BRIDGE_BASE: u64 = 0x4C4F_0000;
@@ -147,6 +149,8 @@ pub struct Thread {
     pub fx: Box<[u8; 512]>,
     /// CPU exception behind the signal being delivered: (vector, error code, cr2).
     pub fault: Option<(u64, u64, u64)>,
+    /// `prctl(PR_SET_NAME)` name (empty: the program's file name).
+    pub name: String,
 }
 
 /// Initial FPU state: x87 control word 0x37f, MXCSR 0x1f80 (all exceptions masked).
@@ -322,6 +326,8 @@ pub struct LinSystem<F: LinFs> {
     vvar: SharedBuf,
     /// Output size advertised to Wayland clients.
     pub wayland_screen: (u32, u32),
+    /// Client area of a maximized Linux window (screen minus LoOS window frame).
+    pub wayland_work_area: (u32, u32),
     procs: BTreeMap<Pid, Process>,
     threads: BTreeMap<Pid, Thread>,
     pipes: Vec<Pipe>,
@@ -380,6 +386,7 @@ impl<F: LinFs> LinSystem<F> {
             seals: BTreeMap::new(),
             unlinked_open: BTreeMap::new(),
             wayland_screen: (1024, 768),
+            wayland_work_area: (1024, 720),
             vvar: {
                 let mut pb = PageBuf::default();
                 pb.write_at(0, &[1; 8]); // allocate the page now: its address must never change
@@ -518,12 +525,15 @@ impl<F: LinFs> LinSystem<F> {
 
     /// Takes frames committed by Wayland clients, keyed by connection, and lets those clients
     /// draw their next frame (`wl_surface.frame` callbacks fire once a frame was presented).
-    pub fn take_wayland_frames(&mut self, time_ms: u32) -> Vec<(usize, WaylandFrame)> {
+    /// With `fire_callbacks_now` false the caller reports presentation later through
+    /// [`Self::wayland_presented`] (callbacks then pace clients at the display refresh).
+    pub fn take_wayland_frames(&mut self, fire_callbacks_now: bool) -> Vec<(usize, WaylandFrame)> {
+        let time_ms = (self.now_ns / 1_000_000) as u32;
         let mut out = Vec::new();
         for i in 0..self.socks.len() {
             if let Some(server) = self.socks[i].wayland.as_mut() {
                 let frames = server.take_frames();
-                if !frames.is_empty() {
+                if !frames.is_empty() && fire_callbacks_now {
                     server.frames_presented(time_ms);
                 }
                 out.extend(frames.into_iter().map(|f| (i, f)));
@@ -531,6 +541,19 @@ impl<F: LinFs> LinSystem<F> {
             }
         }
         out
+    }
+
+    /// The screen showing the latest Wayland frames was presented: fire every pending
+    /// `wl_surface.frame` callback, so clients draw their next frame at the display's pace.
+    pub fn wayland_presented(&mut self) {
+        // Clients compare callback times with their own CLOCK_MONOTONIC (GTK, Firefox's vsync).
+        let time_ms = (self.now_ns / 1_000_000) as u32;
+        for i in 0..self.socks.len() {
+            if let Some(server) = self.socks[i].wayland.as_mut() {
+                server.frames_presented(time_ms);
+                self.wayland_flush(i);
+            }
+        }
     }
 
     /// Surfaces whose windows should close, keyed by connection (role destroyed or client gone).
@@ -834,7 +857,7 @@ impl<F: LinFs> LinSystem<F> {
             pid,
             Process { pid, ppid: 0, mem, fds, cwd: "/".into(), exe: l.exe, argv: argv.to_vec(), acts, threads: vec![pid], exit: None, umask: 0o022, fmaps: Vec::new() },
         );
-        self.threads.insert(pid, Thread { tid: pid, pid, regs, state: TState::Runnable, sigmask: 0, pending: 0, altstack: (0, 0), clear_tid: 0, robust: 0, resume_deadline: None, fx: fx_default(), fault: None });
+        self.threads.insert(pid, Thread { tid: pid, pid, regs, state: TState::Runnable, sigmask: 0, pending: 0, altstack: (0, 0), clear_tid: 0, robust: 0, resume_deadline: None, fx: fx_default(), fault: None, name: String::new() });
         Ok(pid)
     }
 
@@ -1979,6 +2002,25 @@ impl<F: LinFs> LinSystem<F> {
                     return ok(old as i64);
                 }
                 let prot = p.mem.prot_at(old).ok_or(EFAULT)?;
+                if let Some((buf, off, name)) = p.mem.shared_at(old) {
+                    // A shared mapping stays an alias of the same pages (a memfd the compositor reads,
+                    // shared memory between processes): grow or move it, never copy it.
+                    let at = if p.mem.is_free(old + ol, old + nl) {
+                        p.mem.unmap(old, ol)?;
+                        p.mem.map_shared_buf(Some(old), nl, prot, buf, off, &name)?
+                    } else if a[3] & 1 != 0 {
+                        let n = p.mem.map_shared_buf(None, nl, prot, buf, off, &name)?;
+                        p.mem.unmap(old, ol)?;
+                        n
+                    } else {
+                        return err(ENOMEM);
+                    };
+                    for m in p.fmaps.iter_mut().filter(|m| m.0 == old) {
+                        m.0 = at;
+                        m.1 = nl;
+                    }
+                    return ok(at as i64);
+                }
                 let data = p.mem.read_vec(old, ol as usize)?;
                 if p.mem.is_free(old + ol, old + nl) {
                     p.mem.map_fixed(old + ol, nl - ol, prot, &[], "")?;
@@ -2593,9 +2635,17 @@ impl<F: LinFs> LinSystem<F> {
                 // prctl: PDEATHSIG, DUMPABLE, KEEPCAPS, NO_NEW_PRIVS, CHILD_SUBREAPER accepted; names kept per thread elsewhere.
                 1 | 4 | 8 | 36 | 38 | 39 => Ok(Sys::Ret(0)),
                 2 | 3 | 37 => Ok(Sys::Ret(if a[0] == 3 { 1 } else { 0 })),
-                15 => Ok(Sys::Ret(0)),
+                15 => {
+                    let raw = p.mem.read_cstr(a[1], 16)?;
+                    let name: String = raw.chars().take(15).collect();
+                    if let Some(t) = self.threads.get_mut(&tid) {
+                        t.name = name;
+                    }
+                    Ok(Sys::Ret(0))
+                }
                 16 => {
-                    let n = p.exe.rsplit('/').next().unwrap_or("").as_bytes();
+                    let own = self.threads.get(&tid).map(|t| t.name.clone()).unwrap_or_default();
+                    let n = if own.is_empty() { p.exe.rsplit('/').next().unwrap_or("") } else { own.as_str() }.as_bytes();
                     let mut b = [0u8; 16];
                     let k = n.len().min(15);
                     b[..k].copy_from_slice(&n[..k]);
@@ -3006,6 +3056,7 @@ impl<F: LinFs> LinSystem<F> {
                 if key == "unix:/run/user/1000/wayland-0" {
                     let mut w = WaylandServer::new();
                     w.screen = self.wayland_screen;
+                    w.work_area = self.wayland_work_area;
                     w.keymap_size = self.fs.lstat(KEYMAP_PATH).map_or(0, |st| st.size as u32);
                     self.socks[srv].wayland = Some(w);
                 }
@@ -3231,11 +3282,25 @@ impl<F: LinFs> LinSystem<F> {
         Ok(self.block(tid, Wait::Child, nr, a, None, true))
     }
 
+    /// Futex identity. Private futexes (`FUTEX_PRIVATE_FLAG`) are per address space; a shared one
+    /// in a `MAP_SHARED` mapping is the memory word itself, whichever process maps it where
+    /// (process-shared semaphores and mutexes between e.g. Firefox's processes).
+    fn futex_key(p: &UserMem, op: u32, addr: u64, pid: Pid) -> (Pid, u64) {
+        if op & 128 == 0 {
+            if let Some((buf, off, _)) = p.shared_at(addr) {
+                let id = Rc::as_ptr(&buf) as usize as u64;
+                return (SHARED_FUTEX | (id >> 4) as Pid, (off as u64) + (addr & (PAGE - 1)));
+            }
+        }
+        (pid, addr)
+    }
+
     fn sys_futex(&mut self, p: &mut Process, tid: Pid, nr: u64, a: [u64; 6]) -> Result<Sys, i64> {
         let (uaddr, op, val) = (a[0], a[1] as u32, a[2] as u32);
         if uaddr % 4 != 0 {
             return err(EINVAL);
         }
+        let key = Self::futex_key(&p.mem, op, uaddr, p.pid);
         match op & 127 {
             0 | 9 => {
                 let cur = p.mem.read_u32(uaddr)?;
@@ -3248,20 +3313,21 @@ impl<F: LinFs> LinSystem<F> {
                     let ns = Self::timespec(&mut p.mem, a[3])?;
                     Some(if op & 127 == 9 { ns.saturating_sub(if op & 256 != 0 { self.epoch_base_s * 1_000_000_000 } else { 0 }) } else { self.now_ns.saturating_add(ns) })
                 };
-                Ok(self.block(tid, Wait::Futex(p.pid, uaddr), nr, a, deadline, false))
+                Ok(self.block(tid, Wait::Futex(key.0, key.1), nr, a, deadline, false))
             }
-            1 | 10 => Ok(Sys::Ret(self.futex_wake(p.pid, uaddr, val as usize) as i64)),
+            1 | 10 => Ok(Sys::Ret(self.futex_wake(key.0, key.1, val as usize) as i64)),
             3 | 4 => {
                 let (uaddr2, nreq) = (a[4], a[3] as usize);
                 if op & 127 == 4 && p.mem.read_u32(uaddr)? != a[5] as u32 {
                     return err(EAGAIN);
                 }
-                let woken = self.futex_wake(p.pid, uaddr, val as usize);
+                let woken = self.futex_wake(key.0, key.1, val as usize);
+                let key2 = Self::futex_key(&p.mem, op, uaddr2, p.pid);
                 let mut moved = 0;
-                let ids: Vec<Pid> = self.threads.values().filter(|t| matches!(t.state, TState::Blocked { wait: Wait::Futex(pp, ad), .. } if pp == p.pid && ad == uaddr)).map(|t| t.tid).collect();
+                let ids: Vec<Pid> = self.threads.values().filter(|t| matches!(t.state, TState::Blocked { wait: Wait::Futex(pp, ad), .. } if (pp, ad) == key)).map(|t| t.tid).collect();
                 for t in ids.into_iter().take(nreq) {
                     if let TState::Blocked { wait, .. } = &mut self.threads.get_mut(&t).unwrap().state {
-                        *wait = Wait::Futex(p.pid, uaddr2);
+                        *wait = Wait::Futex(key2.0, key2.1);
                         moved += 1;
                     }
                 }
@@ -3282,7 +3348,7 @@ impl<F: LinFs> LinSystem<F> {
                     _ => return err(ENOSYS),
                 };
                 p.mem.write_u32(a[4], new)?;
-                let mut n = self.futex_wake(p.pid, uaddr, val as usize);
+                let mut n = self.futex_wake(key.0, key.1, val as usize);
                 let hit = match cmp {
                     0 => old == cmparg,
                     1 => old != cmparg,
@@ -3293,7 +3359,8 @@ impl<F: LinFs> LinSystem<F> {
                     _ => false,
                 };
                 if hit {
-                    n += self.futex_wake(p.pid, a[4], a[3] as usize);
+                    let key2 = Self::futex_key(&p.mem, op, a[4], p.pid);
+                    n += self.futex_wake(key2.0, key2.1, a[3] as usize);
                 }
                 Ok(Sys::Ret(n as i64))
             }
@@ -3331,7 +3398,7 @@ impl<F: LinFs> LinSystem<F> {
             }
             let clear = if flags & 0x20_0000 != 0 { ctid } else { 0 };
             p.threads.push(new);
-            self.threads.insert(new, Thread { tid: new, pid: p.pid, regs, state: TState::Runnable, sigmask: mask, pending: 0, altstack: (0, 0), clear_tid: clear, robust: 0, resume_deadline: None, fx: parent_fx.clone(), fault: None });
+            self.threads.insert(new, Thread { tid: new, pid: p.pid, regs, state: TState::Runnable, sigmask: mask, pending: 0, altstack: (0, 0), clear_tid: clear, robust: 0, resume_deadline: None, fx: parent_fx.clone(), fault: None, name: String::new() });
             return Ok(Sys::Ret(new as i64));
         }
         // fork / vfork / CLONE_VM|CLONE_VFORK (posix_spawn): copy semantics
@@ -3357,7 +3424,7 @@ impl<F: LinFs> LinSystem<F> {
         }
         let clear = if flags & 0x20_0000 != 0 { ctid } else { 0 };
         self.procs.insert(new, child);
-        self.threads.insert(new, Thread { tid: new, pid: new, regs, state: TState::Runnable, sigmask: mask, pending: 0, altstack: (0, 0), clear_tid: clear, robust: 0, resume_deadline: None, fx: parent_fx.clone(), fault: None });
+        self.threads.insert(new, Thread { tid: new, pid: new, regs, state: TState::Runnable, sigmask: mask, pending: 0, altstack: (0, 0), clear_tid: clear, robust: 0, resume_deadline: None, fx: parent_fx.clone(), fault: None, name: String::new() });
         if flags & 0x4000 != 0 {
             return Ok(self.block(tid, Wait::VFork(new), 0, a, None, false));
         }

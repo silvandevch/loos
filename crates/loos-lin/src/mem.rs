@@ -484,6 +484,13 @@ impl UserMem {
         Ok(())
     }
 
+    /// For a shared mapping containing `addr`: its buffer, the buffer offset of `addr`, and the region name.
+    pub fn shared_at(&self, addr: u64) -> Option<(SharedBuf, usize, String)> {
+        let r = self.find(addr)?;
+        let (b, o, _) = r.shared.as_ref()?;
+        Some((b.clone(), o + (floor(addr) - r.start) as usize, r.name.clone()))
+    }
+
     fn find(&self, addr: u64) -> Option<&Region> {
         self.regions.range(..=addr).next_back().map(|(_, r)| r).filter(|r| r.end() > addr)
     }

@@ -868,3 +868,80 @@ fn edge_triggered_epoll_reports_changes_not_levels() {
     assert_ne!(sys.process_mut(pid).unwrap().mem.read_u32(out).unwrap() & 1, 0, "with EPOLLIN");
     assert_eq!(sc(&mut sys, pid, 232, &[ep, out, 4, 0]), 0);
 }
+
+#[test]
+fn mremap_keeps_a_shared_mapping_shared() {
+    // A Wayland client (Firefox) grows its memfd pool with mremap; the compositor reads the same
+    // pages through a second mapping. Growing in place or moving must not detach either side.
+    let mut sys = new_sys();
+    let pid = spawn_nop(&mut sys);
+    let name = put(&mut sys, pid, "pool");
+    let fd = sc(&mut sys, pid, 319, &[name, 1]) as u64;
+    assert_eq!(sc(&mut sys, pid, 77, &[fd, 3 * 4096]), 0);
+    let a = sc(&mut sys, pid, 9, &[0, 4096, 3, 1, fd, 0]) as u64; // client mapping
+    let b = sc(&mut sys, pid, 9, &[0, 3 * 4096, 1, 1, fd, 0]) as u64; // "compositor" mapping
+    // grow (b sits right below a in the mmap area, so a cannot grow in place): must move
+    let moved = sc(&mut sys, pid, 25, &[a, 4096, 3 * 4096, 1]) as u64; // MREMAP_MAYMOVE
+    assert!(moved > 0 && moved % 4096 == 0, "mremap result {moved:#x}");
+    sys.process_mut(pid).unwrap().mem.write(moved + 10, b"new").unwrap();
+    sys.process_mut(pid).unwrap().mem.write(moved + 2 * 4096, b"tail").unwrap();
+    let mut got = [0u8; 4];
+    sys.process_mut(pid).unwrap().mem.read(b + 10, &mut got[..3]).unwrap();
+    assert_eq!(&got[..3], b"new", "write through the moved mapping is visible to the other mapping");
+    sys.process_mut(pid).unwrap().mem.read(b + 2 * 4096, &mut got).unwrap();
+    assert_eq!(&got, b"tail", "the grown tail aliases the file too");
+    // in-place growth (top of a fresh mapping with room above is not guaranteed; shrink then regrow)
+    assert_eq!(sc(&mut sys, pid, 25, &[moved, 3 * 4096, 4096, 0]) as u64, moved);
+    let again = sc(&mut sys, pid, 25, &[moved, 4096, 2 * 4096, 0]) as u64;
+    assert_eq!(again, moved, "regrow in place");
+    sys.process_mut(pid).unwrap().mem.write(moved + 4096 + 5, b"z").unwrap();
+    sys.process_mut(pid).unwrap().mem.read(b + 4096 + 5, &mut got[..1]).unwrap();
+    assert_eq!(got[0], b'z');
+}
+
+#[test]
+fn shared_futex_wakes_across_processes() {
+    // A process-shared semaphore lives in MAP_SHARED memory: a waiter in one process is woken by a
+    // FUTEX_WAKE (no PRIVATE flag) from another process mapping the same page at another address.
+    let mut sys = new_sys();
+    let pid = spawn_nop(&mut sys);
+    let shared = sc(&mut sys, pid, 9, &[0, 0x2000, 3, 0x21, u64::MAX, 0]) as u64; // MAP_SHARED|ANON
+    let child = sc(&mut sys, pid, 57, &[]) as u32;
+    // the child re-maps the page elsewhere (as an fd-passed shm segment would be); a mapping right
+    // after it forces the move
+    sc(&mut sys, child, 9, &[shared + 0x2000, 0x1000, 3, 0x32, u64::MAX, 0]); // MAP_FIXED|PRIVATE|ANON
+    let elsewhere = sc(&mut sys, child, 25, &[shared, 0x2000, 0x3000, 1]) as u64; // mremap MAYMOVE
+    assert_ne!(elsewhere, shared);
+    let word = shared + 0x1004;
+    assert_eq!(sys.syscall(pid, 202, [word, 0, 0, 0, 0, 0]), Sys::Blocked, "FUTEX_WAIT (shared)");
+    assert_eq!(sc(&mut sys, child, 202, &[elsewhere + 0x1004, 1, 1]), 1, "FUTEX_WAKE through the other mapping");
+    assert_eq!(sys.thread(pid).unwrap().state, loos_lin::sys::TState::Runnable);
+    // private futexes stay per address space: the same address in another process is a different futex
+    let private = sc(&mut sys, pid, 9, &[0, 0x1000, 3, 0x22, u64::MAX, 0]) as u64;
+    let c2 = sc(&mut sys, pid, 57, &[]) as u32;
+    assert_eq!(sys.syscall(pid, 202, [private, 128, 0, 0, 0, 0]), Sys::Blocked, "FUTEX_WAIT_PRIVATE");
+    assert_eq!(sc(&mut sys, c2, 202, &[private, 129, 1]), 0, "another process cannot wake a private futex");
+    assert_eq!(sc(&mut sys, pid, 202, &[private, 129, 1]), 1, "its own process can");
+}
+
+#[test]
+fn static_rootfs_borrows_the_boot_image_and_copies_on_write() {
+    use loos_lin::fs::MemFs;
+    let mut tar = vec![0u8; 512];
+    tar[..5].copy_from_slice(b"a.txt");
+    tar[100..107].copy_from_slice(b"0000644");
+    tar[124..135].copy_from_slice(b"00000000005");
+    tar[156] = b'0';
+    tar.extend(b"hello");
+    tar.extend(vec![0u8; 507 + 1024]);
+    let image: &'static [u8] = Box::leak(tar.into_boxed_slice());
+    let mut fs = MemFs::new();
+    assert_eq!(fs.load_tar_static(image), 1);
+    let mut buf = [0u8; 5];
+    assert_eq!(fs.read("/a.txt", 0, &mut buf), Ok(5));
+    assert_eq!(&buf, b"hello");
+    assert_eq!(fs.write("/a.txt", 0, b"J"), Ok(1));
+    fs.read("/a.txt", 0, &mut buf).unwrap();
+    assert_eq!(&buf, b"Jello", "writes land in the file");
+    assert_eq!(&image[512..517], b"hello", "the boot image itself is never modified");
+}

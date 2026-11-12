@@ -36,6 +36,7 @@ size_t loos_kbugcheck_name(uint32_t code, char *out, size_t cap);
 /* kalloc.c */
 void kalloc_init(const struct loos_bootinfo *bi);
 void *kalloc(uint64_t size, uint64_t align);        /* NULL when out of memory */
+void *kalloc_high(uint64_t size, uint64_t align);   /* prefers RAM above 4 GiB; falls back to kalloc */
 uint64_t kalloc_free(void);
 
 /* ktime.c */

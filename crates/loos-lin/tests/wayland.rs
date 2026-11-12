@@ -76,6 +76,8 @@ fn toplevel_configures_and_destroy_recycles_ids() {
     s.receive(&req(11, 2, u32s(&[13, 12]))).unwrap(); // xdg_surface
     s.take_events();
     s.receive(&req(13, 1, u32s(&[14]))).unwrap(); // toplevel
+    assert!(!events(&mut s).iter().any(|e| e.0 == 14 && e.1 == 0), "no configure before the initial commit");
+    s.receive(&req(12, 6, vec![])).unwrap(); // initial commit (no buffer)
     let ev = events(&mut s);
     let cfg = ev.iter().find(|e| e.0 == 14 && e.1 == 0).expect("xdg_toplevel.configure");
     assert_eq!(&cfg.2[..8], &u32s(&[0, 0])[..], "0x0 lets the client pick its size");
@@ -168,4 +170,80 @@ fn subsurface_content_is_composited_into_its_window() {
     let f = s.take_frames();
     assert_eq!(f.len(), 1, "one frame per window");
     assert_eq!((f[0].surface, f[0].pixels.clone()), (31, vec![0, 0xffff0000]), "transparent window with the red content on top at x=1");
+}
+
+#[test]
+fn shown_surfaces_enter_the_output_once() {
+    let mut s = connected();
+    bind(&mut s, "wl_shm", 1, 10);
+    bind(&mut s, "wl_compositor", 5, 30);
+    bind(&mut s, "xdg_wm_base", 5, 40);
+    bind(&mut s, "wl_output", 4, 60);
+    let buf = Rc::new(RefCell::new(PageBuf::default()));
+    s.receive_with_fds(&req(10, 0, u32s(&[20, 4])), &[SharedFd { buf }]).unwrap();
+    s.receive(&req(20, 0, u32s(&[21, 0, 1, 1, 4, 0]))).unwrap();
+    s.receive(&req(30, 0, u32s(&[31]))).unwrap();
+    s.receive(&req(40, 2, u32s(&[41, 31]))).unwrap();
+    s.receive(&req(41, 1, u32s(&[42]))).unwrap();
+    s.take_events();
+    s.receive(&req(31, 6, vec![])).unwrap(); // no buffer yet: not on screen
+    assert!(!events(&mut s).iter().any(|e| e.0 == 31 && e.1 == 0));
+    s.receive(&req(31, 1, u32s(&[21, 0, 0]))).unwrap();
+    s.receive(&req(31, 6, vec![])).unwrap();
+    assert!(events(&mut s).contains(&(31, 0, u32s(&[60]))), "wl_surface.enter(output) once mapped");
+    s.receive(&req(31, 1, u32s(&[21, 0, 0]))).unwrap();
+    s.receive(&req(31, 6, vec![])).unwrap();
+    assert!(!events(&mut s).iter().any(|e| e.0 == 31 && e.1 == 0), "only once");
+    bind(&mut s, "wl_output", 4, 61); // an output bound later is entered too
+    assert!(events(&mut s).contains(&(31, 0, u32s(&[61]))));
+}
+
+#[test]
+fn maximize_and_fullscreen_configure_a_real_size() {
+    // GTK lays out (and Firefox maps its content surface) on the size the compositor configures.
+    let mut s = connected();
+    s.work_area = (1000, 700);
+    s.screen = (1024, 768);
+    bind(&mut s, "wl_compositor", 5, 10);
+    bind(&mut s, "xdg_wm_base", 5, 11);
+    s.receive(&req(10, 0, u32s(&[12]))).unwrap();
+    s.receive(&req(11, 2, u32s(&[13, 12]))).unwrap();
+    s.receive(&req(13, 1, u32s(&[14]))).unwrap();
+    s.receive(&req(12, 6, vec![])).unwrap(); // initial commit
+    s.take_events();
+    let cfg = |s: &mut Server| {
+        let ev = events(s);
+        assert!(ev.iter().any(|e| e.0 == 13 && e.1 == 0), "xdg_surface.configure follows");
+        ev.into_iter().find(|e| e.0 == 14 && e.1 == 0).expect("xdg_toplevel.configure").2
+    };
+    s.receive(&req(14, 9, vec![])).unwrap(); // set_maximized
+    assert_eq!(cfg(&mut s), u32s(&[1000, 700, 8, 1, 4]), "work area, maximized + activated");
+    s.receive(&req(14, 10, vec![])).unwrap(); // unset_maximized
+    assert_eq!(cfg(&mut s), u32s(&[0, 0, 4, 4]));
+    s.receive(&req(14, 11, u32s(&[0]))).unwrap(); // set_fullscreen(nil)
+    assert_eq!(cfg(&mut s), u32s(&[1024, 768, 8, 2, 4]));
+}
+
+#[test]
+fn buffers_are_released_when_replaced_not_on_commit() {
+    let mut s = connected();
+    bind(&mut s, "wl_shm", 1, 10);
+    bind(&mut s, "wl_compositor", 5, 30);
+    let buf = Rc::new(RefCell::new(PageBuf::default()));
+    s.receive_with_fds(&req(10, 0, u32s(&[20, 8])), &[SharedFd { buf }]).unwrap();
+    s.receive(&req(20, 0, u32s(&[21, 0, 1, 1, 4, 0]))).unwrap(); // buffer A
+    s.receive(&req(20, 0, u32s(&[22, 4, 1, 1, 4, 0]))).unwrap(); // buffer B
+    s.receive(&req(30, 0, u32s(&[31]))).unwrap();
+    s.take_events();
+    let released = |s: &mut Server, b: u32| events(s).iter().any(|e| e.0 == b && e.1 == 0);
+    s.receive(&req(31, 1, u32s(&[21, 0, 0]))).unwrap();
+    s.receive(&req(31, 6, vec![])).unwrap();
+    assert!(!released(&mut s, 21), "A is on screen: held");
+    s.receive(&req(31, 6, vec![])).unwrap(); // commit without a new buffer keeps A
+    assert!(!released(&mut s, 21));
+    s.receive(&req(31, 1, u32s(&[22, 0, 0]))).unwrap();
+    s.receive(&req(31, 6, vec![])).unwrap();
+    assert!(released(&mut s, 21), "B replaced A: A released");
+    s.receive(&req(31, 0, vec![])).unwrap(); // surface destroyed
+    assert!(released(&mut s, 22), "B released with its surface");
 }

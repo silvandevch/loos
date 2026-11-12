@@ -386,9 +386,7 @@ impl Lin {
     }
 
     fn present_wayland(&mut self) {
-        // SAFETY: monotonic clock.
-        let ms = (unsafe { time_us() } / 1000) as u32;
-        for (conn, frame) in self.sys.take_wayland_frames(ms) {
+        for (conn, frame) in self.sys.take_wayland_frames(self.back.is_null()) {
             let key = (conn, frame.surface);
             let hwnd = if let Some(&h) = self.wayland_windows.get(&key) {
                 h
@@ -397,7 +395,7 @@ impl Lin {
                 let style = if frame.toplevel { WS_OVERLAPPEDWINDOW | WS_VISIBLE } else { WS_VISIBLE };
                 let n = self.wayland_windows.len() as i32;
                 let outer = adjust_window_rect(style, false, Rect { left: 0, top: 0, right: frame.width as i32, bottom: frame.height as i32 });
-                let Ok(h) = self.desk.borrow_mut().create_window_ex(0, "LooSLinux", if title.is_empty() { "Linux application" } else { &title }, style, 40 + 24 * n, 40 + 24 * n, outer.right - outer.left, outer.bottom - outer.top, 0, 0, 0) else { continue };
+                let Ok(h) = self.desk.borrow_mut().create_window_ex(0, "LooSLinux", if title.is_empty() { "Linux application" } else { &title }, style, (40 + 24 * n).min(self.screen.0 - (outer.right - outer.left)).max(0), (40 + 24 * n).min(self.screen.1 - (outer.bottom - outer.top)).max(0), outer.right - outer.left, outer.bottom - outer.top, 0, 0, 0) else { continue };
                 if self.wayland_windows.is_empty() {
                     self.show_console = false; // the app is up: give it the screen (F12 brings the log back)
                 }
@@ -418,7 +416,10 @@ impl Lin {
                 if let (Ok(c), Ok(w)) = (d.get_client_rect(hwnd), d.get_window_rect(hwnd)) {
                     let (dw, dh) = (frame.width as i32 - (c.right - c.left), frame.height as i32 - (c.bottom - c.top));
                     if dw != 0 || dh != 0 {
-                        d.move_window(hwnd, w.left, w.top, w.right - w.left + dw, w.bottom - w.top + dh).ok();
+                        let (nw, nh) = (w.right - w.left + dw, w.bottom - w.top + dh);
+                        // Keep the grown window on screen (a maximized client fills the work area).
+                        let (x, y) = (w.left.min(self.screen.0 - nw).max(0), w.top.min(self.screen.1 - nh).max(0));
+                        d.move_window(hwnd, x, y, nw, nh).ok();
                     }
                 }
                 d.import_window_pixels(hwnd, frame.width as i32, frame.height as i32, &frame.pixels);
@@ -600,6 +601,8 @@ impl Lin {
         // SAFETY: plain kernel call; gui_vid was set before loos_lin_boot.
         unsafe { gui_present() };
         self.presents += 1;
+        // The frames are on screen now: Wayland clients may draw their next one.
+        self.sys.wayland_presented();
         self.dirty = false;
         self.last_present_us = now;
     }
@@ -766,13 +769,14 @@ pub unsafe extern "C" fn loos_lin_boot(
         while *cmd.add(n) != 0 && *cmd.add(n) != b' ' {
             n += 1;
         }
-        (if initrd.is_null() { &[][..] } else { core::slice::from_raw_parts(initrd, len) }, String::from_utf8_lossy(core::slice::from_raw_parts(cmd, n)).into_owned())
+        // The boot module is never freed: the root filesystem borrows file contents from it.
+        (if initrd.is_null() { &[][..] } else { core::slice::from_raw_parts::<'static, u8>(initrd, len) }, String::from_utf8_lossy(core::slice::from_raw_parts(cmd, n)).into_owned())
     };
     let mut fs = MemFs::new();
     for d in ["/bin", "/usr/bin", "/lib", "/lib64", "/etc", "/tmp", "/dev", "/proc", "/home", "/run", "/run/user", "/run/user/1000"] {
         fs.add_dir(d);
     }
-    let files = fs.load_tar(tar);
+    let files = fs.load_tar_static(tar);
     say("lin: rootfs ");
     // SAFETY: serial output.
     dec(files as u64);
@@ -803,6 +807,9 @@ pub unsafe extern "C" fn loos_lin_boot(
     sys.trace_only = trace_only;
     if !back.is_null() {
         sys.wayland_screen = (width.max(1) as u32, height.max(1) as u32);
+        // A maximized window's client area: the screen minus the frame the window manager adds.
+        let f = adjust_window_rect(WS_OVERLAPPEDWINDOW | WS_VISIBLE, false, Rect { left: 0, top: 0, right: 0, bottom: 0 });
+        sys.wayland_work_area = ((width - (f.right - f.left)).max(1) as u32, (height - (f.bottom - f.top)).max(1) as u32);
     }
     sys.stdin_eof = true;
     // SAFETY: plain C accessor (CMOS clock as Unix seconds).
