@@ -233,16 +233,16 @@ impl<F: LinFs> LinSystem<F> {
                     _ => return err(EINVAL),
                 };
                 let fd = a[2] as i32;
-                if !p.fds.contains_key(&fd) {
-                    return err(EBADF);
-                }
+                let Some(file) = p.fds.get(&fd).map(|e| e.file.clone()) else { return err(EBADF) };
                 let (events, data) = if a[1] == 2 { (0, 0) } else { (p.mem.read_u32(a[3])?, p.mem.read_u64(a[3] + 4)?) };
                 let list = &mut self.epolls[ep];
-                let pos = list.iter().position(|e| e.0 == fd);
+                list.retain(|e| e.4.strong_count() > 0); // registrations of closed files are gone
+                let pos = list.iter().position(|e| e.0 == fd && e.4.upgrade().is_some_and(|f| Rc::ptr_eq(&f, &file)));
+                let weak = Rc::downgrade(&file);
                 match (a[1], pos) {
                     (1, Some(_)) => err(EEXIST),
                     (1, None) => {
-                        list.push((fd, events, data, u64::MAX));
+                        list.push((fd, events, data, u64::MAX, weak));
                         ok(0)
                     }
                     (2, Some(i)) => {
@@ -250,7 +250,7 @@ impl<F: LinFs> LinSystem<F> {
                         ok(0)
                     }
                     (3, Some(i)) => {
-                        list[i] = (fd, events, data, u64::MAX); // re-armed: report current state again
+                        list[i] = (fd, events, data, u64::MAX, weak); // re-armed: report current state again
                         ok(0)
                     }
                     _ => err(ENOENT),
@@ -265,14 +265,14 @@ impl<F: LinFs> LinSystem<F> {
                 let max = (a[2] as i32).clamp(1, 1024) as usize;
                 let ms = a[3] as i32;
                 let rel = (ms >= 0).then(|| ms as u64 * 1_000_000);
+                self.epolls[ep].retain(|e| e.4.strong_count() > 0); // closed files report nothing
                 let entries = self.epolls[ep].clone();
                 let mut hits: Vec<(usize, u32, u64)> = Vec::new();
-                for (idx, (fd, want, data, seen)) in entries.iter().enumerate() {
+                for (idx, (_, want, data, seen, file)) in entries.iter().enumerate() {
                     if hits.len() >= max || *want == 0 {
                         continue;
                     }
-                    let Some(ent) = p.fds.get(fd) else { continue };
-                    let f = ent.file.clone();
+                    let Some(f) = file.upgrade() else { continue };
                     // EPOLLET: only report when something happened since the last report.
                     let act = self.activity(&f);
                     if want & EPOLLET != 0 && act == *seen {
@@ -316,6 +316,9 @@ impl<F: LinFs> LinSystem<F> {
             // eventfd / eventfd2(initval, flags)
             284 | 290 => {
                 let flags = if nr == 290 { a[1] } else { 0 };
+                if flags & !(1 | 0o4000 | 0o2000000) != 0 {
+                    return err(EINVAL); // EFD_SEMAPHORE | EFD_NONBLOCK | EFD_CLOEXEC only
+                }
                 self.eventfds.push((a[0] & 0xffff_ffff, flags & 1 != 0));
                 let i = self.eventfds.len() - 1;
                 let f = self.new_fd(FKind::EventFd(i), if flags & 0o4000 != 0 { 0o4002 } else { 2 });
@@ -397,7 +400,7 @@ impl<F: LinFs> LinSystem<F> {
             // getresuid / getresgid: everything is root (uid 0)
             118 | 120 => {
                 for k in 0..3 {
-                    p.mem.write_u32(a[k], 0)?;
+                    p.mem.write_u32(a[k], crate::fs::USER_ID)?;
                 }
                 ok(0)
             }

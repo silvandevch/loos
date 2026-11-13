@@ -60,6 +60,7 @@ const W: u64 = 2;
 const U: u64 = 4;
 const NX: u64 = 1 << 63;
 pub(crate) const MSR_FS_BASE: u32 = 0xC000_0100;
+const MSR_KERNEL_GS_BASE: u32 = 0xC000_0102;
 
 /// Decimal / hex number on the serial line and the on-screen console.
 fn dec(v: u64) {
@@ -305,6 +306,8 @@ impl loos_lin::sys::LinNet for KLinNet {
 
 struct Lin {
     sys: LinSystem<MemFs>,
+    /// LoOS Prism: macOS (Mach-O) processes living in `sys`.
+    prism: loos_prism::Prism,
     pml4: BTreeMap<Pid, (u64, u64)>,
     last: Pid,
     desk: alloc::rc::Rc<core::cell::RefCell<loos_win32k::Win32k>>,
@@ -339,6 +342,9 @@ struct Lin {
 
 impl Lin {
     fn flush_console(&mut self) {
+        if !self.sys.diag.is_empty() {
+            say(&core::mem::take(&mut self.sys.diag));
+        }
         let out = self.sys.console_take();
         for &b in &out {
             // SAFETY: port I/O.
@@ -565,6 +571,38 @@ impl Lin {
         hot.sort_by(|a, b| b.1.cmp(&a.1));
         let top: Vec<String> = hot.iter().take(5).map(|((t, nr), n)| alloc::format!("{}x {}#{} [{}]", n, loos_lin::syscalls_generated::syscall_name(*nr), nr, t)).collect();
         say(&alloc::format!("lin:   busiest: {}\n", top.join(", ")));
+        // Every process's share, so a quiet process (a renderer waiting on something) is visible too.
+        let mut per: BTreeMap<Pid, u32> = BTreeMap::new();
+        for ((t, _), n) in &hot {
+            if let Some(th) = self.sys.thread(*t) {
+                *per.entry(th.pid).or_default() += n;
+            }
+        }
+        let procs: Vec<String> = per.iter().map(|(pid, n)| {
+            let kind = self.sys.process(*pid).and_then(|p| p.argv.iter().find_map(|a| a.strip_prefix("--type=")).map(String::from)).unwrap_or_else(|| "main".into());
+            alloc::format!("{pid}:{kind}={n}")
+        }).collect();
+        say(&alloc::format!("lin:   per process: {}\n", procs.join(" ")));
+        for (pid, n) in &per {
+            if *n < 50 {
+                let recent = self.sys.recent_syscalls(*pid);
+                let lines: Vec<&str> = recent.lines().collect();
+                for l in &lines[lines.len().saturating_sub(3)..] {
+                    say(&alloc::format!("{l}\n"));
+                }
+            }
+        }
+        // Who the busiest thread is and its last few calls (enough to tell a loop's shape).
+        if let Some(((t, _), _)) = hot.first() {
+            if let Some(p) = self.sys.thread(*t).and_then(|th| self.sys.process(th.pid)) {
+                say(&alloc::format!("lin:   [{t}] is {}\n", p.argv.join(" ").chars().take(160).collect::<String>()));
+            }
+            let recent = self.sys.recent_syscalls(*t);
+            let lines: Vec<&str> = recent.lines().collect();
+            for l in &lines[lines.len().saturating_sub(6)..] {
+                say(&alloc::format!("{l}\n"));
+            }
+        }
         // What the busiest threads' processes last saw as ready (a poll loop spinning on one fd shows here).
         let mut shown = Vec::new();
         for ((t, _), _) in hot.iter().take(3) {
@@ -664,6 +702,26 @@ impl Lin {
                 }
                 Delivery::Handler(_) | Delivery::None => {}
             }
+            if self.prism.is_arm(pid) {
+                // Apple Silicon code never enters ring 3: the interpreter runs it against the same address space.
+                idle_spins = 0;
+                if let Some(Sys::ProcessExit(st)) = self.prism.run_arm(&mut self.sys, tid, 200_000) {
+                    if pid == main {
+                        status = Some(st);
+                    }
+                    self.prism.reap(&self.sys);
+                }
+                self.present_wayland();
+                self.flush_console();
+                if status.is_none() && self.sys.process(main).is_none() {
+                    status = Some(0);
+                }
+                continue;
+            }
+            let prism = self.prism.owns(pid);
+            if prism {
+                self.prism.resume(&mut self.sys, tid);
+            }
             let cr3 = self.cr3_for(pid);
             if cr3 == 0 {
                 say("lin: out of memory building page tables\n");
@@ -682,6 +740,9 @@ impl Lin {
             // SAFETY: FS base MSR; run_user enters ring 3 with a fully initialised frame and returns on trap.
             let vector = unsafe {
                 wrmsr(MSR_FS_BASE, r.fs_base);
+                if prism {
+                    wrmsr(MSR_KERNEL_GS_BASE, r.gs_base); // Darwin's TSD base: becomes GS on the swapgs into ring 3
+                }
                 run_user(&mut frame)
             };
             let g = &frame.gpr;
@@ -699,9 +760,13 @@ impl Lin {
                 let (nr, a) = (g[0], [g[7], g[6], g[2], g[10], g[8], g[9]]);
                 self.syscalls += 1;
                 *self.hot.entry((tid, nr)).or_insert(0) += 1;
-                match self.sys.syscall(tid, nr, a) {
+                let r = if prism { self.prism.syscall(&mut self.sys, tid, nr, a).unwrap_or(Sys::Ret(0)) } else { self.sys.syscall(tid, nr, a) };
+                match r {
                     Sys::ProcessExit(st) if pid == main => status = Some(st),
                     _ => {}
+                }
+                if prism && matches!(r, Sys::ProcessExit(_)) {
+                    self.prism.reap(&self.sys);
                 }
                 self.present_wayland();
             } else {
@@ -736,6 +801,8 @@ impl Lin {
                         hex(off);
                     }
                     say("\n");
+                    let recent = self.sys.recent_syscalls(tid);
+                    say(&recent);
                     self.sys.fault(tid, vector, frame.error, cr2);
                 }
             }
@@ -840,7 +907,20 @@ pub unsafe extern "C" fn loos_lin_boot(
     while argv.first().is_some_and(|a| a.contains('=') && !a.starts_with('/')) {
         env.push(argv.remove(0));
     }
-    let pid = match sys.spawn(&argv[0], &argv, &env) {
+    // Mach-O files and .app bundles go to LoOS Prism; everything else is a Linux program.
+    let mut prism = loos_prism::Prism::new();
+    let spawned = if loos_prism::recognizes(&mut sys.fs, &argv[0]) {
+        say("prism: starting macOS program ");
+        say(&argv[0]);
+        say("\n");
+        let r = prism.spawn(&mut sys, &argv[0], &argv, &env);
+        let d = core::mem::take(&mut sys.diag);
+        say(&d);
+        r
+    } else {
+        sys.spawn(&argv[0], &argv, &env)
+    };
+    let pid = match spawned {
         Ok(p) => p,
         Err(e) => {
             say("lin: cannot execute (errno ");
@@ -850,7 +930,7 @@ pub unsafe extern "C" fn loos_lin_boot(
             return -1;
         }
     };
-    let mut lin = Lin { sys, pml4: BTreeMap::new(), last: 0, desk: desk.clone(), wayland_windows: BTreeMap::new(), back, screen: (screen_w, screen_h), dirty: false, last_present_us: 0, input: !back.is_null(), cursor: (screen_w / 2, screen_h / 2), buttons: 0, mods: 0, caps: false, show_console: true, started_us: unsafe { time_us() }, beat_us: unsafe { time_us() }, syscalls: 0, hot: BTreeMap::new(), frames_shown: 0, presents: 0, input_stats: [0; 4] };
+    let mut lin = Lin { sys, prism, pml4: BTreeMap::new(), last: 0, desk: desk.clone(), wayland_windows: BTreeMap::new(), back, screen: (screen_w, screen_h), dirty: false, last_present_us: 0, input: !back.is_null(), cursor: (screen_w / 2, screen_h / 2), buttons: 0, mods: 0, caps: false, show_console: true, started_us: unsafe { time_us() }, beat_us: unsafe { time_us() }, syscalls: 0, hot: BTreeMap::new(), frames_shown: 0, presents: 0, input_stats: [0; 4] };
     if lin.input {
         // SAFETY: polled i8042 setup, as the desktop does.
         unsafe { ps2_init() };

@@ -59,6 +59,15 @@ way (§C.2).
 5. **Toolchain/format constraints** where only a C path exists (e.g. an existing
    freestanding C header set, a CMake-only dependency).
 
+6. **Prism's in-process macOS runtime** (`crates/loos-prism/libc/`). This is the code that
+   runs inside a macOS program as part of its libSystem. Only three kinds of function belong there:
+   - variadic functions (`printf`, `open`, `err`), which stable Rust cannot define;
+   - code that calls back into the program (`atexit` handlers, `qsort` comparators);
+   - code whose memory layout the SDK's inline macros read directly (`FILE` and the
+     `getc`/`putc` buffer fields, the `_DefaultRuneLocale` ctype table).
+
+   Everything else in Prism's libSystem is Rust, in `crates/loos-prism/src/libsys.rs`.
+
 FFI alone is **not** an exception: a Rust `extern "C"` function at the boundary is
 fine, so "it has to interop" is never on its own a reason to write C.
 

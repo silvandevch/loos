@@ -325,6 +325,9 @@ impl MemFs {
     }
 }
 
+/// uid and gid of the desktop user every Linux program runs as (`user` in /etc/passwd).
+pub const USER_ID: u32 = 1000;
+
 impl LinFs for MemFs {
     fn lstat(&mut self, path: &str) -> Result<Stat, i64> {
         let e = self.ents.get(path).ok_or(ENOENT)?;
@@ -333,7 +336,9 @@ impl LinFs for MemFs {
             Node::Dir => (Kind::Dir, 4096),
             Node::Link(t) => (Kind::Symlink, t.len() as u64),
         };
-        Ok(Stat { ino: e.ino, kind, mode: e.mode, size, nlink: 1, uid: 0, gid: 0, mtime: 1_700_000_000 })
+        // The system belongs to root; the user's home and scratch areas to the desktop user.
+        let id = if ["/home", "/tmp", "/run/user", "/dev/shm"].iter().any(|d| path == *d || path.strip_prefix(d).is_some_and(|r| r.starts_with('/'))) { USER_ID } else { 0 };
+        Ok(Stat { ino: e.ino, kind, mode: e.mode, size, nlink: 1, uid: id, gid: id, mtime: 1_700_000_000 })
     }
     fn read(&mut self, path: &str, off: u64, buf: &mut [u8]) -> Result<usize, i64> {
         match &self.ents.get(path).ok_or(ENOENT)?.node {

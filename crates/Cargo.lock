@@ -87,6 +87,7 @@ dependencies = [
  "loos-ksync",
  "loos-lin",
  "loos-net",
+ "loos-prism",
  "loos-security",
  "loos-shell",
  "loos-win32k",
@@ -138,6 +139,13 @@ version = "0.1.0"
 [[package]]
 name = "loos-pkgstate"
 version = "0.1.0"
+
+[[package]]
+name = "loos-prism"
+version = "0.1.0"
+dependencies = [
+ "loos-lin",
+]
 
 [[package]]
 name = "loos-registry"

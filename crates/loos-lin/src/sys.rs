@@ -125,6 +125,8 @@ pub enum TState {
 /// A Linux thread.
 #[derive(Clone, Debug)]
 pub struct Thread {
+    /// The last syscalls this thread made, oldest first (reported when the process crashes).
+    pub recent: alloc::collections::VecDeque<(u64, [u64; 3], Sys)>,
     /// Thread id.
     pub tid: Pid,
     /// Owning process.
@@ -341,6 +343,8 @@ pub struct LinSystem<F: LinFs> {
     pub missing: BTreeMap<u64, u32>,
     /// Bytes written to the console (fd on /dev/tty).
     pub console_out: Vec<u8>,
+    /// Diagnostics for the system log (never mixed into program output).
+    pub diag: String,
     /// Log every syscall to the console (strace-style).
     pub trace: bool,
     /// When set, trace only these syscall numbers.
@@ -363,7 +367,10 @@ pub struct LinSystem<F: LinFs> {
     /// timerfds.
     pub(crate) timers: Vec<Timer>,
     /// epoll sets: (fd, events, data, activity seen at the last report for EPOLLET).
-    epolls: Vec<Vec<(i32, u32, u64, u64)>>,
+    /// epoll sets: (fd, events, data, last activity reported, the open file registered). A
+    /// registration belongs to the open file, as on Linux: once that file is closed it is gone, even
+    /// if the fd number is reused (its data would point at the old file's freed watcher).
+    epolls: Vec<Vec<(i32, u32, u64, u64, alloc::rc::Weak<RefCell<OpenFile>>)>>,
 }
 
 #[path = "sysio.rs"]
@@ -397,6 +404,7 @@ impl<F: LinFs> LinSystem<F> {
             epoch_base_s: EPOCH_BASE_S,
             missing: BTreeMap::new(),
             console_out: Vec::new(),
+            diag: String::new(),
             trace: false,
             trace_only: None,
             last_ready: BTreeMap::new(),
@@ -843,6 +851,13 @@ impl<F: LinFs> LinSystem<F> {
         let mut mem = UserMem::new();
         let seed = self.rand_u64();
         let l = loader::load(&mut self.fs, &mut mem, path, argv, envp, seed)?;
+        let regs = Regs { rip: l.entry, rsp: l.sp, rflags: 0x202, ..Regs::default() };
+        self.spawn_image(mem, regs, l.exe, argv)
+    }
+
+    /// Create a process from an address space another loader built (e.g. LoOS Prism's Mach-O
+    /// loader), with fds 0-2 on the console and one thread starting at `regs`.
+    pub fn spawn_image(&mut self, mut mem: UserMem, regs: Regs, exe: String, argv: &[String]) -> Result<Pid, i64> {
         self.map_clock_page(&mut mem)?;
         let pid = self.alloc_id();
         let tty = self.new_fd(FKind::Tty, 2);
@@ -850,14 +865,13 @@ impl<F: LinFs> LinSystem<F> {
         for i in 0..3 {
             fds.insert(i, FdEnt { file: tty.clone(), cloexec: false });
         }
-        let regs = Regs { rip: l.entry, rsp: l.sp, rflags: 0x202, ..Regs::default() };
         let mut acts = vec![SigAct::default(); 65];
         acts[0] = SigAct::default();
         self.procs.insert(
             pid,
-            Process { pid, ppid: 0, mem, fds, cwd: "/".into(), exe: l.exe, argv: argv.to_vec(), acts, threads: vec![pid], exit: None, umask: 0o022, fmaps: Vec::new() },
+            Process { pid, ppid: 0, mem, fds, cwd: "/".into(), exe, argv: argv.to_vec(), acts, threads: vec![pid], exit: None, umask: 0o022, fmaps: Vec::new() },
         );
-        self.threads.insert(pid, Thread { tid: pid, pid, regs, state: TState::Runnable, sigmask: 0, pending: 0, altstack: (0, 0), clear_tid: 0, robust: 0, resume_deadline: None, fx: fx_default(), fault: None, name: String::new() });
+        self.threads.insert(pid, Thread { tid: pid, pid, regs, state: TState::Runnable, sigmask: 0, pending: 0, altstack: (0, 0), clear_tid: 0, robust: 0, resume_deadline: None, fx: fx_default(), fault: None, name: String::new(), recent: Default::default() });
         Ok(pid)
     }
 
@@ -1046,6 +1060,9 @@ impl<F: LinFs> LinSystem<F> {
             return Delivery::Killed(11);
         }
         t.sigmask |= act.mask | if act.flags & 0x4000_0000 != 0 { 0 } else { 1 << (sig - 1) };
+        if act.flags & 0x8000_0000 != 0 {
+            p.acts[sig as usize] = SigAct::default(); // SA_RESETHAND: one-shot handler
+        }
         t.fx = fx_default(); // handlers start with a clean FPU state, as on Linux
         t.regs.rsp = frame;
         t.regs.rip = act.handler;
@@ -1116,7 +1133,18 @@ impl<F: LinFs> LinSystem<F> {
 
     /// Execute a syscall for `tid`. The result is also written to the thread's RAX.
     pub fn syscall(&mut self, tid: Pid, nr: u64, a: [u64; 6]) -> Sys {
+        if nr == 231 && a[0] & 0xff != 0 {
+            // A program giving up: say who it was and what it last did (the console is the only witness).
+            let who = self.threads.get(&tid).and_then(|t| self.procs.get(&t.pid)).map(|p| p.argv.join(" ")).unwrap_or_default();
+            self.diag += &format!("lin: [{tid}] exits with status {}: {}\n{}", a[0] & 0xff, who.chars().take(200).collect::<String>(), self.recent_syscalls(tid));
+        }
         let r = self.syscall_inner(tid, nr, a);
+        if let Some(t) = self.threads.get_mut(&tid) {
+            if t.recent.len() == 24 {
+                t.recent.pop_front();
+            }
+            t.recent.push_back((nr, [a[0], a[1], a[2]], r));
+        }
         if self.trace && self.trace_only.as_ref().is_none_or(|only| only.contains(&nr)) {
             let name = crate::syscalls_generated::syscall_name(nr);
             let line = format!("[{tid}] {name}#{nr}({:#x}, {:#x}, {:#x}, {:#x}) = {r:?}\n", a[0], a[1], a[2], a[3]);
@@ -1132,6 +1160,17 @@ impl<F: LinFs> LinSystem<F> {
             self.drain();
         }
         r
+    }
+
+    /// The thread's last syscalls, one per line, for a crash report.
+    pub fn recent_syscalls(&self, tid: Pid) -> String {
+        let Some(t) = self.threads.get(&tid) else { return String::new() };
+        let mut out = String::new();
+        for (nr, a, r) in &t.recent {
+            let name = crate::syscalls_generated::syscall_name(*nr);
+            out += &format!("lin:   [{tid}] {name}#{nr}({:#x}, {:#x}, {:#x}) = {r:?}\n", a[0], a[1], a[2]);
+        }
+        out
     }
 
     /// Cheap digest of everything poll/epoll readiness depends on (sockets, pipes, counters, timers).
@@ -1215,11 +1254,17 @@ impl<F: LinFs> LinSystem<F> {
             "/proc/self/maps" => p.mem.maps(),
             "/proc/self/cmdline" => p.argv.iter().map(|a| format!("{a}\0")).collect(),
             "/proc/self/comm" => format!("{}\n", p.exe.rsplit('/').next().unwrap_or("")),
-            "/proc/self/status" => format!("Name:\t{}\nState:\tR (running)\nTgid:\t{}\nPid:\t{}\nPPid:\t{}\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\nThreads:\t{}\nVmSize:\t{} kB\n", p.exe.rsplit('/').next().unwrap_or(""), p.pid, p.pid, p.ppid, p.threads.len(), p.mem.mapped() / 1024),
+            "/proc/self/status" => format!("Name:\t{}\nState:\tR (running)\nTgid:\t{}\nPid:\t{}\nPPid:\t{}\nUid:\t1000\t1000\t1000\t1000\nGid:\t1000\t1000\t1000\t1000\nThreads:\t{}\nVmSize:\t{} kB\n", p.exe.rsplit('/').next().unwrap_or(""), p.pid, p.pid, p.ppid, p.threads.len(), p.mem.mapped() / 1024),
             "/proc/cpuinfo" => "processor\t: 0\nvendor_id\t: LoOS\nmodel name\t: x86-64 (LoOS native)\ncpu MHz\t\t: 2000.000\nflags\t\t: fpu sse sse2 syscall nx lm\n\n".into(),
             "/proc/meminfo" => "MemTotal:        4194304 kB\nMemFree:         2097152 kB\nMemAvailable:    2097152 kB\n".into(),
             "/proc/version" => "Linux version 6.1.0-loos (loos@loos) #1 SMP LoOS\n".into(),
-            "/proc/self/stat" => format!("{} ({}) R {} 0 0 0 0 0 0 0 0 0 0 0 0 0 20 0 {} 0 0\n", p.pid, p.exe.rsplit('/').next().unwrap_or(""), p.ppid, p.threads.len()),
+            "/proc/self/stat" => {
+                // All 52 fields, as proc(5) lists them; libuv reads rss (24) and vsize (23).
+                let (comm, vsize, rss) = (p.exe.rsplit('/').next().unwrap_or(""), p.mem.mapped(), p.mem.resident_pages());
+                let mut f = format!("{} ({comm}) R {} {} {} 0 -1 4194304 0 0 0 0 0 0 0 0 20 0 {} 0 0 {vsize} {rss} 18446744073709551615", p.pid, p.ppid, p.pid, p.pid, p.threads.len());
+                f += &" 0".repeat(52 - 25);
+                f + "\n"
+            }
             "/proc/sys/kernel/random/uuid" => "00000000-0000-4000-8000-000000000000\n".into(),
             _ => return None,
         };
@@ -1385,7 +1430,21 @@ impl<F: LinFs> LinSystem<F> {
     }
 
     fn do_read(&mut self, p: &mut Process, tid: Pid, nr: u64, a: [u64; 6], f: &FileRef, buf: u64, count: u64, at: Option<u64>) -> Result<Sys, i64> {
-        let count = count.min(1 << 20) as usize;
+        // Regular files fill the whole request, as on Linux (up to MAX_RW_COUNT); programs such as
+        // Electron's asar reader rely on it. Streams return what they have, at most 1 MiB at a time.
+        let reg = match &f.borrow().kind {
+            FKind::Reg(path) => Some((path.clone(), at.unwrap_or(f.borrow().off))),
+            _ => None,
+        };
+        let count = match reg {
+            Some((path, off)) => {
+                // A mapped file's newest bytes (and length) may still be in the page cache.
+                let cached = self.page_cache.get(&path).map_or(0, |b| b.borrow().len() as u64);
+                let size = self.fs.lstat(&path).map_or(0, |s| s.size).max(cached);
+                count.min(size.saturating_sub(off).max(1 << 20)).min(0x7fff_f000)
+            }
+            None => count.min(1 << 20),
+        } as usize;
         let mut data = vec![0u8; count];
         let flags = f.borrow().flags;
         let sock = if let FKind::Sock(i) = f.borrow().kind { Some(i) } else { None };
@@ -2033,7 +2092,17 @@ impl<F: LinFs> LinSystem<F> {
                 p.mem.unmap(old, ol)?;
                 ok(n as i64)
             }
-            28 | 149 | 150 | 151 | 152 | 153 => ok(0), // madvise, mlock*, munlock*
+            28 => {
+                // MADV_DONTNEED (4) and MADV_REMOVE (9) zero private pages; the rest are hints.
+                if a[0] % PAGE != 0 {
+                    return err(EINVAL);
+                }
+                if a[2] == 4 || a[2] == 9 {
+                    p.mem.discard(a[0], a[1]);
+                }
+                ok(0)
+            }
+            149 | 150 | 151 | 152 | 153 => ok(0), // mlock*, munlock*
             13 => {
                 // rt_sigaction(sig, act, oact, size)
                 let sig = a[0] as usize;
@@ -2425,6 +2494,13 @@ impl<F: LinFs> LinSystem<F> {
             // getpriority returns 20 - nice (every process runs at nice 0); setpriority is accepted.
             140 => ok(20),
             141 => ok(0),
+            // sched_setparam / sched_setscheduler accepted; every thread is SCHED_OTHER, priority 0.
+            142 | 144 => ok(0),
+            143 => {
+                p.mem.write(a[1], &0u32.to_le_bytes())?;
+                ok(0)
+            }
+            145 => ok(0),
             146 | 147 => match a[0] {
                 1 | 2 => ok(if nr == 146 { 99 } else { 1 }),
                 0 | 3 | 5 | 6 => ok(0),
@@ -2464,6 +2540,11 @@ impl<F: LinFs> LinSystem<F> {
             }
             74 | 75 | 73 | 90 | 91 | 92 | 93 | 94 | 268 | 306 | 266 => ok(0), // fsync, flock, chmod/chown family
             319 => {
+                // Flags: CLOEXEC, ALLOW_SEALING, HUGETLB (with a size in bits 26..32), NOEXEC_SEAL, EXEC.
+                let f = a[1] as u32;
+                if f & !(0x1f | 0x3f << 26) != 0 || (f & 0x3f << 26 != 0 && f & 4 == 0) {
+                    return err(EINVAL);
+                }
                 let _name = p.mem.read_cstr(a[0], 256)?;
                 let path = format!("/tmp/.loos-memfd-{}-{}", p.pid, self.next_id);
                 self.next_id = self.next_id.wrapping_add(1);
@@ -2478,7 +2559,8 @@ impl<F: LinFs> LinSystem<F> {
             // identity
             39 | 186 => ok(if nr == 39 { p.pid } else { tid } as i64),
             110 => ok(p.ppid as i64),
-            102 | 104 | 107 | 108 | 105 | 106 | 113 | 114 => ok(0),
+            102 | 104 | 107 | 108 => ok(crate::fs::USER_ID as i64), // get[e]uid / get[e]gid
+            105 | 106 | 113 | 114 => ok(0), // set*id: already that user
             111 | 121 | 112 | 124 => ok(p.pid as i64),
             95 => {
                 let old = p.umask;
@@ -2609,7 +2691,18 @@ impl<F: LinFs> LinSystem<F> {
             57 => self.sys_clone(p, tid, [17, 0, 0, 0, 0, 0]),
             // vfork: copied address space (safe even when the child scribbles on the shared stack), parent waits for exec/exit.
             58 => self.sys_clone(p, tid, [0x4000 | 17, 0, 0, 0, 0, 0]),
-            59 => self.sys_execve(p, tid, a),
+            59 => {
+                let r = self.sys_execve(p, tid, a);
+                if let Err(e) = r {
+                    let path = p.mem.read_cstr(a[0], 4096).unwrap_or_default();
+                    self.diag += &format!("lin: [{tid}] execve {path} failed: errno {e}\n");
+                    if e == EFAULT {
+                        let (argv, envp) = (Self::read_strv(&mut p.mem, a[1]).map(|v| v.len()), Self::read_strv(&mut p.mem, a[2]).map(|v| v.len()));
+                        self.diag += &format!("lin:   argv {argv:?} envp {envp:?}\n{}", self.recent_syscalls(tid));
+                    }
+                }
+                r
+            }
             60 => self.sys_exit(p, tid, a[0] as i32, false),
             231 => self.sys_exit(p, tid, a[0] as i32, true),
             61 => self.sys_wait4(p, tid, nr, a),
@@ -2633,11 +2726,21 @@ impl<F: LinFs> LinSystem<F> {
             221 => Ok(Sys::Ret(0)), // fadvise64: advisory
             157 => match a[0] {
                 // prctl: PDEATHSIG, DUMPABLE, KEEPCAPS, NO_NEW_PRIVS, CHILD_SUBREAPER accepted; names kept per thread elsewhere.
-                1 | 4 | 8 | 36 | 38 | 39 => Ok(Sys::Ret(0)),
+                // PR_SET_VMA (0x53564d41): naming anonymous mappings is cosmetic.
+                1 | 4 | 8 | 36 | 38 | 39 | 0x53564d41 => Ok(Sys::Ret(0)),
                 2 | 3 | 37 => Ok(Sys::Ret(if a[0] == 3 { 1 } else { 0 })),
                 15 => {
-                    let raw = p.mem.read_cstr(a[1], 16)?;
-                    let name: String = raw.chars().take(15).collect();
+                    // Linux copies at most 16 bytes and truncates longer names silently.
+                    let mut raw = Vec::new();
+                    for i in 0..15 {
+                        let mut c = [0u8];
+                        p.mem.read(a[1] + i, &mut c)?;
+                        if c[0] == 0 {
+                            break;
+                        }
+                        raw.push(c[0]);
+                    }
+                    let name = String::from_utf8_lossy(&raw).into_owned();
                     if let Some(t) = self.threads.get_mut(&tid) {
                         t.name = name;
                     }
@@ -3398,7 +3501,7 @@ impl<F: LinFs> LinSystem<F> {
             }
             let clear = if flags & 0x20_0000 != 0 { ctid } else { 0 };
             p.threads.push(new);
-            self.threads.insert(new, Thread { tid: new, pid: p.pid, regs, state: TState::Runnable, sigmask: mask, pending: 0, altstack: (0, 0), clear_tid: clear, robust: 0, resume_deadline: None, fx: parent_fx.clone(), fault: None, name: String::new() });
+            self.threads.insert(new, Thread { tid: new, pid: p.pid, regs, state: TState::Runnable, sigmask: mask, pending: 0, altstack: (0, 0), clear_tid: clear, robust: 0, resume_deadline: None, fx: parent_fx.clone(), fault: None, name: String::new(), recent: Default::default() });
             return Ok(Sys::Ret(new as i64));
         }
         // fork / vfork / CLONE_VM|CLONE_VFORK (posix_spawn): copy semantics
@@ -3424,7 +3527,7 @@ impl<F: LinFs> LinSystem<F> {
         }
         let clear = if flags & 0x20_0000 != 0 { ctid } else { 0 };
         self.procs.insert(new, child);
-        self.threads.insert(new, Thread { tid: new, pid: new, regs, state: TState::Runnable, sigmask: mask, pending: 0, altstack: (0, 0), clear_tid: clear, robust: 0, resume_deadline: None, fx: parent_fx.clone(), fault: None, name: String::new() });
+        self.threads.insert(new, Thread { tid: new, pid: new, regs, state: TState::Runnable, sigmask: mask, pending: 0, altstack: (0, 0), clear_tid: clear, robust: 0, resume_deadline: None, fx: parent_fx.clone(), fault: None, name: String::new(), recent: Default::default() });
         if flags & 0x4000 != 0 {
             return Ok(self.block(tid, Wait::VFork(new), 0, a, None, false));
         }
@@ -3435,7 +3538,11 @@ impl<F: LinFs> LinSystem<F> {
         let path = p.mem.read_cstr(a[0], 4096)?;
         let argv = Self::read_strv(&mut p.mem, a[1])?;
         let envp = Self::read_strv(&mut p.mem, a[2])?;
-        let abs = self.path_for(p, AT_FDCWD, &path, true)?;
+        let abs = match path.as_str() {
+            // Chromium relaunches itself for every helper process.
+            "/proc/self/exe" => p.exe.clone(),
+            _ => self.path_for(p, AT_FDCWD, &path, true)?,
+        };
         let st = self.fs.lstat(&abs)?;
         if st.kind != Kind::File {
             return err(EACCES);
@@ -3480,10 +3587,17 @@ impl<F: LinFs> LinSystem<F> {
 }
 
 fn rlimit(res: u32) -> (u64, u64) {
+    // A typical desktop Linux's defaults (`ulimit -a`); programs cast some of these to int.
+    const INF: u64 = u64::MAX;
     match res {
-        3 => (STACK_MAX, u64::MAX),
-        7 => (1024, 4096),
-        _ => (u64::MAX, u64::MAX),
+        3 => (STACK_MAX, INF),
+        4 => (0, INF),                // core
+        6 | 11 => (63_000, 63_000),   // nproc, sigpending
+        7 => (1024, 524_288),         // nofile
+        8 => (8 << 20, 8 << 20),      // memlock
+        12 => (819_200, 819_200),     // msgqueue
+        13 | 14 => (0, 0),            // nice, rtprio
+        _ => (INF, INF),
     }
 }
 

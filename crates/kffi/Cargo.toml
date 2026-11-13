@@ -19,6 +19,7 @@ loos-ksync = { path = "../ksync" }
 loos-kdump = { path = "../kdump" }
 loos-shell = { path = "../loos-shell" }
 loos-lin = { path = "../loos-lin" }
+loos-prism = { path = "../loos-prism" }
 loos-win32k = { path = "../loos-win32k" }
 loos-drivers = { path = "../loos-drivers" }
 loos-net = { path = "../loos-net" }

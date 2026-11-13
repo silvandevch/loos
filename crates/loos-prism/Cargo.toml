@@ -1,0 +1,13 @@
+[package]
+name = "loos-prism"
+description = "LoOS Prism: macOS compatibility (Mach-O loader, Darwin syscalls, libSystem, arm64 interpreter, .app bundles)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+loos-lin = { path = "../loos-lin" }
+
+[lints]
+workspace = true

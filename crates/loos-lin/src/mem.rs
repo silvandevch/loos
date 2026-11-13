@@ -18,40 +18,41 @@ static NEXT_EPOCH: AtomicU64 = AtomicU64::new(1);
 #[derive(Clone)]
 pub struct Page(pub [u8; 4096]);
 
-/// A physical page slot: `None` is a not-yet-touched zero page (demand-zero); a page whose
-/// `Rc` is shared with another address space is copy-on-write.
-type Slot = Option<Rc<Box<Page>>>;
+/// A present page; one whose `Rc` is shared with another address space is copy-on-write.
+type Slot = Rc<Box<Page>>;
 
 static ZERO: Page = Page([0; 4096]);
 
 /// Page-granular, lazily allocated, copy-on-write byte buffer (length is a multiple of the page size).
+/// Sparse: only touched pages are stored, so a huge `PROT_NONE` reservation costs nothing.
 #[derive(Clone, Default)]
 pub struct PageBuf {
-    pages: Vec<Slot>,
+    pages: BTreeMap<usize, Slot>,
+    n: usize,
 }
 
 impl core::fmt::Debug for PageBuf {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "PageBuf({} pages)", self.pages.len())
+        write!(f, "PageBuf({} pages, {} resident)", self.n, self.pages.len())
     }
 }
 
 impl PageBuf {
     /// Zeroed buffer of `len` bytes (rounded up to pages); nothing is allocated yet.
     pub fn zeroed(len: u64) -> Self {
-        Self { pages: vec![None; (len as usize).div_ceil(4096)] }
+        Self { pages: BTreeMap::new(), n: (len as usize).div_ceil(4096) }
     }
     /// Length in bytes.
     pub fn len(&self) -> usize {
-        self.pages.len() * 4096
+        self.n * 4096
     }
     /// True when empty.
     pub fn is_empty(&self) -> bool {
-        self.pages.is_empty()
+        self.n == 0
     }
     /// Bytes of page `i` (the shared zero page when untouched).
     pub fn page(&self, i: usize) -> &[u8; 4096] {
-        match &self.pages[i] {
+        match self.pages.get(&i) {
             Some(p) => &p.0,
             None => &ZERO.0,
         }
@@ -59,35 +60,46 @@ impl PageBuf {
     /// Writable page `i`: allocates a zero page or breaks copy-on-write.
     /// The flag is true when the page's physical address changed (its PTE must be refreshed).
     pub fn page_mut(&mut self, i: usize) -> (&mut [u8; 4096], bool) {
-        let slot = &mut self.pages[i];
-        let moved = match slot {
-            None => {
-                *slot = Some(Rc::new(Box::new(Page([0; 4096]))));
-                true
-            }
-            Some(p) => Rc::strong_count(p) > 1,
-        };
-        (&mut Rc::make_mut(slot.as_mut().unwrap()).0, moved)
+        assert!(i < self.n, "page {i} beyond {}", self.n);
+        let mut moved = false;
+        let slot = self.pages.entry(i).or_insert_with(|| {
+            moved = true;
+            Rc::new(Box::new(Page([0; 4096])))
+        });
+        moved |= Rc::strong_count(slot) > 1;
+        (&mut Rc::make_mut(slot).0, moved)
     }
     /// Make every present page exclusively owned (shared-memory buffers never copy-on-write).
     pub fn unshare(&mut self) {
-        for i in 0..self.pages.len() {
-            if self.pages[i].as_ref().is_some_and(|p| Rc::strong_count(p) > 1) {
-                self.page_mut(i);
-            }
+        for p in self.pages.values_mut() {
+            Rc::make_mut(p);
         }
     }
     /// Physical address of page `i` and whether it may be mapped writable (exclusively owned);
     /// `None` for an untouched page (left unmapped, filled on first fault).
     pub fn page_addr(&self, i: usize) -> Option<(u64, bool)> {
-        self.pages[i].as_ref().map(|p| (&***p as *const Page as u64, Rc::strong_count(p) == 1))
+        self.pages.get(&i).map(Self::addr)
+    }
+    fn addr(p: &Slot) -> (u64, bool) {
+        (&***p as *const Page as u64, Rc::strong_count(p) == 1)
+    }
+    /// Present pages with index in `[lo, hi)`: (index, physical address, exclusively owned).
+    pub fn present(&self, lo: usize, hi: usize) -> impl Iterator<Item = (usize, u64, bool)> + '_ {
+        self.pages.range(lo..hi.max(lo)).map(|(&i, p)| {
+            let (a, own) = Self::addr(p);
+            (i, a, own)
+        })
+    }
+    /// Drop the pages with index in `[lo, hi)`: they read as zero again (MADV_DONTNEED).
+    pub fn discard(&mut self, lo: usize, hi: usize) {
+        let gone: Vec<usize> = self.pages.range(lo..hi.max(lo)).map(|(&i, _)| i).collect();
+        for i in gone {
+            self.pages.remove(&i);
+        }
     }
     /// Extend with demand-zero pages to at least `len` bytes (existing pages never move).
     pub fn grow_to(&mut self, len: usize) {
-        let n = len.div_ceil(4096);
-        if n > self.pages.len() {
-            self.pages.resize(n, None);
-        }
+        self.n = self.n.max(len.div_ceil(4096));
     }
     /// Copy `out.len()` bytes starting at `off` (zero beyond the end).
     pub fn read_at(&self, off: usize, out: &mut [u8]) {
@@ -95,11 +107,7 @@ impl PageBuf {
         while done < out.len() {
             let (i, po) = ((off + done) / 4096, (off + done) % 4096);
             let n = (4096 - po).min(out.len() - done);
-            if i < self.pages.len() {
-                out[done..done + n].copy_from_slice(&self.page(i)[po..po + n]);
-            } else {
-                out[done..done + n].fill(0);
-            }
+            out[done..done + n].copy_from_slice(&self.page(i)[po..po + n]);
             done += n;
         }
     }
@@ -110,7 +118,7 @@ impl PageBuf {
         while done < data.len() {
             let (i, po) = ((off + done) / 4096, (off + done) % 4096);
             let n = (4096 - po).min(data.len() - done);
-            if data[done..done + n].iter().any(|&b| b != 0) || self.pages[i].is_some() {
+            if data[done..done + n].iter().any(|&b| b != 0) || self.pages.contains_key(&i) {
                 self.page_mut(i).0[po..po + n].copy_from_slice(&data[done..done + n]);
             }
             done += n;
@@ -118,17 +126,21 @@ impl PageBuf {
     }
     /// Pages actually backed by memory.
     pub fn resident(&self) -> usize {
-        self.pages.iter().filter(|p| p.is_some()).count()
+        self.pages.len()
     }
     /// Split at `byte` (page aligned), returning the tail.
     pub fn split_off(&mut self, byte: usize) -> PageBuf {
-        PageBuf { pages: self.pages.split_off(byte / 4096) }
+        let at = byte / 4096;
+        let tail = self.pages.split_off(&at).into_iter().map(|(i, p)| (i - at, p)).collect();
+        let t = PageBuf { pages: tail, n: self.n.saturating_sub(at) };
+        self.n = self.n.min(at);
+        t
     }
     /// Prepend `bytes` of zero pages (stack growth).
     pub fn prepend_zero(&mut self, bytes: usize) {
-        let mut v = vec![None; bytes / 4096];
-        v.append(&mut self.pages);
-        self.pages = v;
+        let k = bytes / 4096;
+        self.pages = core::mem::take(&mut self.pages).into_iter().map(|(i, p)| (i + k, p)).collect();
+        self.n += k;
     }
 }
 
@@ -152,7 +164,7 @@ pub const STACK_MAX: u64 = 8 << 20;
 /// Top of the mmap area (grows down).
 pub const MMAP_TOP: u64 = 0x7fff_f7e0_0000;
 /// Per-process cap on mapped (virtual) memory; physical pages are only allocated on first touch.
-pub const MEM_CAP: u64 = 64 << 30;
+pub const MEM_CAP: u64 = 1 << 46;
 
 /// Round down to page.
 pub fn floor(a: u64) -> u64 {
@@ -192,6 +204,16 @@ impl Region {
     /// End (exclusive).
     pub fn end(&self) -> u64 {
         self.start + self.size()
+    }
+    /// Calls `f(page index, physical address, exclusively owned)` for resident pages in `[lo, hi)`.
+    fn each_present(&self, lo: usize, hi: usize, mut f: impl FnMut(usize, u64, bool)) {
+        match &self.shared {
+            Some((b, o, _)) => {
+                let o = *o / 4096;
+                b.borrow().present(o + lo, o + hi).for_each(|(i, a, own)| f(i - o, a, own))
+            }
+            None => self.data.present(lo, hi).for_each(|(i, a, own)| f(i, a, own)),
+        }
     }
 }
 
@@ -233,6 +255,14 @@ impl UserMem {
     /// Bytes currently mapped.
     pub fn mapped(&self) -> u64 {
         self.total
+    }
+
+    /// Pages backed by memory (private pages; shared buffers counted once per mapping).
+    pub fn resident_pages(&self) -> usize {
+        self.regions.values().map(|r| match &r.shared {
+            Some((b, o, n)) => b.borrow().present(o / 4096, (o + n) / 4096).count(),
+            None => r.data.resident(),
+        }).sum()
     }
 
     fn overlaps(&self, start: u64, end: u64) -> bool {
@@ -354,20 +384,23 @@ impl UserMem {
     fn queue_resident(&mut self, start: u64, end: u64) {
         let mut q = Vec::new();
         for r in self.regions.values().filter(|r| r.start < end && r.end() > start) {
-            let sb = r.shared.as_ref().map(|(b, o, _)| (b.borrow(), *o / 4096));
-            for i in 0..(r.size() / PAGE) as usize {
-                let va = r.start + i as u64 * PAGE;
-                if va < start || va >= end {
-                    continue;
-                }
-                let present = match &sb {
-                    Some((b, o)) => b.page_addr(o + i).is_some(),
-                    None => r.data.page_addr(i).is_some(),
-                };
-                if present {
-                    q.push(va);
-                }
-            }
+            let lo = (start.max(r.start) - r.start) / PAGE;
+            let hi = (end.min(r.end()) - r.start) / PAGE;
+            r.each_present(lo as usize, hi as usize, |i, _, _| q.push(r.start + i as u64 * PAGE));
+        }
+        self.remap.extend(q);
+    }
+
+    /// `madvise(MADV_DONTNEED)`: private pages in [start, start+len) become demand-zero again
+    /// (shared mappings keep their contents, as on Linux).
+    pub fn discard(&mut self, start: u64, len: u64) {
+        let end = start.saturating_add(ceil(len));
+        let mut q = Vec::new();
+        for r in self.regions.values_mut().filter(|r| r.start < end && r.end() > start && r.shared.is_none()) {
+            let lo = ((start.max(r.start) - r.start) / PAGE) as usize;
+            let hi = ((end.min(r.end()) - r.start) / PAGE) as usize;
+            r.each_present(lo, hi, |i, _, _| q.push(r.start + i as u64 * PAGE));
+            r.data.discard(lo, hi);
         }
         self.remap.extend(q);
     }
@@ -531,6 +564,9 @@ impl UserMem {
                 self.grow_stack(a);
             }
             let r = self.find(a).ok_or(EFAULT)?;
+            if r.prot & PROT_READ == 0 {
+                return Err(EFAULT); // as copy_from_user: PROT_NONE pages are not readable
+            }
             let s = (a - r.start) as usize;
             let n = (4096 - s % 4096).min(buf.len() - off);
             let (i, po) = (s / 4096, s % 4096);
@@ -544,7 +580,8 @@ impl UserMem {
         Ok(())
     }
 
-    /// Copy bytes into user memory (kernel access: ignores PROT).
+    /// Copy bytes into user memory on behalf of a syscall: like Linux's copy_to_user, a page the
+    /// process cannot write is `EFAULT` (programs probe protections this way).
     pub fn write(&mut self, addr: u64, data: &[u8]) -> Result<(), i64> {
         let mut a = addr;
         let mut off = 0;
@@ -552,7 +589,11 @@ impl UserMem {
             if self.find(a).is_none() {
                 self.grow_stack(a);
             }
-            let k = self.find(a).ok_or(EFAULT)?.start;
+            let found = self.find(a).ok_or(EFAULT)?;
+            if found.prot & PROT_WRITE == 0 {
+                return Err(EFAULT);
+            }
+            let k = found.start;
             let r = self.regions.get_mut(&k).unwrap();
             let s = (a - r.start) as usize;
             let n = (4096 - s % 4096).min(data.len() - off);
@@ -652,16 +693,9 @@ impl UserMem {
     /// copy-on-write pages are reported without `PROT_WRITE`.
     pub fn for_each_page(&self, mut f: impl FnMut(u64, u64, u32)) {
         for r in self.regions.values() {
-            let sb = r.shared.as_ref().map(|(b, o, _)| (b.borrow(), *o / 4096));
-            for i in 0..(r.size() / PAGE) as usize {
-                let pa = match &sb {
-                    Some((b, o)) => b.page_addr(o + i),
-                    None => r.data.page_addr(i),
-                };
-                if let Some((pa, own)) = pa {
-                    f(r.start + i as u64 * PAGE, pa, if own { r.prot } else { r.prot & !PROT_WRITE });
-                }
-            }
+            r.each_present(0, (r.size() / PAGE) as usize, |i, pa, own| {
+                f(r.start + i as u64 * PAGE, pa, if own { r.prot } else { r.prot & !PROT_WRITE })
+            });
         }
     }
 
@@ -700,14 +734,8 @@ impl UserMem {
     /// Mapping containing `addr`: (its name, offset of `addr` from the mapping start) — for crash reports.
     pub fn locate(&self, addr: u64) -> Option<(&str, u64)> {
         let r = self.find(addr)?;
-        // A library is several adjacent mappings with one name: measure from its first one.
-        let mut start = r.start;
-        for q in self.regions.range(..r.start).rev().map(|(_, q)| q) {
-            if q.name != r.name || q.end() != start {
-                break;
-            }
-            start = q.start;
-        }
+        // A library is several mappings with one name (with gaps between segments): measure from its first one.
+        let start = self.regions.range(..=r.start).map(|(_, q)| q).find(|q| q.name == r.name).map_or(r.start, |q| q.start);
         Some((r.name.as_str(), addr - start))
     }
 

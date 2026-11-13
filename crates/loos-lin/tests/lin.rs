@@ -945,3 +945,161 @@ fn static_rootfs_borrows_the_boot_image_and_copies_on_write() {
     assert_eq!(&buf, b"Jello", "writes land in the file");
     assert_eq!(&image[512..517], b"hello", "the boot image itself is never modified");
 }
+
+#[test]
+fn memfd_rejects_unknown_flags_and_thread_names_truncate() {
+    // Chromium's Mojo probes memfd_create("", ~0) and requires EINVAL before using shared-memory channels.
+    let mut sys = new_sys();
+    let pid = spawn_nop(&mut sys);
+    let empty = put(&mut sys, pid, "");
+    assert_eq!(sc(&mut sys, pid, 319, &[empty, 0xffff_ffff]), -22, "unknown memfd flags");
+    assert!(sc(&mut sys, pid, 319, &[empty, 3]) >= 0, "CLOEXEC|ALLOW_SEALING");
+    assert_eq!(sc(&mut sys, pid, 290, &[0, 0xffff_ffff]), -22, "unknown eventfd flags");
+    assert!(sc(&mut sys, pid, 290, &[0, 0o2004000]) >= 0, "EFD_CLOEXEC|EFD_NONBLOCK");
+    // PR_SET_NAME truncates to 15 bytes instead of failing
+    let long = put(&mut sys, pid, "ThreadPoolForegroundWorker");
+    assert_eq!(sc(&mut sys, pid, 157, &[15, long]), 0);
+    let out = put(&mut sys, pid, "................");
+    assert_eq!(sc(&mut sys, pid, 157, &[16, out]), 0);
+    let mut b = [0u8; 16];
+    sys.process_mut(pid).unwrap().mem.read(out, &mut b).unwrap();
+    assert_eq!(&b, b"ThreadPoolForeg\0");
+    // pthread_getschedparam: SCHED_OTHER, priority 0
+    assert_eq!(sc(&mut sys, pid, 145, &[0]), 0);
+    assert_eq!(sc(&mut sys, pid, 143, &[0, out]), 0);
+}
+
+#[test]
+fn madvise_dontneed_zeroes_private_pages() {
+    // glibc's calloc and Chromium's PartitionAlloc rely on MADV_DONTNEED giving back zero pages.
+    let mut sys = new_sys();
+    let pid = spawn_nop(&mut sys);
+    let a = sc(&mut sys, pid, 9, &[0, 0x3000, 3, 0x22, u64::MAX, 0]) as u64; // private anon
+    sys.process_mut(pid).unwrap().mem.write(a, &[7u8; 0x3000]).unwrap();
+    assert_eq!(sc(&mut sys, pid, 28, &[a + 0x1000, 0x1000, 4]), 0);
+    let mut b = [0u8; 0x3000];
+    sys.process_mut(pid).unwrap().mem.read(a, &mut b).unwrap();
+    assert!(b[..0x1000].iter().all(|&x| x == 7) && b[0x2000..].iter().all(|&x| x == 7), "neighbours kept");
+    assert!(b[0x1000..0x2000].iter().all(|&x| x == 0), "advised page zeroed");
+    assert_eq!(sys.process_mut(pid).unwrap().mem.take_remap().contains(&(a + 0x1000)), true, "PTE refreshed");
+}
+
+#[test]
+fn syscalls_cannot_write_read_only_pages() {
+    // V8 checks a page is really protected by passing it to getrlimit and requiring EFAULT.
+    let mut sys = new_sys();
+    let pid = spawn_nop(&mut sys);
+    let a = sc(&mut sys, pid, 9, &[0, 0x1000, 3, 0x22, u64::MAX, 0]) as u64;
+    assert_eq!(sc(&mut sys, pid, 302, &[0, 6, 0, a]), 0, "writable: filled in");
+    assert_eq!(sc(&mut sys, pid, 10, &[a, 0x1000, 1]), 0); // PROT_READ
+    assert_eq!(sc(&mut sys, pid, 302, &[0, 6, 0, a]), -14, "read-only: EFAULT");
+    assert_eq!(sc(&mut sys, pid, 10, &[a, 0x1000, 0]), 0); // PROT_NONE
+    assert_eq!(sc(&mut sys, pid, 1, &[1, a, 8]), -14, "PROT_NONE is not readable either");
+}
+
+#[test]
+fn sa_resethand_handler_runs_once_then_the_default_applies() {
+    // Node's signal-exit handler resets stdio and re-raises the signal, relying on SA_RESETHAND.
+    let mut sys = new_sys();
+    let pid = spawn_nop(&mut sys);
+    let act = put(&mut sys, pid, &"\0".repeat(32));
+    {
+        let m = &mut sys.process_mut(pid).unwrap().mem;
+        m.write_u64(act, 0x400100).unwrap();
+        m.write_u64(act + 8, 0x8400_0000).unwrap(); // SA_RESETHAND | SA_RESTORER
+        m.write_u64(act + 16, 0x400200).unwrap();
+    }
+    assert_eq!(sc(&mut sys, pid, 13, &[15, act, 0, 8]), 0);
+    sc(&mut sys, pid, 62, &[pid as u64, 15]);
+    assert_eq!(sys.deliver_signal(pid), Delivery::Handler(15));
+    sys.thread_mut(pid).unwrap().regs.rsp += 8;
+    assert_eq!(sys.syscall(pid, 15, [0; 6]), Sys::Restored);
+    sc(&mut sys, pid, 62, &[pid as u64, 15]);
+    assert_eq!(sys.deliver_signal(pid), Delivery::Killed(15), "re-raised signal takes the default action");
+}
+
+#[test]
+fn big_file_reads_return_the_exact_bytes() {
+    // Electron reads app.asar (MBs) with pread at odd offsets and maps parts of it.
+    let mut sys = new_sys();
+    let data: Vec<u8> = (0..3_476_670u32).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
+    sys.fs.add_file("/big.asar", &data, 0o644);
+    let pid = spawn_nop(&mut sys);
+    let path = put(&mut sys, pid, "/big.asar");
+    let fd = sc(&mut sys, pid, 2, &[path, 0]) as u64;
+    let buf = sc(&mut sys, pid, 9, &[0, 0x400000, 3, 0x22, u64::MAX, 0]) as u64;
+    for &(off, len) in &[(0u64, 4096u64), (1, 100_000), (4095, 8193), (123_457, 2_000_000), (3_400_000, 76_670), (3_476_000, 4096)] {
+        let n = sc(&mut sys, pid, 17, &[fd, buf, len, off]); // pread64
+        let want = &data[off as usize..(off + len).min(data.len() as u64) as usize];
+        assert_eq!(n as usize, want.len(), "pread length at {off}");
+        let mut got = vec![0u8; want.len()];
+        sys.process_mut(pid).unwrap().mem.read(buf, &mut got).unwrap();
+        assert!(got == want, "pread bytes at {off}+{len}");
+    }
+    // sequential read() in odd chunks
+    sc(&mut sys, pid, 8, &[fd, 0, 0]);
+    let mut all = Vec::new();
+    loop {
+        let n = sc(&mut sys, pid, 0, &[fd, buf, 65_537]);
+        assert!(n >= 0);
+        if n == 0 {
+            break;
+        }
+        let mut got = vec![0u8; n as usize];
+        sys.process_mut(pid).unwrap().mem.read(buf, &mut got).unwrap();
+        all.extend(got);
+    }
+    assert!(all == data, "read() stream");
+    // mmap of a file range at a page offset
+    let m = sc(&mut sys, pid, 9, &[0, 0x10_0000, 1, 2, fd, 0x20_0000]) as u64;
+    let mut got = vec![0u8; 0x10_0000];
+    sys.process_mut(pid).unwrap().mem.read(m, &mut got).unwrap();
+    assert!(got[..] == data[0x20_0000..0x30_0000], "mmap bytes");
+}
+
+#[test]
+fn proc_self_stat_has_all_fields_for_libuv() {
+    // libuv's uv_resident_set_memory skips 22 spaces after the last ')' and reads rss.
+    let mut sys = new_sys();
+    let pid = spawn_nop(&mut sys);
+    let path = put(&mut sys, pid, "/proc/self/stat");
+    let fd = sc(&mut sys, pid, 2, &[path, 0]) as u64;
+    let buf = sc(&mut sys, pid, 9, &[0, 0x1000, 3, 0x22, u64::MAX, 0]) as u64;
+    let n = sc(&mut sys, pid, 0, &[fd, buf, 1024]) as usize;
+    let mut b = vec![0u8; n];
+    sys.process_mut(pid).unwrap().mem.read(buf, &mut b).unwrap();
+    let line = String::from_utf8(b).unwrap();
+    let after = &line[line.rfind(')').unwrap() + 2..];
+    let f: Vec<&str> = after.split_whitespace().collect();
+    assert_eq!(f.len() + 2, 52, "{line}");
+    assert!(f[21].parse::<u64>().unwrap() > 0, "rss (field 24) counts resident pages");
+}
+
+#[test]
+fn epoll_registration_dies_with_its_file_not_its_fd_number() {
+    // Chromium closes sockets it watched; a new file reusing the fd number must not be reported
+    // with the old registration's data (a pointer to an already freed watcher).
+    let mut sys = new_sys();
+    let pid = spawn_nop(&mut sys);
+    let mem = sc(&mut sys, pid, 9, &[0, 0x1000, 3, 0x22, u64::MAX, 0]) as u64;
+    let ep = sc(&mut sys, pid, 291, &[0]) as u64;
+    assert_eq!(sc(&mut sys, pid, 22, &[mem]), 0); // pipe
+    let rd = sys.process_mut(pid).unwrap().mem.read_u32(mem).unwrap() as u64;
+    let wr = sys.process_mut(pid).unwrap().mem.read_u32(mem + 4).unwrap() as u64;
+    let ev = mem + 0x100;
+    sys.process_mut(pid).unwrap().mem.write_u32(ev, 1).unwrap(); // EPOLLIN
+    sys.process_mut(pid).unwrap().mem.write_u64(ev + 4, 0xdead_beef).unwrap();
+    assert_eq!(sc(&mut sys, pid, 233, &[ep, 1, rd, ev]), 0);
+    sc(&mut sys, pid, 3, &[rd]);
+    sc(&mut sys, pid, 3, &[wr]);
+    assert_eq!(sc(&mut sys, pid, 22, &[mem]), 0); // the new pipe takes the same fd numbers
+    assert_eq!(sys.process_mut(pid).unwrap().mem.read_u32(mem).unwrap() as u64, rd);
+    let wr2 = sys.process_mut(pid).unwrap().mem.read_u32(mem + 4).unwrap() as u64;
+    assert_eq!(sc(&mut sys, pid, 1, &[wr2, mem, 1]), 1); // new pipe readable
+    assert_eq!(sc(&mut sys, pid, 232, &[ep, mem + 0x200, 8, 0]), 0, "stale registration reported");
+    // registering the new file works and reports its own data
+    sys.process_mut(pid).unwrap().mem.write_u64(ev + 4, 7).unwrap();
+    assert_eq!(sc(&mut sys, pid, 233, &[ep, 1, rd, ev]), 0, "no EEXIST from the dead registration");
+    assert_eq!(sc(&mut sys, pid, 232, &[ep, mem + 0x200, 8, 0]), 1);
+    assert_eq!(sys.process_mut(pid).unwrap().mem.read_u64(mem + 0x204).unwrap(), 7);
+}
