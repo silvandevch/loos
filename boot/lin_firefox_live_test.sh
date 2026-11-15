@@ -22,7 +22,7 @@ drive() {
     hmp "quit"
 }
 drive & driver=$!
-LOOS_BOOT_OUT=$out QEMU_DISPLAY=${QEMU_DISPLAY:-gtk} QEMU_EXTRA="-monitor unix:$mon,server,nowait" TIMEOUT=${TIMEOUT:-120} \
+LOOS_BOOT_OUT=$out QEMU_DISPLAY=${QEMU_DISPLAY:-none} QEMU_EXTRA="-monitor unix:$mon,server,nowait" TIMEOUT=${TIMEOUT:-120} \
     "$here/lin_firefox_test.sh" "${1:-about:blank}" >/dev/null 2>&1
 kill $driver 2>/dev/null; wait   # QEMU is gone: stop waiting for a window that never came
 ok=1

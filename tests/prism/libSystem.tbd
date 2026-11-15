@@ -8,5 +8,12 @@ exports:
     symbols: [ _printf, _snprintf, _puts, _malloc, _realloc, _free, _exit, _strlen, _strcmp, _strtol,
                _getenv, _atexit, _write, _memset, _memcpy, ___stack_chk_guard, ___stack_chk_fail,
                ___stdoutp, ___stderrp, _fprintf, _fwrite, dyld_stub_binder,
-               _raise, _signal, _sigaction, _sigprocmask, _qsort ]
+               _raise, _signal, _sigaction, _sigprocmask, _qsort,
+               _realpath$DARWIN_EXTSN, _mkstemp, _mkdtemp, _sysctlbyname, _close, _unlink, _rmdir, _chdir,
+               _sscanf, _setmode, _getmode, _wcwidth, _putwchar, _strtod, _mbrtowc, _strtof,
+               _fork, _execl, _execvp, _waitpid, _pipe, _read, ___error, __exit, _environ,
+               _posix_spawn_file_actions_init, _posix_spawn_file_actions_adddup2, _posix_spawn_file_actions_addclose, _posix_spawnp, _posix_spawnattr_init, _posix_spawnattr_setflags,
+               _fnmatch, _strptime, _strtonum, _fmod, _openlog, _syslog$DARWIN_EXTSN,
+               __Block_copy, __Block_release, __Block_object_assign, __Block_object_dispose,
+               __NSConcreteStackBlock, __NSConcreteGlobalBlock, __NSConcreteMallocBlock, _dispatch_once, __Unwind_Resume ]
 ...

@@ -48,7 +48,7 @@ drive() {
 }
 drive & driver=$!
 LIN_BOOT=${LIN_BOOT:-uefi} LIN_DISK_IF=${LIN_DISK_IF:-virtio} LOOS_BOOT_OUT=$out LOOS_KVM=${LOOS_KVM:-auto} \
-QEMU_DISPLAY=${QEMU_DISPLAY:-gtk} QEMU_MEM=${QEMU_MEM:-6G} QEMU_EXTRA="-monitor unix:$mon,server,nowait" TIMEOUT=${TIMEOUT:-150} \
+QEMU_DISPLAY=${QEMU_DISPLAY:-none} QEMU_MEM=${QEMU_MEM:-6G} QEMU_EXTRA="-monitor unix:$mon,server,nowait" TIMEOUT=${TIMEOUT:-150} \
 ROOTFS_BINS="$args $files" "$here/lin_dyn_test.sh" "@$args" > "$out/build.log" 2>&1
 kill $driver 2>/dev/null; wait   # QEMU is gone: stop waiting for a window that never came
 grep -a "^lin: wayland window\|^lin: .*running," "$log" | tail -2

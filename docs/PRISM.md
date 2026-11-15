@@ -26,6 +26,29 @@ scheduler, signals and windows. The code is in `crates/loos-prism`.
   `main(argc, argv, envp, apple)`. `main` returns to `__prism_main_ret`, which runs the atexit
   handlers and exits.
 
+## Objective-C
+
+Prism's runtime includes an Objective-C runtime (`libc/objc.c`, `objc_msg.c`, `nsobject.m`,
+`block.c`). At startup it reads every image's `__objc_*` sections (found through
+`_dyld_image_count`/`_dyld_get_image_header`), uniques selectors, realizes classes eagerly
+(sliding ivars past a grown superclass), attaches categories, makes relative method lists
+absolute, and calls `+load`. `objc_msgSend` and the super/stret/fpret variants save the
+argument registers, look the method up (per-class cache, `+initialize`, `+resolve*Method:`,
+`forwardingTargetForSelector:`), and tail-jump to it. Reference counts, weak references and
+associated objects live in side tables; autorelease pools are one stack. `NSObject`, `Protocol`
+and the block classes are Objective-C; `_NSConcrete*Block` become copies of those classes, so
+blocks answer messages. `dispatch_once` and the blocks runtime (`_Block_copy`, `__block`
+variables) are there too. Not yet: exceptions (`@try`, unwinding), `@synchronized` locking
+across threads, tagged pointers, and `dlopen`ed images.
+
+## Processes
+
+`fork` gives the child a copy of the parent's Prism state. An `execve` of a Mach-O, by any
+process (Linux or macOS), comes back from the Linux layer as `Sys::ExecForeign`; Prism loads the
+program and calls `LinSystem::exec_image`. An `execve` of an ELF program by a Prism process leaves
+Prism. `posix_spawn` forks; the child carries out the file actions and the exec without running
+program code. All of this works across architectures (an Intel program can start an arm64 one).
+
 ## arm64e
 
 Apple's own binaries ship as x86_64 + arm64e. Prism loads arm64e code without PAC keys:
@@ -35,9 +58,12 @@ checking. A program cannot tell the difference unless it inspects pointer bits i
 
 ## Not done yet
 
+- `posix_spawn`: process groups and sessions (`POSIX_SPAWN_SETPGROUP`, `SETSID`) are skipped,
+  because the Linux layer has none; `POSIX_SPAWN_CLOEXEC_DEFAULT` is ignored. Sockets, `kqueue`.
+
 - Threads: one thread per Prism process. pthread mutexes succeed immediately, and
   `pthread_create` is not provided.
-- Objective-C/Swift runtimes, CoreFoundation, Foundation, AppKit and CoreGraphics. Programs that
+- The Swift runtime, CoreFoundation, Foundation, AppKit and CoreGraphics. Programs that
   link them load, but stop at the first unimplemented import.
 - GUI. The plan is AppKit windows as LoOS windows through the existing win32k/compositor path
   that Linux Wayland windows use.
@@ -52,7 +78,13 @@ checking. A program cannot tell the difference unless it inspects pointer bits i
 - `PRISM_MAC_BIN=<dir> cargo +1.97.1 test -p loos-prism`: Apple's arm64e `pwd`, `printenv`,
   `dirname`, `cksum`, `sum`, `xxd` and `getopt` (copied from macOS, not stored here) on the
   interpreter, with output compared against macOS.
-- `boot/prism_macos_test.sh`: the same Apple tools natively (x86_64 slice) on LoOS under QEMU,
-  copied from a Mac over ssh (`PRISM_MAC=user@host`).
+- `boot/prism_macos_test.sh`: those tools plus `realpath`, `uname`, `head`, `base64`, `jot`,
+  `mkdir` and `mktemp`, natively (x86_64 slice) on LoOS under QEMU, copied from a Mac over ssh
+  (`PRISM_MAC=user@host`). 75 of the 683 tools in macOS 15's `/bin` and `/usr/bin` have every
+  import implemented.
 - `boot/prism_test.sh`: boots LoOS in QEMU and runs the Intel build natively, the arm64 build on
-  the interpreter, a universal `.app`, and an app with a bundled dylib.
+  the interpreter, a universal `.app`, an app with a bundled dylib, and `tests/prism/sig.c`
+  (signals, qsort, realpath, mkstemp/mkdtemp, sysctlbyname, sscanf, setmode/getmode, wcwidth,
+  strtod/strtof, mbrtowc, fnmatch, strptime, strtonum, syslog), `tests/prism/objc.m`
+  (Objective-C with ARC: classes, categories, blocks, weak references, forwarding) and `tests/prism/spawn.c` (fork, exec, posix_spawn with a pipe, execvp) for
+  both architectures. All QEMU runs are headless (`QEMU_DISPLAY=gtk` shows a window).

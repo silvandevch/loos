@@ -1345,6 +1345,9 @@ impl Abi for ArmCall<'_> {
     fn ret(&mut self, v: u64) {
         self.cpu.x[0] = v;
     }
+    fn ret_f64(&mut self, v: f64) {
+        self.cpu.q[0] = v.to_bits() as u128;
+    }
     fn set_arg(&mut self, i: usize, v: u64) {
         self.cpu.x[i] = v;
     }

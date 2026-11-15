@@ -21,7 +21,7 @@ pub fn signal_to_darwin(s: u64) -> u64 {
 }
 
 /// Darwin `sigset_t` (32 bits, bit n-1 = signal n) → Linux mask.
-fn mask_to_linux(m: u64) -> u64 {
+pub(crate) fn mask_to_linux(m: u64) -> u64 {
     (1..32).filter(|d| m >> (d - 1) & 1 == 1).fold(0, |acc, d| acc | 1 << (signal_to_linux(d) - 1))
 }
 

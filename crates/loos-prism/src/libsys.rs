@@ -16,10 +16,10 @@ const D_STDOUT: u64 = 0x08;
 const D_STDERR: u64 = 0x10;
 /// errno (the address `___error()` returns).
 pub const D_ERRNO: u64 = 0x18;
-const D_ENVIRON: u64 = 0x20;
+pub(crate) const D_ENVIRON: u64 = 0x20;
 const D_ARGC: u64 = 0x28;
 const D_ARGV: u64 = 0x30;
-const D_PROGNAME: u64 = 0x38;
+pub(crate) const D_PROGNAME: u64 = 0x38;
 const D_TASK: u64 = 0x40;
 const D_GUARD: u64 = 0x48;
 const D_PAGESIZE: u64 = 0x50;
@@ -65,6 +65,7 @@ pub fn data_symbol(name: &str) -> Option<u64> {
         "_optreset" => D_OPTRESET,
         "__DefaultRuneLocale" => D_RUNE,
         "_sys_nerr" => D_ERRSTR - 8,
+        "_sys_signame" => crate::misc::D_SIGNAME,
         _ => return None,
     })
 }
@@ -84,6 +85,7 @@ pub fn data_init() -> Vec<u8> {
     put(D_OPTERR, 1);
     put(D_ERRSTR - 8, crate::posix::errors().count() as u64);
     crate::posix::init_data(&mut d);
+    crate::misc::init_data(&mut d);
     d
 }
 
@@ -110,6 +112,8 @@ pub trait Abi: Args {
     fn va_start(&mut self);
     /// Set the return value.
     fn ret(&mut self, v: u64);
+    /// Set a floating-point (double) return value.
+    fn ret_f64(&mut self, v: f64);
     /// Set integer argument register `i` (for calls Prism makes into the program).
     fn set_arg(&mut self, i: usize, v: u64);
     /// Continue at `target` instead of returning; `ret_to` is the address it returns to
@@ -229,6 +233,8 @@ pub struct State {
     pub(crate) rng: u64,
     /// Darwin signal → (handler, Darwin flags, Darwin mask) as the program installed them.
     pub(crate) sigs: BTreeMap<u64, (u64, u64, u64)>,
+    /// Loaded images: Mach header address, slide, path, and the path's copy in the process (0 until asked).
+    pub images: Vec<(u64, u64, String, u64)>,
     /// The program runs on the ARM64 interpreter (affects `va_list` layout).
     pub arm: bool,
     /// Unix time (ns) at monotonic time zero.
@@ -242,7 +248,7 @@ pub(crate) type Func = fn(&mut Call) -> Act;
 impl State {
     /// State for a freshly loaded program.
     pub fn new(stubs: Vec<String>) -> Self {
-        let funcs = stubs.iter().map(|s| FUNCS.iter().chain(crate::posix::FUNCS).chain(crate::posix2::FUNCS).chain(crate::getopt::FUNCS).chain(crate::signal::FUNCS).find(|f| f.0 == s.as_str()).map(|f| f.1)).collect();
+        let funcs = stubs.iter().map(|s| FUNCS.iter().chain(crate::posix::FUNCS).chain(crate::posix2::FUNCS).chain(crate::getopt::FUNCS).chain(crate::signal::FUNCS).chain(crate::posix3::FUNCS).chain(crate::process::FUNCS).chain(crate::wide::FUNCS).chain(crate::misc::FUNCS).find(|f| f.0 == s.as_str()).map(|f| f.1)).collect();
         Self { stubs, funcs, rng: 0x853c_49e6_748f_ea9b, ..Self::default() }
     }
 
@@ -1105,6 +1111,8 @@ static FUNCS: &[(&str, Func)] = &[
     f!("_strtoll", |c| strtol(c, true)),
     f!("_strtoul", |c| strtol(c, false)),
     f!("_strtoull", |c| strtol(c, false)),
+    f!("_strtoimax", |c| strtol(c, true)),
+    f!("_strtoumax", |c| strtol(c, false)),
     f!("_toupper", |c| { let v = c.arg(); c.ret(if (b'a' as u64..=b'z' as u64).contains(&v) { v - 32 } else { v }) }),
     f!("_tolower", |c| { let v = c.arg(); c.ret(if (b'A' as u64..=b'Z' as u64).contains(&v) { v + 32 } else { v }) }),
     f!("_abs", |c| { let v = c.arg() as i32; c.ret(v.unsigned_abs() as u64) }),

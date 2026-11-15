@@ -294,6 +294,27 @@ pub enum Sys {
     Exec,
     /// `rt_sigreturn` restored regs (RAX is the restored value).
     Restored,
+    /// `execve` of a program another loader runs (a Mach-O): the request is in
+    /// [`LinSystem::foreign_exec`]; that loader finishes it with [`LinSystem::exec_image`].
+    ExecForeign,
+}
+
+/// An `execve` handed to another loader (see [`Sys::ExecForeign`]).
+#[derive(Clone, Debug)]
+pub struct ForeignExec {
+    /// Calling thread.
+    pub tid: Pid,
+    /// Absolute path of the program.
+    pub path: String,
+    /// Arguments.
+    pub argv: Vec<String>,
+    /// Environment.
+    pub envp: Vec<String>,
+}
+
+/// Is this the start of a Mach-O file (thin 64-bit or universal)?
+pub fn is_macho(head: &[u8]) -> bool {
+    matches!(head.get(..4), Some([0xcf, 0xfa, 0xed, 0xfe] | [0xca, 0xfe, 0xba, 0xbe]))
 }
 
 /// What `deliver_signal` did.
@@ -371,6 +392,8 @@ pub struct LinSystem<F: LinFs> {
     /// registration belongs to the open file, as on Linux: once that file is closed it is gone, even
     /// if the fd number is reused (its data would point at the old file's freed watcher).
     epolls: Vec<Vec<(i32, u32, u64, u64, alloc::rc::Weak<RefCell<OpenFile>>)>>,
+    /// The pending [`Sys::ExecForeign`] request.
+    pub foreign_exec: Option<ForeignExec>,
 }
 
 #[path = "sysio.rs"]
@@ -384,6 +407,7 @@ impl<F: LinFs> LinSystem<F> {
     /// New subsystem over `fs`. Pid 1 is reserved.
     pub fn new(fs: F) -> Self {
         Self {
+            foreign_exec: None,
             fs,
             procs: BTreeMap::new(),
             threads: BTreeMap::new(),
@@ -3550,15 +3574,36 @@ impl<F: LinFs> LinSystem<F> {
         if st.mode & 0o111 == 0 {
             return err(EACCES);
         }
+        let argv = if argv.is_empty() { vec![path.clone()] } else { argv };
+        let mut head = [0u8; 4];
+        if self.fs.read(&abs, 0, &mut head).is_ok_and(|n| n == 4) && is_macho(&head) {
+            self.foreign_exec = Some(ForeignExec { tid, path: abs, argv, envp });
+            return Ok(Sys::ExecForeign);
+        }
         let mut mem = UserMem::new();
         let seed = self.rand_u64();
-        let argv = if argv.is_empty() { vec![path.clone()] } else { argv };
         let l = loader::load(&mut self.fs, &mut mem, &abs, &argv, &envp, seed)?;
+        let regs = Regs { rip: l.entry, rsp: l.sp, rflags: 0x202, ..Regs::default() };
+        self.exec_commit(p, tid, mem, regs, l.exe, l.argv)?;
+        Ok(Sys::Exec)
+    }
+
+    /// Replace the image of `tid`'s process with `mem`, starting at `regs` (the second half of an
+    /// `execve`, also used by other loaders for [`Sys::ExecForeign`]).
+    pub fn exec_image(&mut self, tid: Pid, mem: UserMem, regs: Regs, exe: String, argv: Vec<String>) -> Result<(), i64> {
+        let pid = self.threads.get(&tid).ok_or(ESRCH)?.pid;
+        let mut p = self.procs.remove(&pid).ok_or(ESRCH)?;
+        let r = self.exec_commit(&mut p, tid, mem, regs, exe, argv);
+        self.procs.insert(pid, p);
+        r
+    }
+
+    fn exec_commit(&mut self, p: &mut Process, tid: Pid, mut mem: UserMem, regs: Regs, exe: String, argv: Vec<String>) -> Result<(), i64> {
         self.map_clock_page(&mut mem)?;
         // Point of no return.
         p.mem = mem;
-        p.exe = l.exe;
-        p.argv = l.argv;
+        p.exe = exe;
+        p.argv = argv;
         for s in 1..65 {
             if p.acts[s].handler > 1 {
                 p.acts[s] = SigAct::default();
@@ -3576,13 +3621,13 @@ impl<F: LinFs> LinSystem<F> {
         }
         p.threads = vec![tid];
         let t = self.threads.get_mut(&tid).unwrap();
-        t.regs = Regs { rip: l.entry, rsp: l.sp, rflags: 0x202, ..Regs::default() };
+        t.regs = regs;
         t.fx = fx_default();
         t.altstack = (0, 0);
         t.clear_tid = 0;
         t.pending = 0;
         self.vfork_done(p.pid);
-        Ok(Sys::Exec)
+        Ok(())
     }
 }
 

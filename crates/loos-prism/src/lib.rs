@@ -30,6 +30,10 @@ pub mod darwin;
 pub mod libsys;
 pub mod posix;
 pub mod posix2;
+pub mod posix3;
+pub mod process;
+pub mod wide;
+pub mod misc;
 pub mod getopt;
 pub mod signal;
 pub mod loader;
@@ -39,6 +43,8 @@ pub mod macho;
 struct X86Call<'a> {
     r: &'a mut Regs,
     xmm: [u64; 8],
+    /// A double result for xmm0.
+    fret: Option<u64>,
     gi: usize,
     fi: usize,
     stack: u64,
@@ -86,6 +92,9 @@ impl Abi for X86Call<'_> {
     fn ret(&mut self, v: u64) {
         self.r.rax = v;
     }
+    fn ret_f64(&mut self, v: f64) {
+        self.fret = Some(v.to_bits());
+    }
     fn set_arg(&mut self, i: usize, v: u64) {
         *self.gpr(i) = v;
     }
@@ -105,12 +114,26 @@ impl Abi for X86Call<'_> {
 }
 
 /// A Prism process.
+#[derive(Clone)]
 struct Proc {
     st: State,
     /// Interpreter state for arm64 programs.
     arm: Option<Box<arm64::Cpu>>,
     /// Result conversion owed to a LoOS syscall that blocked.
     pending: Option<Post>,
+    /// A process-level change the last forwarded syscall made, for [`Prism::settle`].
+    event: Option<Event>,
+}
+
+/// Process-level effects of a forwarded syscall.
+#[derive(Clone, Copy)]
+enum Event {
+    /// `fork`: the child (a copy of this process) finishes the call with this conversion.
+    Forked(Pid, Post),
+    /// `execve` of a Linux program: the process is no longer Prism's.
+    Exec,
+    /// `execve` of a Mach-O: Prism loads it ([`LinSystem::foreign_exec`]).
+    ExecForeign,
 }
 
 /// The macOS compatibility layer.
@@ -155,6 +178,38 @@ impl Prism {
     /// Start a macOS program (Mach-O file or `.app` bundle). Intel code runs natively; arm64-only
     /// programs run on the interpreter.
     pub fn spawn<F: LinFs>(&mut self, sys: &mut LinSystem<F>, path: &str, argv: &[String], envp: &[String]) -> Result<Pid, i64> {
+        let (mem, regs, exe, proc) = self.load(sys, path, argv, envp)?;
+        let pid = sys.spawn_image(mem, regs, exe, argv)?;
+        self.procs.insert(pid, proc);
+        Ok(pid)
+    }
+
+    /// Finish a [`Sys::ExecForeign`] (an `execve` of a Mach-O by any process). On failure the
+    /// caller's syscall returns the error.
+    pub fn exec_foreign<F: LinFs>(&mut self, sys: &mut LinSystem<F>) -> Sys {
+        let Some(req) = sys.foreign_exec.take() else { return Sys::Ret(-22) };
+        let r = self.load(sys, &req.path, &req.argv, &req.envp).and_then(|(mem, regs, exe, proc)| {
+            sys.exec_image(req.tid, mem, regs, exe, req.argv.clone())?;
+            Ok(proc)
+        });
+        match r {
+            Ok(proc) => {
+                if let Some(pid) = sys.thread(req.tid).map(|t| t.pid) {
+                    self.procs.insert(pid, proc);
+                }
+                Sys::Exec
+            }
+            Err(e) => {
+                if let Some(t) = sys.thread_mut(req.tid) {
+                    t.regs.rax = (-e) as u64; // a Prism caller converts it in `resume`
+                }
+                Sys::Ret(-e)
+            }
+        }
+    }
+
+    /// Load a macOS program into a fresh address space.
+    fn load<F: LinFs>(&mut self, sys: &mut LinSystem<F>, path: &str, argv: &[String], envp: &[String]) -> Result<(UserMem, Regs, String, Proc), i64> {
         let exe = match bundle::open(&mut sys.fs, path) {
             Some(b) => b.exe_path(),
             None => path.to_string(),
@@ -177,18 +232,42 @@ impl Prism {
         }
         st.start_args = [prog.argc, prog.argv, prog.envp, prog.apple];
         st.tlv = prog.tlv.clone();
+        st.images = prog
+            .images
+            .iter()
+            .map(|im| {
+                let text = im.macho.segments.iter().find(|s| s.fileoff == 0 && s.filesize > 0).map(|s| s.vmaddr).unwrap_or(0);
+                (text.wrapping_add(im.slide), im.slide, im.path.clone(), 0)
+            })
+            .collect();
         st.arm = arm;
         st.epoch_ns = sys.epoch_base_s.saturating_mul(1_000_000_000);
         // Execution starts in the `__prism_start` stub, which runs initializers, then main.
         let regs = Regs { rip: SHIM_BASE, rsp: prog.sp, rflags: 0x202, ..Regs::default() };
-        let pid = sys.spawn_image(mem, regs, exe, argv)?;
         let arm = arm.then(|| {
             let mut c = Box::new(arm64::Cpu::new(SHIM_BASE, prog.sp));
             c.tpidrro = SHIM_DATA + 0x800; // Darwin TSD area
             c
         });
-        self.procs.insert(pid, Proc { st, arm, pending: None });
-        Ok(pid)
+        Ok((mem, regs, exe, Proc { st, arm, pending: None, event: None }))
+    }
+
+    /// Apply the process-level effect (fork, exec) the last call of `pid` had, if any.
+    fn settle<F: LinFs>(&mut self, sys: &mut LinSystem<F>, pid: Pid, r: Sys) -> Sys {
+        let Some(ev) = self.procs.get_mut(&pid).and_then(|p| p.event.take()) else { return r };
+        match ev {
+            Event::Forked(child, post) => {
+                let mut c = self.procs[&pid].clone();
+                c.pending = Some(post);
+                self.procs.insert(child, c);
+                r
+            }
+            Event::Exec => {
+                self.procs.remove(&pid);
+                Sys::Exec
+            }
+            Event::ExecForeign => self.exec_foreign(sys),
+        }
     }
 
     /// Forget processes that no longer exist.
@@ -211,11 +290,17 @@ impl Prism {
             }
             let stack = regs.rsp + 8;
             let mem = &mut sys.process_mut(pid)?.mem;
-            let mut call = X86Call { r: &mut regs, xmm, gi: 0, fi: 0, stack };
+            let mut call = X86Call { r: &mut regs, xmm, fret: None, gi: 0, fi: 0, stack };
             let i = (nr - PRISM_NR) as usize;
             let act = proc.st.call(i, &mut call, mem, now);
-            sys.thread_mut(tid)?.regs = regs;
-            return Some(finish(proc, sys, tid, pid, i, act, false));
+            let fret = call.fret;
+            let t = sys.thread_mut(tid)?;
+            t.regs = regs;
+            if let Some(f) = fret {
+                t.fx[160..176].copy_from_slice(&(f as u128).to_le_bytes());
+            }
+            let r = finish(proc, sys, tid, pid, i, act, false);
+            return Some(self.settle(sys, pid, r));
         }
         let plan = match nr >> 24 {
             2 => darwin::bsd(nr & 0xff_ffff, a),
@@ -227,7 +312,8 @@ impl Prism {
             }
             _ => darwin::Plan::Error(38),
         };
-        Some(run_plan(proc, sys, tid, plan, false))
+        let r = run_plan(proc, sys, tid, plan, false);
+        Some(self.settle(sys, pid, r))
     }
 
     /// Before a Prism thread runs again: finish the result conversion of a syscall that blocked.
@@ -238,6 +324,7 @@ impl Prism {
             let v = sys.thread(tid).map(|t| t.regs.rax as i64).unwrap_or(0);
             let arm = proc.arm.is_some();
             apply_post(proc, sys, tid, post, v, arm);
+            self.settle(sys, pid, Sys::Ret(0));
         }
     }
 
@@ -246,6 +333,15 @@ impl Prism {
     pub fn run_arm<F: LinFs>(&mut self, sys: &mut LinSystem<F>, tid: Pid, budget: u64) -> Option<Sys> {
         let pid = sys.thread(tid)?.pid;
         self.resume(sys, tid);
+        // Finishing the pending call can end the process (posix_spawn's child exits) or block it.
+        if sys.thread(tid).is_none_or(|t| t.state != loos_lin::sys::TState::Runnable) || !self.is_arm(pid) {
+            return Some(Sys::Ret(0));
+        }
+        let r = self.run_arm_inner(sys, tid, pid, budget)?;
+        Some(self.settle(sys, pid, r))
+    }
+
+    fn run_arm_inner<F: LinFs>(&mut self, sys: &mut LinSystem<F>, tid: Pid, pid: Pid, budget: u64) -> Option<Sys> {
         let proc = self.procs.get_mut(&pid)?;
         let mut left = budget;
         while left > 0 {
@@ -284,13 +380,13 @@ impl Prism {
                     Some(run_plan(proc, sys, tid, plan, true))
                 }
                 arm64::Stop::Fault(addr) => {
-                    sys.diag += &format!("prism: arm64 fault at {addr:#x} (pc {:#x})\n", cpu.pc);
+                    sys.diag += &format!("prism: arm64 fault at {addr:#x} (pc {:#x}, pid {pid})\n", cpu.pc);
                     proc.arm = Some(cpu);
                     sys.fault(tid, 14, 0, addr);
                     return Some(Sys::Ret(0));
                 }
                 arm64::Stop::Undefined(ins) => {
-                    sys.diag += &format!("prism: arm64 instruction {ins:#010x} at {:#x} is not supported\n", cpu.pc);
+                    sys.diag += &format!("prism: arm64 instruction {ins:#010x} at {:#x} is not supported (lr {:#x}, pid {pid})\n", cpu.pc, cpu.x[30]);
                     proc.arm = Some(cpu);
                     sys.send_signal(pid, Some(tid), 4);
                     return Some(Sys::Ret(0));
@@ -302,6 +398,9 @@ impl Prism {
                     return Some(Sys::Ret(0));
                 }
             };
+            if proc.event.is_some() {
+                return r;
+            }
             match r {
                 Some(Sys::Ret(_)) | Some(Sys::Restored) | None => {}
                 other => return other,
@@ -389,6 +488,19 @@ fn apply_post<F: LinFs>(proc: &mut Proc, sys: &mut LinSystem<F>, tid: Pid, post:
 fn forward<F: LinFs>(proc: &mut Proc, sys: &mut LinSystem<F>, tid: Pid, nr: u64, args: [u64; 6], post: Post, arm: bool) -> Sys {
     let saved = sys.thread(tid).map(|t| t.regs);
     let r = sys.syscall(tid, nr, args);
+    let forks = nr == 57 || (nr == 56 && args[0] & 0x100 == 0);
+    match r {
+        Sys::Ret(v) if forks && v > 0 => {
+            proc.event = Some(Event::Forked(v as Pid, post));
+        }
+        Sys::Exec => proc.event = Some(Event::Exec),
+        Sys::ExecForeign => {
+            proc.pending = Some(post);
+            proc.event = Some(Event::ExecForeign);
+            return r;
+        }
+        _ => {}
+    }
     match r {
         Sys::Ret(v) => {
             if !arm {

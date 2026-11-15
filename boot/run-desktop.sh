@@ -16,10 +16,12 @@ case $mode in
     *) echo "usage: $0 [bios|uefi] [cmdline words]" >&2; exit 2 ;;
 esac
 accel=$("$here/../scripts/qemu-accel.sh" args)   # KVM when available (LOOS_KVM=off to force TCG)
-if [ "${LOOS_DISPLAY:-}" = none ]; then display=(-display none)
-elif qemu-system-x86_64 -display help 2>/dev/null | grep -qx gtk; then display=(-display gtk,zoom-to-fit=on,grab-on-hover=on)
-elif qemu-system-x86_64 -display help 2>/dev/null | grep -qx sdl; then display=(-display sdl)
-else display=(); fi
+# Headless by default (no window); LOOS_DISPLAY=gtk or sdl opens one.
+case "${QEMU_DISPLAY:-${LOOS_DISPLAY:-none}}" in
+    gtk) display=(-display gtk,zoom-to-fit=on,grab-on-hover=on) ;;
+    sdl) display=(-display sdl) ;;
+    *) display=(-display none) ;;
+esac
 # Host-assisted HTTPS for the browser while LoOS has no native network stack. Disable with LOOS_WEBBRIDGE=0.
 web_pid=""; web_args=(); web_dir=""; web_sock=""
 if [ "${LOOS_WEBBRIDGE:-1}" != 0 ]; then

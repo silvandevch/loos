@@ -65,6 +65,10 @@ way (§C.2).
    - code that calls back into the program (`atexit` handlers, `qsort` comparators);
    - code whose memory layout the SDK's inline macros read directly (`FILE` and the
      `getc`/`putc` buffer fields, the `_DefaultRuneLocale` ctype table).
+   - the Objective-C runtime and the blocks runtime (`objc*.c`, `block.c`, `nsobject.m`):
+     `objc_msgSend` dispatches into program code on every call and must keep the caller's
+     argument registers, and compiled code reads class, ivar and block layouts directly. The
+     runtime's own root class `NSObject` is Objective-C (`.m`) for the same reason.
 
    Everything else in Prism's libSystem is Rust, in `crates/loos-prism/src/libsys.rs`.
 

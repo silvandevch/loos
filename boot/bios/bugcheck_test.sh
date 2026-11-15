@@ -29,7 +29,7 @@ for kind in pf ud gp manual stack; do
 
     # ---- 2) viewing run: GUI, NO isa-debug-exit, keep the crash screen up for $HOLD seconds ----
     glog=$(mktemp)
-    qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-off} "$root/scripts/qemu-accel.sh" args)} -display gtk -vga std -smp 2 -m 256M \
+    qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-off} "$root/scripts/qemu-accel.sh" args)} -display ${QEMU_DISPLAY:-none} -vga std -smp 2 -m 256M \
         -serial "file:$glog" -drive "file=$img,format=raw,if=ide" -no-reboot -no-shutdown &
     qpid=$!
     ( sleep 60; kill -TERM "$qpid" 2>/dev/null; sleep 2; kill -KILL "$qpid" 2>/dev/null ) & wd=$!

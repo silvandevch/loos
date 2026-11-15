@@ -11,7 +11,7 @@ boot=${LIN_BOOT:-bios}; fw=()
 [ "$boot" = uefi ] && fw=(-bios "${OVMF_CODE:-/usr/share/edk2/ovmf/OVMF_CODE.fd}")
 img=$("$here/$boot/build.sh" "$out" --module initrd="$out/lin-rootfs.tar" --cmdline "console=ttyS0 loos.test=1 loos.net=1 loos.lin=$cmd") || exit 1
 log=$out/lin-dyn.log; rm -f "$log"
-timeout ${TIMEOUT:-120} qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-off} "$root/scripts/qemu-accel.sh" args)} -display ${QEMU_DISPLAY:-gtk} -vga std -smp 1 -m ${QEMU_MEM:-4G} -nic user,model=e1000 \
+timeout ${TIMEOUT:-120} qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-off} "$root/scripts/qemu-accel.sh" args)} -display ${QEMU_DISPLAY:-none} -vga std -smp 1 -m ${QEMU_MEM:-4G} -nic user,model=e1000 \
     -serial "file:$log" "${fw[@]}" -drive "file=$img,format=raw,if=${LIN_DISK_IF:-ide}" -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot ${QEMU_EXTRA:-}
 grep -aE "^lin:" "$log" | head -20
 grep -aqF "program finished, status 0" "$log" && echo "lin dynamic test ok" || { echo "lin dynamic test FAILED"; tail -15 "$log"; exit 1; }

@@ -35,6 +35,7 @@ echo "[qemu] booting $ISO  (mem=${MEM}MB cpus=$CPUS disk=$DISK)"
 exec "$QEMU" \
     "${ACCEL_ARGS[@]}" \
     -m "$MEM" -smp "$CPUS" \
+    -display "${QEMU_DISPLAY:-none}" \
     -machine pc,accel="${ACCEL}" \
     -cdrom "$ISO" \
     -drive file="$DISK",if=ide,format=qcow2 \

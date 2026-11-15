@@ -14,7 +14,14 @@ cases='/bin/pwd|/
 /usr/bin/cksum,/tmp/f|3015617425 6 /tmp/f
 /usr/bin/sum,/tmp/f|36979 1 /tmp/f
 /usr/bin/xxd,/tmp/f|00000000: 6865 6c6c 6f0a                           hello.
-/usr/bin/getopt,ab:,-a,-b,x,y| -a -b x -- y'
+/usr/bin/getopt,ab:,-a,-b,x,y| -a -b x -- y
+/bin/realpath,/tmp/../tmp/f|/tmp/f
+/usr/bin/uname,-s|Darwin
+/usr/bin/head,-1,/tmp/f|hello
+/usr/bin/base64,-i,/tmp/f|aGVsbG8K
+/usr/bin/jot,3,5|7
+/bin/mkdir,-p,/tmp/a/b|
+/usr/bin/mktemp,-d,/tmp/zXXXX|'
 tools=$(echo "$cases" | cut -d'|' -f1 | cut -d, -f1 | sort -u)
 for t in $tools; do
     [ -s "$out/bin/$(basename "$t")" ] || scp -q "$mac:$t" "$out/bin/$(basename "$t")" || { echo "prism macos test: cannot copy $t from $mac"; exit 1; }
@@ -40,7 +47,7 @@ while IFS='|' read -r cmd want; do
     log=$(mktemp)
     timeout 120 qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-off} "$root/scripts/qemu-accel.sh" args)} -display none -vga std -smp 1 -m 256M \
         -serial "file:$log" -drive "file=$img,format=raw,if=ide" -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
-    if grep -aqxF -- "$want" "$log" && grep -aqF "lin: program finished, status 0" "$log"; then
+    if { [ -z "$want" ] || grep -aqxF -- "$want" "$log"; } && grep -aqF "lin: program finished, status 0" "$log"; then
         echo "ok   ${cmd//,/ }"; pass=$((pass + 1))
     else
         echo "FAIL ${cmd//,/ } (want '$want')"; grep -aE "^(prism|lin: )" "$log" | tail -6; fail=1

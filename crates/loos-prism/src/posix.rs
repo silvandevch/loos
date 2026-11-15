@@ -116,6 +116,9 @@ const K_SIGMASK: u8 = 8;
 
 /// Second step of a two-step call; `v` is the LoOS syscall's result.
 pub fn cont(id: u8, ctx: [u64; 3], v: i64, mem: &mut UserMem, st: &mut State) -> Then {
+    if let Some(t) = crate::posix3::cont(id, ctx, v, mem, st).or_else(|| crate::process::cont(id, ctx, v, mem, st)) {
+        return t;
+    }
     match id {
         K_READDIR if v == 0 => Then::Ret(0),
         K_READDIR if v < 0 => Then::Fail(-v, 0),
@@ -211,7 +214,7 @@ fn realloc(c: &mut Call, old: u64, n: u64) -> u64 {
     p
 }
 
-fn ret_str(c: &mut Call, s: &str) -> Act {
+pub(crate) fn ret_str(c: &mut Call, s: &str) -> Act {
     let mut v = s.as_bytes().to_vec();
     v.push(0);
     let p = c.st.heap.alloc(c.mem, v.len() as u64);

@@ -52,7 +52,7 @@ int isatty(int fd) {
 /* The stack probe: our stacks are mapped up front, so there is nothing to touch. It must preserve
  * every register (callers pass the size in rax / x15). */
 #if defined(__x86_64__)
-__asm__(".globl ____chkstk_darwin\n____chkstk_darwin:\n ret\n");
+__asm__(".text\n.globl ____chkstk_darwin\n____chkstk_darwin:\n ret\n");
 #else
-__asm__(".globl ____chkstk_darwin\n.p2align 2\n____chkstk_darwin:\n ret\n");
+__asm__(".text\n.globl ____chkstk_darwin\n.p2align 2\n____chkstk_darwin:\n ret\n");
 #endif

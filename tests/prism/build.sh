@@ -15,6 +15,14 @@ for a in x86_64 arm64; do
     "$ld" -arch $a -platform_version macos 11.0 11.0 -dylib -install_name @rpath/libgreet.dylib -L"$here" -lSystem "$out/greet_$a.o" -o "$app/Frameworks/libgreet.dylib"
     "$ld" -arch $a -platform_version macos 11.0 11.0 -L"$here" -lSystem "$out/app_$a.o" "$app/Frameworks/libgreet.dylib" -rpath @executable_path/../Frameworks -o "$app/MacOS/Greet_$a"
 done
+for a in x86_64 arm64; do
+    clang -target $a-apple-macos11 -O1 -fno-stack-protector -c "$here/spawn.c" -o "$out/spawn_$a.o"
+    "$ld" -arch $a -platform_version macos 11.0 11.0 -L"$here" -lSystem "$out/spawn_$a.o" -o "$out/spawn_$a" -no_fixup_chains
+done
+for a in x86_64 arm64; do
+    clang -target $a-apple-macos11 -O1 -fobjc-arc -fno-stack-protector -c "$here/objc.m" -o "$out/objc_$a.o"
+    "$ld" -arch $a -platform_version macos 11.0 11.0 -L"$here" -lSystem -lobjc "$out/objc_$a.o" -o "$out/objc_$a" -no_fixup_chains
+done
 clang -target x86_64-apple-macos11 -O1 -c "$here/sig.c" -o "$out/sig.o"
 "$ld" -arch x86_64 -platform_version macos 11.0 11.0 -L"$here" -lSystem "$out/sig.o" -o "$out/sig_x86_64"
 "$ld" -arch x86_64 -platform_version macos 13.0 13.0 -L"$here" -lSystem "$out/hello_x86_64.o" -o "$out/hello_chained" -fixup_chains

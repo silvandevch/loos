@@ -718,10 +718,14 @@ impl Lin {
                 }
                 continue;
             }
-            let prism = self.prism.owns(pid);
-            if prism {
+            if self.prism.owns(pid) {
                 self.prism.resume(&mut self.sys, tid);
+                // Finishing a call can exec (posix_spawn's child): the process may now be interpreted.
+                if self.prism.is_arm(pid) || self.sys.thread(tid).is_none() {
+                    continue;
+                }
             }
+            let prism = self.prism.owns(pid);
             let cr3 = self.cr3_for(pid);
             if cr3 == 0 {
                 say("lin: out of memory building page tables\n");
@@ -761,6 +765,8 @@ impl Lin {
                 self.syscalls += 1;
                 *self.hot.entry((tid, nr)).or_insert(0) += 1;
                 let r = if prism { self.prism.syscall(&mut self.sys, tid, nr, a).unwrap_or(Sys::Ret(0)) } else { self.sys.syscall(tid, nr, a) };
+                // A Linux program exec'ing a Mach-O: Prism loads it into the process.
+                let r = if r == Sys::ExecForeign { self.prism.exec_foreign(&mut self.sys) } else { r };
                 match r {
                     Sys::ProcessExit(st) if pid == main => status = Some(st),
                     _ => {}

@@ -15,10 +15,14 @@ def add(t, name, data, mode=0o755):
 def mkdir(t, name):
     i = tarfile.TarInfo(name); i.type = tarfile.DIRTYPE; i.mode = 0o755; t.addfile(i)
 with tarfile.open(dst, "w", format=tarfile.USTAR_FORMAT) as t:
-    for d in ("bin", "Applications", "Applications/Hello.app", "Applications/Hello.app/Contents", "Applications/Hello.app/Contents/MacOS"):
+    for d in ("bin", "tmp", "Applications", "Applications/Hello.app", "Applications/Hello.app/Contents", "Applications/Hello.app/Contents/MacOS"):
         mkdir(t, d)
     for a in ("x86_64", "arm64"):
         add(t, "bin/hello_" + a, open(f"{src}/hello_{a}", "rb").read())
+    for a in ("x86_64", "arm64"):
+        add(t, "bin/spawn_" + a, open(f"{src}/spawn_{a}", "rb").read())
+    for a in ("x86_64", "arm64"):
+        add(t, "bin/objc_" + a, open(f"{src}/objc_{a}", "rb").read())
     add(t, "bin/sig_x86_64", open(f"{src}/sig_x86_64", "rb").read())
     add(t, "Applications/Hello.app/Contents/MacOS/Hello", open(f"{src}/hello_universal", "rb").read())
     g = "Applications/Greet_x86_64.app/Contents"
@@ -43,7 +47,7 @@ for prog in /bin/hello_x86_64 /bin/hello_arm64 /Applications/Hello.app; do
 done
 img=$("$here/bios/build.sh" "$out" --module initrd="$tarf" --cmdline "console=ttyS0 loos.test=1 loos.lin=/Applications/Greet_x86_64.app") || exit 1
 log=$(mktemp)
-timeout 120 qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-off} "$root/scripts/qemu-accel.sh" args)} -display gtk -vga std -smp 1 -m 256M \
+timeout 120 qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-off} "$root/scripts/qemu-accel.sh" args)} -display none -vga std -smp 1 -m 256M \
     -serial "file:$log" -drive "file=$img,format=raw,if=ide" -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
 echo "== /Applications/Greet_x86_64.app (bundled dylib via @rpath)"
 grep -aE "^(prism|greet|app:|lin: program finished)" "$log"
@@ -56,8 +60,33 @@ log=$(mktemp)
 timeout 120 qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-off} "$root/scripts/qemu-accel.sh" args)} -display none -vga std -smp 1 -m 256M \
     -serial "file:$log" -drive "file=$img,format=raw,if=ide" -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
 echo "== /bin/sig_x86_64 (signal handlers, sigprocmask, qsort)"
-grep -aE "^(prism|sig:|lin: program finished)" "$log"
+grep -aE "^(prism|sig:|sys:|scan:|num:|misc:|sigtest:|lin: program finished)" "$log"
 grep -aqF "sig: usr1=30 term=15 blocked=1 sorted=13579" "$log" || { echo "prism test FAILED for signals"; tail -20 "$log"; fail=1; }
+grep -aqF "sys: tmp=1 real=/tmp ncpu=0/1 missing=1" "$log" || { echo "prism test FAILED for realpath/mkstemp/sysctl"; grep -a "^sys:" "$log"; fail=1; }
+grep -aqF "scan: k=4 a=12 w=ab b=31 x10=35 mode=744 wcw=2" "$log" || { echo "prism test FAILED for sscanf/setmode/wcwidth"; grep -a "^scan:" "$log"; fail=1; }
+grep -aqF "num: d=-125 end=x f=25 mb=2/e9" "$log" || { echo "prism test FAILED for strtod/mbrtowc"; grep -a "^num:" "$log"; fail=1; }
+grep -aqF "misc: fn=01 tm=126/10/15:13 rest=1 tn=42/0/too large fmod=15" "$log" || { echo "prism test FAILED for fnmatch/strptime/strtonum/fmod"; grep -a "^misc:" "$log"; fail=1; }
+grep -aqF "sigtest: logged 5" "$log" || { echo "prism test FAILED for syslog"; fail=1; }
 rm -f "$log"
+for prog in /bin/objc_x86_64 /bin/objc_arm64; do
+    img=$("$here/bios/build.sh" "$out" --module initrd="$tarf" --cmdline "console=ttyS0 loos.test=1 loos.lin=$prog") || exit 1
+    log=$(mktemp)
+    timeout 180 qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-off} "$root/scripts/qemu-accel.sh" args)} -display none -vga std -smp 1 -m 256M \
+        -serial "file:$log" -drive "file=$img,format=raw,if=ide" -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
+    echo "== $prog (Objective-C runtime, ARC, blocks)"
+    grep -aE "^(prism:|objc:|load:|initialize:)" "$log" | grep -v "starting macOS"
+    grep -aqF "objc: area=12 sq=25 per=20 kinds=101 weak=1 blocks=83 once=1 fwd=42 dyn=7 assoc=1 dealloc=2 class=Square" "$log" || { echo "prism test FAILED for $prog"; tail -20 "$log"; fail=1; }
+    rm -f "$log"
+done
+for cmd in /bin/spawn_x86_64,/bin/hello_arm64 /bin/spawn_arm64; do
+    img=$("$here/bios/build.sh" "$out" --module initrd="$tarf" --cmdline "console=ttyS0 loos.test=1 loos.lin=PATH=/bin,$cmd") || exit 1
+    log=$(mktemp)
+    timeout 180 qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-off} "$root/scripts/qemu-accel.sh" args)} -display none -vga std -smp 1 -m 256M \
+        -serial "file:$log" -drive "file=$img,format=raw,if=ide" -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
+    echo "== ${cmd//,/ } (fork, exec of a Mach-O, posix_spawn with a pipe)"
+    grep -aE "^(prism:|spawn:|lin: program finished)" "$log" | grep -v "starting macOS"
+    grep -aqF "spawn: fork=1 exit=7 spawn=0 piped=1 exit2=7 execvp=-1/2 missing=2" "$log" || { echo "prism test FAILED for $cmd"; tail -20 "$log"; fail=1; }
+    rm -f "$log"
+done
 [ $fail = 0 ] && echo "prism test ok (x86_64 native, arm64 interpreted, universal .app, bundled dylib)"
 exit $fail

@@ -14,11 +14,14 @@ fn binaries() -> Option<&'static PathBuf> {
     DIR.get_or_init(|| {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/prism");
         let out = std::env::temp_dir().join(format!("loos-prism-test-{}", std::process::id()));
-        let ok = std::process::Command::new(root.join("build.sh")).arg(&out).output().map(|o| o.status.success()).unwrap_or(false);
-        if !ok {
-            eprintln!("prism tests: clang/ld64.lld unavailable, skipping binary tests");
+        // No clang: skip. clang present but the programs do not build: that is a failure.
+        if std::process::Command::new("clang").arg("--version").output().is_err() {
+            eprintln!("prism tests: clang unavailable, skipping binary tests");
+            return None;
         }
-        ok.then_some(out)
+        let o = std::process::Command::new(root.join("build.sh")).arg(&out).output().expect("run tests/prism/build.sh");
+        assert!(o.status.success(), "tests/prism/build.sh failed:\n{}", String::from_utf8_lossy(&o.stderr));
+        Some(out)
     })
     .as_ref()
 }
@@ -247,4 +250,56 @@ fn runs_apple_arm64e_tools_on_the_interpreter() {
         }
         assert_eq!(String::from_utf8_lossy(&sys.console_out), *want, "{path} diag: {}", sys.diag);
     }
+}
+
+/// fork + exec of a Mach-O, posix_spawn with a pipe, execvp's PATH search (all arm64, interpreted).
+#[test]
+fn forks_execs_and_spawns_on_the_interpreter() {
+    let (Some(spawn), Some(hello)) = (read("spawn_arm64"), read("hello_arm64")) else { return };
+    let mut sys = system(&[("/bin/spawn", &spawn), ("/bin/hello_x86_64", &hello)]);
+    let mut prism = Prism::new();
+    let pid = prism.spawn(&mut sys, "/bin/spawn", &["spawn".to_string()], &["PATH=/bin".to_string()]).unwrap();
+    let mut rounds = 0;
+    while sys.process(pid).is_some() {
+        rounds += 1;
+        assert!(rounds < 20_000, "runaway; output so far: {}\ndiag {}", String::from_utf8_lossy(&sys.console_out), sys.diag);
+        let mut ran = false;
+        for tid in sys.thread_ids() {
+            if sys.thread(tid).is_some_and(|t| t.state == TState::Runnable) && prism.is_arm(sys.thread(tid).unwrap().pid) {
+                prism.run_arm(&mut sys, tid, 100_000);
+                sys.deliver_signal(tid);
+                ran = true;
+            }
+        }
+        if !ran {
+            sys.advance(1_000_000);
+        }
+        prism.reap(&sys);
+    }
+    let out = String::from_utf8_lossy(&sys.console_out).into_owned();
+    assert!(out.contains("spawn: fork=1 exit=7 spawn=0 piped=1 exit2=7 execvp=-1/2 missing=2"), "out: {out}\ndiag: {}", sys.diag);
+    assert!(!sys.diag.contains("fault"), "diag: {}", sys.diag);
+}
+
+/// Objective-C (ARC) through Prism's runtime, on the interpreter.
+#[test]
+fn runs_objective_c_on_the_interpreter() {
+    let Some(bin) = read("objc_arm64") else { return };
+    let mut sys = system(&[("/bin/objc", &bin)]);
+    let mut prism = Prism::new();
+    let pid = prism.spawn(&mut sys, "/bin/objc", &["objc".to_string()], &[]).unwrap();
+    let mut rounds = 0;
+    while sys.thread(pid).is_some() {
+        rounds += 1;
+        assert!(rounds < 10_000, "runaway: {}", sys.diag);
+        prism.run_arm(&mut sys, pid, 100_000);
+        sys.deliver_signal(pid);
+    }
+    let out = String::from_utf8_lossy(&sys.console_out).into_owned();
+    assert_eq!(
+        out,
+        "load: Rect\ninitialize: Rect\nexc: caught=5 rethrown=9 cleanups=12\nobjc: area=12 sq=25 per=20 kinds=101 weak=1 blocks=83 once=1 fwd=42 dyn=7 assoc=1 dealloc=2 class=Square\n",
+        "diag: {}",
+        sys.diag
+    );
 }

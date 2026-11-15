@@ -5,7 +5,7 @@ set -u
 here=$(cd "$(dirname "$0")" && pwd); root=$here/../..
 out=${1:-$root/out/boot}
 work=$(mktemp -d "${TMPDIR:-/tmp}/loos-dump.XXXXXX"); trap 'rm -rf "$work"' EXIT
-q() { timeout 300 qemu-system-x86_64 ${QEMU_ACCEL:-} -display gtk -vga std -smp 2 -m 512M -serial "file:$1" "${@:2}" \
+q() { timeout 300 qemu-system-x86_64 ${QEMU_ACCEL:-} -display ${QEMU_DISPLAY:-none} -vga std -smp 2 -m 512M -serial "file:$1" "${@:2}" \
         -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot; }
 img=$("$here/build.sh" "$out" --cmdline "installer installer.auto=1 installer.user=tester installer.pass=correct-horse9 loos.test") || exit 1
 disk=$work/disk.img; truncate -s 2G "$disk"
