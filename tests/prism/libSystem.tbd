@@ -5,7 +5,7 @@ install-name: '/usr/lib/libSystem.B.dylib'
 current-version: 1319
 exports:
   - targets: [ x86_64-macos, arm64-macos ]
-    symbols: [ _printf, _snprintf, _puts, _malloc, _realloc, _free, _exit, _strlen, _strcmp, _strtol,
+    symbols: [ _dlopen, _dlsym, _dlclose, _dlerror, _dladdr, _atoi, _strchr, _printf, _snprintf, _puts, _malloc, _realloc, _free, _exit, _strlen, _strcmp, _strtol,
                _getenv, _atexit, _write, _memset, _memcpy, ___stack_chk_guard, ___stack_chk_fail,
                ___stdoutp, ___stderrp, _fprintf, _fwrite, dyld_stub_binder,
                _raise, _signal, _sigaction, _sigprocmask, _qsort,

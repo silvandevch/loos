@@ -35,11 +35,40 @@ Prism's runtime includes an Objective-C runtime (`libc/objc.c`, `objc_msg.c`, `n
 absolute, and calls `+load`. `objc_msgSend` and the super/stret/fpret variants save the
 argument registers, look the method up (per-class cache, `+initialize`, `+resolve*Method:`,
 `forwardingTargetForSelector:`), and tail-jump to it. Reference counts, weak references and
-associated objects live in side tables; autorelease pools are one stack. `NSObject`, `Protocol`
+associated objects live in side tables; autorelease pools are per thread. The runtime tables,
+side tables and atomic properties are behind recursive locks, and `@synchronized` is a real
+per-object recursive lock (exercised uncontended until Prism has threads). Tagged pointers use
+macOS's layouts on both architectures (`_objc_registerTaggedPointerClass`). `NSObject`, `Protocol`
 and the block classes are Objective-C; `_NSConcrete*Block` become copies of those classes, so
 blocks answer messages. `dispatch_once` and the blocks runtime (`_Block_copy`, `__block`
-variables) are there too. Not yet: exceptions (`@try`, unwinding), `@synchronized` locking
-across threads, tagged pointers, and `dlopen`ed images.
+variables) are there too.
+
+Exceptions use the Itanium unwinder in `libc/unwind.c` (compact unwind and DWARF CFI, LSDA
+scanning): `@try`/`@catch`/`@finally`, rethrow, and cleanups during unwinding. The runtime itself
+is built with `-funwind-tables` so the unwinder can walk out of `objc_exception_throw`; an
+uncaught exception prints its class and aborts.
+
+`dlopen` maps the new image (and its dependencies) into the running process, applies fixups,
+binds new libSystem imports to fresh stubs, runs initializers and the Objective-C
+map/`+load` for it. `dlsym`, `dladdr`, `dlerror` and `dlopen_preflight` work; `dlclose` never
+unloads.
+
+## CoreFoundation
+
+CF objects are Objective-C objects, so `CFStringRef` and `NSString *` (and the other pairs) are
+interchangeable. The value logic is Rust (`src/cf/`: string encoding, comparison, search and
+case mapping; number conversion, comparison and hashing; byte/pointer buffers and the
+open-addressing hash table behind dictionaries). A thin Objective-C layer (`libc/cfstring.m`,
+`libc/cfbase.m`) makes these class clusters, each with one concrete `__NSCF*` class:
+`NSString`/`NSMutableString`, `NSNumber` (plus `CFBoolean`), `NSData`/`NSMutableData`,
+`NSArray`/`NSMutableArray`, `NSDictionary`/`NSMutableDictionary` and `NSNull`, with the CF
+functions on them, `CFRetain`/`CFRelease`/`CFEqual`/`CFHash`/`CFGetTypeID`, string formatting
+with `%@`, and `NSLog`. `@"..."` constants get their class the way blocks do:
+`__CFConstantStringClassReference` becomes a copy of `__NSCFConstantString`. The compiler's
+constant literals (`NSConstantIntegerNumber`, `NSConstantDoubleNumber`, `NSConstantArray`,
+`NSConstantDictionary`, `__kCFBooleanTrue`) are classes of their own. Not yet: `CFSet`,
+`CFRunLoop`, `CFURL`, `CFBundle`, property lists, and `NSException` (range errors print and
+abort).
 
 ## Processes
 
@@ -63,7 +92,7 @@ checking. A program cannot tell the difference unless it inspects pointer bits i
 
 - Threads: one thread per Prism process. pthread mutexes succeed immediately, and
   `pthread_create` is not provided.
-- The Swift runtime, CoreFoundation, Foundation, AppKit and CoreGraphics. Programs that
+- The Swift runtime, the rest of CoreFoundation, Foundation, AppKit and CoreGraphics. Programs that
   link them load, but stop at the first unimplemented import.
 - GUI. The plan is AppKit windows as LoOS windows through the existing win32k/compositor path
   that Linux Wayland windows use.
@@ -86,5 +115,7 @@ checking. A program cannot tell the difference unless it inspects pointer bits i
   the interpreter, a universal `.app`, an app with a bundled dylib, and `tests/prism/sig.c`
   (signals, qsort, realpath, mkstemp/mkdtemp, sysctlbyname, sscanf, setmode/getmode, wcwidth,
   strtod/strtof, mbrtowc, fnmatch, strptime, strtonum, syslog), `tests/prism/objc.m`
-  (Objective-C with ARC: classes, categories, blocks, weak references, forwarding) and `tests/prism/spawn.c` (fork, exec, posix_spawn with a pipe, execvp) for
+  (Objective-C with ARC: classes, categories, blocks, weak references, forwarding, exceptions,
+  tagged pointers, `@synchronized`), `tests/prism/dl.c` with `plug.m` (dlopen), `tests/prism/cf.m`
+  (CoreFoundation, toll-free bridging and literals) and `tests/prism/spawn.c` (fork, exec, posix_spawn with a pipe, execvp) for
   both architectures. All QEMU runs are headless (`QEMU_DISPLAY=gtk` shows a window).

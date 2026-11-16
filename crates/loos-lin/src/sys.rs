@@ -653,6 +653,11 @@ impl<F: LinFs> LinSystem<F> {
     pub fn process_mut(&mut self, pid: Pid) -> Option<&mut Process> {
         self.procs.get_mut(&pid)
     }
+    /// The filesystem together with one process (a loader reading files into its memory).
+    pub fn fs_and_process(&mut self, pid: Pid) -> Option<(&mut F, &mut Process)> {
+        let p = self.procs.get_mut(&pid)?;
+        Some((&mut self.fs, p))
+    }
     /// All thread ids, ascending.
     /// Live processes (zombies excluded) and threads, for status reports.
     pub fn counts(&self) -> (usize, usize) {

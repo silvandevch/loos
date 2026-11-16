@@ -23,7 +23,12 @@ with tarfile.open(dst, "w", format=tarfile.USTAR_FORMAT) as t:
         add(t, "bin/spawn_" + a, open(f"{src}/spawn_{a}", "rb").read())
     for a in ("x86_64", "arm64"):
         add(t, "bin/objc_" + a, open(f"{src}/objc_{a}", "rb").read())
+        add(t, "bin/cf_" + a, open(f"{src}/cf_{a}", "rb").read())
     add(t, "bin/sig_x86_64", open(f"{src}/sig_x86_64", "rb").read())
+    for a in ("x86_64", "arm64"):
+        mkdir(t, "Applications/dl_" + a)
+        add(t, f"Applications/dl_{a}/dl", open(f"{src}/dl_{a}", "rb").read())
+        add(t, f"Applications/dl_{a}/libplug.dylib", open(f"{src}/libplug_{a}.dylib", "rb").read())
     add(t, "Applications/Hello.app/Contents/MacOS/Hello", open(f"{src}/hello_universal", "rb").read())
     g = "Applications/Greet_x86_64.app/Contents"
     for d in ("Applications/Greet_x86_64.app", g, g + "/MacOS", g + "/Frameworks"):
@@ -73,9 +78,37 @@ for prog in /bin/objc_x86_64 /bin/objc_arm64; do
     log=$(mktemp)
     timeout 180 qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-off} "$root/scripts/qemu-accel.sh" args)} -display none -vga std -smp 1 -m 256M \
         -serial "file:$log" -drive "file=$img,format=raw,if=ide" -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
-    echo "== $prog (Objective-C runtime, ARC, blocks)"
-    grep -aE "^(prism:|objc:|load:|initialize:)" "$log" | grep -v "starting macOS"
-    grep -aqF "objc: area=12 sq=25 per=20 kinds=101 weak=1 blocks=83 once=1 fwd=42 dyn=7 assoc=1 dealloc=2 class=Square" "$log" || { echo "prism test FAILED for $prog"; tail -20 "$log"; fail=1; }
+    echo "== $prog (Objective-C runtime, ARC, blocks, exceptions, tagged pointers, locks)"
+    grep -aE "^(prism:|objc:|load:|initialize:|rt:|exc:)" "$log" | grep -v "starting macOS"
+    for want in "rt: tagged=-77 kind=1 class=Tiny weak=1 sync=2 exit=-1 atomic=1" "exc: caught=5 rethrown=9 cleanups=12" \
+        "objc: area=12 sq=25 per=20 kinds=101 weak=1 blocks=83 once=1 fwd=42 dyn=7 assoc=1 dealloc=2 class=Square"; do
+        grep -aqF "$want" "$log" || { echo "prism test FAILED for $prog: no \"$want\""; tail -20 "$log"; fail=1; }
+    done
+    rm -f "$log"
+done
+for prog in /bin/cf_x86_64 /bin/cf_arm64; do
+    img=$("$here/bios/build.sh" "$out" --module initrd="$tarf" --cmdline "console=ttyS0 loos.test=1 loos.lin=$prog") || exit 1
+    log=$(mktemp)
+    timeout 180 qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-off} "$root/scripts/qemu-accel.sh" args)} -display none -vga std -smp 1 -m 256M \
+        -serial "file:$log" -drive "file=$img,format=raw,if=ide" -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
+    echo "== $prog (CoreFoundation: toll-free strings, numbers, arrays, dictionaries, data, literals)"
+    grep -aE "^(prism:|const:|str:|num:|arr:|dict:|data:)" "$log" | grep -v "starting macOS"
+    for want in "const: class=__NSCFConstantString len=5 eq=1 cf=1" \
+        "str: hello, wörld | HELLO, WÖRLD | len=12 | 7-hello-c 2.50 00042 ff | prefix=1 sub=wörld int=-12" \
+        "num: 42 2.5 1 v=42 eq=1 id bool=1 cf=7" "arr: pear,apple,fig | apple fig pear | n=3 total=9 has=1 cf=2 42" \
+        "dict: one=1 list=3 missing=1 count=50 sum=166650 cf=9 {" "data: <deadbeef 01> len=6 eq=1 rc=2"; do
+        grep -aqF "$want" "$log" || { echo "prism test FAILED for $prog: no \"$want\""; tail -20 "$log"; fail=1; }
+    done
+    rm -f "$log"
+done
+for prog in /Applications/dl_x86_64/dl /Applications/dl_arm64/dl; do
+    img=$("$here/bios/build.sh" "$out" --module initrd="$tarf" --cmdline "console=ttyS0 loos.test=1 loos.lin=$prog") || exit 1
+    log=$(mktemp)
+    timeout 180 qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-off} "$root/scripts/qemu-accel.sh" args)} -display none -vga std -smp 1 -m 256M \
+        -serial "file:$log" -drive "file=$img,format=raw,if=ide" -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
+    echo "== $prog (dlopen, dlsym, dladdr)"
+    grep -aE "^(prism:|dl:|load:)" "$log" | grep -v "starting macOS"
+    grep -aqF "dl: before=0 value=152 len=5 labs=9 same=1 in=libplug.dylib clean=1 missing=0 err=1 nosym=0 self=1 close=0" "$log" || { echo "prism test FAILED for $prog"; tail -20 "$log"; fail=1; }
     rm -f "$log"
 done
 for cmd in /bin/spawn_x86_64,/bin/hello_arm64 /bin/spawn_arm64; do

@@ -23,6 +23,12 @@ for a in x86_64 arm64; do
     clang -target $a-apple-macos11 -O1 -fobjc-arc -fno-stack-protector -c "$here/objc.m" -o "$out/objc_$a.o"
     "$ld" -arch $a -platform_version macos 11.0 11.0 -L"$here" -lSystem -lobjc "$out/objc_$a.o" -o "$out/objc_$a" -no_fixup_chains
 done
+for a in x86_64 arm64; do
+    clang -target $a-apple-macos11 -O1 -fobjc-arc -fno-stack-protector -c "$here/plug.m" -o "$out/plug_$a.o"
+    "$ld" -arch $a -platform_version macos 11.0 11.0 -dylib -install_name @rpath/libplug.dylib -L"$here" -lSystem -lobjc "$out/plug_$a.o" -o "$out/libplug_$a.dylib" -no_fixup_chains
+    clang -target $a-apple-macos11 -O1 -fno-stack-protector -c "$here/dl.c" -o "$out/dl_$a.o"
+    "$ld" -arch $a -platform_version macos 11.0 11.0 -L"$here" -lSystem -lobjc "$out/dl_$a.o" -o "$out/dl_$a" -no_fixup_chains
+done
 clang -target x86_64-apple-macos11 -O1 -c "$here/sig.c" -o "$out/sig.o"
 "$ld" -arch x86_64 -platform_version macos 11.0 11.0 -L"$here" -lSystem "$out/sig.o" -o "$out/sig_x86_64"
 "$ld" -arch x86_64 -platform_version macos 13.0 13.0 -L"$here" -lSystem "$out/hello_x86_64.o" -o "$out/hello_chained" -fixup_chains
@@ -37,3 +43,16 @@ d[off1:off1 + len(a)] = a; d[off2:] = b
 open(o + "/hello_universal", "wb").write(d)
 PY
 echo "$out"
+for a in x86_64 arm64; do
+    clang -target $a-apple-macos11 -O1 -fobjc-arc -fno-stack-protector -c "$here/cf.m" -o "$out/cf_$a.o"
+    "$ld" -arch $a -platform_version macos 11.0 11.0 -L"$here" -lSystem -lobjc -lCoreFoundation "$out/cf_$a.o" -o "$out/cf_$a" -no_fixup_chains
+done
+# An app bundle using Foundation: Found.app with an Info.plist and resources.
+for a in x86_64 arm64; do
+    app=$out/Found_$a.app/Contents; mkdir -p "$app/MacOS" "$app/Resources/en.lproj"
+    clang -target $a-apple-macos11 -O1 -fobjc-arc -fno-stack-protector -c "$here/found.m" -o "$out/found_$a.o"
+    "$ld" -arch $a -platform_version macos 11.0 11.0 -L"$here" -lSystem -lobjc -lCoreFoundation "$out/found_$a.o" -o "$app/MacOS/found" -no_fixup_chains
+    cp "$here/Found-Info.plist" "$app/Info.plist"
+    printf 'Hello from a resource' > "$app/Resources/greeting.txt"
+    cp "$here/Found-Localizable.strings" "$app/Resources/en.lproj/Localizable.strings"
+done

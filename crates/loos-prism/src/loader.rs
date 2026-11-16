@@ -65,6 +65,8 @@ pub struct Program {
     pub tlv: Vec<(u64, u64, u64)>,
     /// Diagnostics (missing dylibs, unresolved weak symbols).
     pub notes: String,
+    /// Index of Prism's C runtime in `images`.
+    pub runtime: Option<usize>,
 }
 
 /// Stub names every process gets first, in this order.
@@ -114,7 +116,7 @@ struct Ctx<'a> {
     images: Vec<Image>,
     by_path: BTreeMap<String, usize>,
     order: Vec<usize>,
-    notes: String,
+    notes: &'a mut String,
 }
 
 impl Ctx<'_> {
@@ -143,10 +145,17 @@ impl Ctx<'_> {
         if self.images.len() >= MAX_IMAGES {
             return Err(ENOMEM);
         }
-        let (_, range) = select_arch(data, &[self.cpu])?;
+        let parsed = select_arch(data, &[self.cpu]).and_then(|(_, range)| Ok((MachO::parse(&data[range.clone()])?, range)));
+        let (m, range) = match parsed {
+            Ok(v) => v,
+            Err(e) => {
+                *self.notes += &format!("prism: {path}: not a Mach-O image for this processor (errno {e})\n");
+                return Err(e);
+            }
+        };
         let d = &data[range];
-        let m = MachO::parse(d)?;
         if main && m.filetype != MH_EXECUTE || !main && m.filetype != MH_DYLIB && m.filetype != MH_BUNDLE {
+            *self.notes += &format!("prism: {path}: Mach-O file type {} cannot be loaded here\n", m.filetype);
             return Err(ENOEXEC);
         }
         let (lo, hi) = m.span();
@@ -179,7 +188,7 @@ impl Ctx<'_> {
                     }
                 }
                 if found.is_none() {
-                    self.notes += &format!("prism: {}dylib {name} not found; its symbols go to Prism's libSystem\n", if weak { "weak " } else { "" });
+                    *self.notes += &format!("prism: {}dylib {name} not found; its symbols go to Prism's libSystem\n", if weak { "weak " } else { "" });
                 }
                 found
             };
@@ -267,12 +276,18 @@ pub fn stub_code(i: usize) -> [u8; 16] {
 /// Load `path` (a Mach-O executable, thin or universal) into `mem`.
 /// `prefer` lists acceptable CPU types in order of preference.
 pub fn load(fs: &mut dyn LinFs, mem: &mut UserMem, path: &str, argv: &[String], envp: &[String], prefer: &[u32]) -> Result<Program, i64> {
+    let mut diag = String::new();
+    load_noting(fs, mem, path, argv, envp, prefer, &mut diag)
+}
+
+/// [`load`], with the diagnostics of a failed load (the missing symbol, ...) appended to `diag`.
+pub fn load_noting(fs: &mut dyn LinFs, mem: &mut UserMem, path: &str, argv: &[String], envp: &[String], prefer: &[u32], diag: &mut String) -> Result<Program, i64> {
     let exe = resolve(fs, "/", path, true)?;
     let cpu = {
         let data = read_file(fs, &exe)?;
         select_arch(&data, prefer)?.0
     };
-    let mut cx = Ctx { fs, mem, cpu, images: Vec::new(), by_path: BTreeMap::new(), order: Vec::new(), notes: String::new() };
+    let mut cx = Ctx { fs, mem, cpu, images: Vec::new(), by_path: BTreeMap::new(), order: Vec::new(), notes: diag };
     cx.load(&exe, true)?;
     // Prism's C runtime (stdio, err/warn, ...) is part of every process; its initializers run first.
     let runtime = if RUNTIME.is_empty() {
@@ -283,7 +298,7 @@ pub fn load(fs: &mut dyn LinFs, mem: &mut UserMem, path: &str, argv: &[String], 
         cx.order.insert(0, r);
         Some(r)
     };
-    let Ctx { mem, images, order, mut notes, .. } = cx;
+    let Ctx { mem, images, order, notes, .. } = cx;
     let entry = match images[0].macho.entry.ok_or(ENOEXEC)? {
         Entry::Main(off) => Entry::Main(images[0].macho.base() + off),
         Entry::Thread(pc) => Entry::Thread(pc),
@@ -292,62 +307,12 @@ pub fn load(fs: &mut dyn LinFs, mem: &mut UserMem, path: &str, argv: &[String], 
         Entry::Main(a) => Entry::Main(a.wrapping_add(images[0].slide)),
         Entry::Thread(a) => Entry::Thread(a.wrapping_add(images[0].slide)),
     };
-    // Fixups.
-    let mut r = Resolver { images: &images, runtime, stubs: FIXED_STUBS.iter().map(|s| s.to_string()).collect(), index: BTreeMap::new() };
-    for (i, s) in FIXED_STUBS.iter().enumerate() {
-        r.index.insert(s.to_string(), i);
-    }
-    for (ii, im) in images.iter().enumerate() {
-        for f in &im.macho.fixups {
-            let (addr, val) = match f {
-                Fixup::Rebase { addr, target } => (*addr, target.wrapping_add(im.slide)),
-                Fixup::Bind { addr, ordinal, name, addend, weak } => match r.lookup(ii, *ordinal, name) {
-                    Some(a) => (*addr, a.wrapping_add(*addend as u64)),
-                    None if *weak => (*addr, 0),
-                    None => {
-                        notes += &format!("prism: {}: symbol {name} not found\n", im.path);
-                        return Err(ENOEXEC);
-                    }
-                },
-            };
-            mem.write_u64(addr.wrapping_add(im.slide), val)?;
-        }
-    }
-    let stubs = r.stubs;
+    let stubs = fixup(mem, &images, 0, runtime, FIXED_STUBS.iter().map(|s| s.to_string()).collect(), notes)?;
     // libSystem: stubs, data cells, scratch.
-    let mut code = Vec::with_capacity(stubs.len() * 16);
-    for i in 0..stubs.len() {
-        code.extend_from_slice(&stub_code(i));
-    }
-    mem.map_fixed(SHIM_BASE, ceil(code.len() as u64).max(PAGE), PROT_READ | PROT_EXEC, &code, "libSystem (Prism)")?;
+    map_stubs(mem, 0, stubs.len())?;
     mem.map_fixed(SHIM_DATA, crate::libsys::DATA_LEN, PROT_READ | PROT_WRITE, &crate::libsys::data_init(), "libSystem data (Prism)")?;
     mem.map_fixed(SCRATCH, SCRATCH_LEN, PROT_READ | PROT_WRITE, &[], "libSystem scratch (Prism)")?;
-    // Initializers (dependencies first) and thread-local templates.
-    let mut inits = Vec::new();
-    let mut tlv = Vec::new();
-    for &ii in &order {
-        let im = &images[ii];
-        for s in &im.macho.sections {
-            let a = s.addr.wrapping_add(im.slide);
-            match s.flags & 0xff {
-                0x09 => {
-                    for k in 0..(s.size / 8).min(4096) {
-                        let f = mem.read_u64(a + k * 8)?;
-                        if f != 0 {
-                            inits.push(f);
-                        }
-                    }
-                }
-                0x16 => {
-                    for k in 0..(s.size / 4).min(4096) {
-                        inits.push((im.macho.base() + mem.read_u32(a + k * 4)? as u64).wrapping_add(im.slide));
-                    }
-                }
-                0x11 | 0x12 => tlv.push((a, if s.flags & 0xff == 0x11 { s.size } else { 0 }, s.size)),
-                _ => {}
-            }
-        }
-    }
+    let (inits, tlv) = initializers(mem, &images, &order)?;
     // Stack: strings, then the classic start layout.
     let size = 1u64 << 20;
     mem.map_fixed(STACK_TOP - size, size, PROT_READ | PROT_WRITE, &[], "[stack]")?;
@@ -383,5 +348,158 @@ pub fn load(fs: &mut dyn LinFs, mem: &mut UserMem, path: &str, argv: &[String], 
     let argvp = sp + 8;
     let envpp = argvp + (a.len() as u64 + 1) * 8;
     let applep = envpp + (e.len() as u64 + 1) * 8;
-    Ok(Program { cpu, images, entry, inits, stubs, sp, argc: argv.len() as u64, argv: argvp, envp: envpp, apple: applep, tlv, notes })
+    Ok(Program { cpu, images, entry, inits, stubs, sp, argc: argv.len() as u64, argv: argvp, envp: envpp, apple: applep, tlv, notes: String::new(), runtime })
+}
+
+/// Apply the rebases and binds of `images[first..]`. `stubs` are the libSystem stubs bound so far;
+/// the list comes back with the ones these images added.
+fn fixup(mem: &mut UserMem, images: &[Image], first: usize, runtime: Option<usize>, stubs: Vec<String>, notes: &mut String) -> Result<Vec<String>, i64> {
+    let index = stubs.iter().enumerate().map(|(i, s)| (s.clone(), i)).collect();
+    let mut r = Resolver { images, runtime, stubs, index };
+    for (ii, im) in images.iter().enumerate().skip(first) {
+        for f in &im.macho.fixups {
+            let (addr, val) = match f {
+                Fixup::Rebase { addr, target } => (*addr, target.wrapping_add(im.slide)),
+                Fixup::Bind { addr, ordinal, name, addend, weak } => match r.lookup(ii, *ordinal, name) {
+                    Some(a) => (*addr, a.wrapping_add(*addend as u64)),
+                    None if *weak => (*addr, 0),
+                    None => {
+                        *notes += &format!("prism: {}: symbol {name} not found\n", im.path);
+                        return Err(ENOEXEC);
+                    }
+                },
+            };
+            mem.write_u64(addr.wrapping_add(im.slide), val)?;
+        }
+    }
+    Ok(r.stubs)
+}
+
+/// Make the code of stubs `from..to` executable at [`SHIM_BASE`] (`from` stubs are already there).
+pub fn map_stubs(mem: &mut UserMem, from: usize, to: usize) -> Result<(), i64> {
+    let code = |a: usize, b: usize| (a..b).flat_map(stub_code).collect::<Vec<u8>>();
+    if from == 0 {
+        return mem.map_fixed(SHIM_BASE, ceil(to as u64 * STUB_SIZE).max(PAGE), PROT_READ | PROT_EXEC, &code(0, to), "libSystem (Prism)");
+    }
+    // Stubs that fit in the pages already mapped, then new pages.
+    let have = ceil(from as u64 * STUB_SIZE).max(PAGE);
+    let fit = ((have / STUB_SIZE) as usize).min(to);
+    if fit > from {
+        let page = floor(SHIM_BASE + from as u64 * STUB_SIZE);
+        let len = ceil(SHIM_BASE + fit as u64 * STUB_SIZE) - page;
+        mem.protect(page, len, PROT_READ | PROT_WRITE)?;
+        mem.write(SHIM_BASE + from as u64 * STUB_SIZE, &code(from, fit))?;
+        mem.protect(page, len, PROT_READ | PROT_EXEC)?;
+    }
+    if to > fit {
+        mem.map_fixed(SHIM_BASE + have, ceil((to - fit) as u64 * STUB_SIZE), PROT_READ | PROT_EXEC, &code(fit, to), "libSystem (Prism)")?;
+    }
+    Ok(())
+}
+
+/// Initializers (in `order`: dependencies first) and thread-local templates of images.
+fn initializers(mem: &mut UserMem, images: &[Image], order: &[usize]) -> Result<(Vec<u64>, Vec<(u64, u64, u64)>), i64> {
+    let mut inits = Vec::new();
+    let mut tlv = Vec::new();
+    for &ii in order {
+        let im = &images[ii];
+        for s in &im.macho.sections {
+            let a = s.addr.wrapping_add(im.slide);
+            match s.flags & 0xff {
+                0x09 => {
+                    for k in 0..(s.size / 8).min(4096) {
+                        let f = mem.read_u64(a + k * 8)?;
+                        if f != 0 {
+                            inits.push(f);
+                        }
+                    }
+                }
+                0x16 => {
+                    for k in 0..(s.size / 4).min(4096) {
+                        inits.push((im.macho.base() + mem.read_u32(a + k * 4)? as u64).wrapping_add(im.slide));
+                    }
+                }
+                0x11 | 0x12 => tlv.push((a, if s.flags & 0xff == 0x11 { s.size } else { 0 }, s.size)),
+                _ => {}
+            }
+        }
+    }
+    Ok((inits, tlv))
+}
+
+/// `dlopen` handles: [`HANDLE_BASE`] + image index, or [`HANDLE_SYSTEM`] for a library Prism
+/// implements itself.
+pub const HANDLE_BASE: u64 = 0x10000;
+/// Handle of every macOS system library.
+pub const HANDLE_SYSTEM: u64 = HANDLE_BASE - 1;
+
+/// What [`dlopen`] loaded.
+pub struct Opened {
+    /// The handle for `dlsym`.
+    pub handle: u64,
+    /// Initializers of the newly mapped images, dependencies first.
+    pub inits: Vec<u64>,
+    /// Thread-local templates of the new images.
+    pub tlv: Vec<(u64, u64, u64)>,
+    /// libSystem stubs, including those the new images added.
+    pub stubs: Vec<String>,
+}
+
+/// Load `name` (and the dylibs it needs) into a running process whose images are `images`.
+/// An image that is already loaded is only looked up. On failure `images` is unchanged.
+pub fn dlopen(fs: &mut dyn LinFs, mem: &mut UserMem, cwd: &str, cpu: u32, images: &mut Vec<Image>, runtime: Option<usize>, stubs: &[String], name: &str, notes: &mut String) -> Result<Opened, i64> {
+    let none = |handle| Opened { handle, inits: Vec::new(), tlv: Vec::new(), stubs: stubs.to_vec() };
+    if is_system_library(name) {
+        return Ok(none(HANDLE_SYSTEM));
+    }
+    let first = images.len();
+    let by_path = images.iter().enumerate().map(|(i, im)| (im.path.clone(), i)).collect();
+    let mut cx = Ctx { fs, mem, cpu, images: core::mem::take(images), by_path, order: Vec::new(), notes };
+    let mut loaded = Err(ENOENT);
+    for cand in cx.expand(name, 0) {
+        if let Ok(real) = resolve(cx.fs, cwd, &cand, true) {
+            loaded = cx.load(&real, false);
+            break;
+        }
+    }
+    let Ctx { mem, images: all, order, notes, .. } = cx;
+    *images = all;
+    let r = loaded.and_then(|idx| {
+        let stubs = fixup(mem, images, first, runtime, stubs.to_vec(), notes)?;
+        let (inits, tlv) = initializers(mem, images, &order)?;
+        Ok(Opened { handle: HANDLE_BASE + idx as u64, inits, tlv, stubs })
+    });
+    match r {
+        Ok(o) => {
+            for im in &mut images[first..] {
+                im.macho.fixups = Vec::new();
+            }
+            Ok(o)
+        }
+        Err(e) => {
+            for im in images.drain(first..) {
+                let (lo, hi) = im.macho.span();
+                let _ = mem.unmap(floor(lo.wrapping_add(im.slide)), ceil(hi - lo));
+            }
+            Err(e)
+        }
+    }
+}
+
+/// Address of exported symbol `name` (with its leading underscore) in image `img` or a library it
+/// re-exports or depends on.
+pub fn symbol_in(images: &[Image], img: usize, name: &str) -> Option<u64> {
+    let r = Resolver { images, runtime: None, stubs: Vec::new(), index: BTreeMap::new() };
+    let mut seen = vec![false; images.len()];
+    let mut todo = vec![img];
+    while let Some(i) = todo.pop() {
+        if i >= images.len() || core::mem::replace(&mut seen[i], true) {
+            continue;
+        }
+        if let Some(a) = r.in_image(i, name, 0) {
+            return Some(a);
+        }
+        todo.extend(images[i].deps.iter().rev().flatten());
+    }
+    None
 }

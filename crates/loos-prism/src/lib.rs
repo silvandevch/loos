@@ -26,6 +26,7 @@ use loos_lin::sys::{LinSystem, Pid, Regs, Sys};
 
 pub mod arm64;
 pub mod bundle;
+pub mod cf;
 pub mod darwin;
 pub mod libsys;
 pub mod posix;
@@ -215,14 +216,16 @@ impl Prism {
             None => path.to_string(),
         };
         let mut mem = UserMem::new();
-        let prog = match loader::load(&mut sys.fs, &mut mem, &exe, argv, envp, if self.prefer_arm { &[macho::CPU_ARM64, macho::CPU_X86_64] } else { &[macho::CPU_X86_64, macho::CPU_ARM64] }) {
+        let mut why = String::new();
+        let prog = match loader::load_noting(&mut sys.fs, &mut mem, &exe, argv, envp, if self.prefer_arm { &[macho::CPU_ARM64, macho::CPU_X86_64] } else { &[macho::CPU_X86_64, macho::CPU_ARM64] }, &mut why) {
             Ok(p) => p,
             Err(e) => {
+                sys.diag += &why;
                 sys.diag += &format!("prism: cannot load {exe} (errno {e})\n");
                 return Err(e);
             }
         };
-        sys.diag += &prog.notes;
+        sys.diag += &why;
         let arm = prog.cpu == macho::CPU_ARM64;
         let mut st = State::new(prog.stubs.clone());
         st.inits = prog.inits.clone();
@@ -240,6 +243,11 @@ impl Prism {
                 (text.wrapping_add(im.slide), im.slide, im.path.clone(), 0)
             })
             .collect();
+        st.runtime = prog.runtime;
+        st.loaded = prog.images;
+        for im in &mut st.loaded {
+            im.macho.fixups = Vec::new(); // applied; `dlopen` needs the rest
+        }
         st.arm = arm;
         st.epoch_ns = sys.epoch_base_s.saturating_mul(1_000_000_000);
         // Execution starts in the `__prism_start` stub, which runs initializers, then main.
@@ -534,7 +542,35 @@ fn finish<F: LinFs>(proc: &mut Proc, sys: &mut LinSystem<F>, tid: Pid, pid: Pid,
             sys.send_signal(pid, None, 6);
             Sys::Ret(0)
         }
+        Act::Dlopen(path) => {
+            let handle = dlopen(&mut proc.st, sys, pid, &path).unwrap_or(0);
+            set_result(proc, sys, tid, handle, None, arm);
+            Sys::Ret(0)
+        }
     }
+}
+
+/// Map `path` and its dylibs into process `pid`; the program's `dlopen` then runs their initializers.
+fn dlopen<F: LinFs>(st: &mut State, sys: &mut LinSystem<F>, pid: Pid, path: &str) -> Option<u64> {
+    let mut notes = String::new();
+    let (fs, p) = sys.fs_and_process(pid)?;
+    let cpu = if st.arm { macho::CPU_ARM64 } else { macho::CPU_X86_64 };
+    let cwd = p.cwd.clone();
+    let first = st.loaded.len();
+    let r = loader::dlopen(fs, &mut p.mem, &cwd, cpu, &mut st.loaded, st.runtime, &st.stubs, path, &mut notes);
+    let done = r.and_then(|o| {
+        loader::map_stubs(&mut p.mem, st.stubs.len(), o.stubs.len())?;
+        Ok(o)
+    });
+    sys.diag += &notes;
+    let o = done.ok()?;
+    st.set_stubs(o.stubs);
+    st.dl_inits.extend(o.inits);
+    st.tlv.extend(o.tlv);
+    for im in &st.loaded[first..] {
+        st.images.push((im.macho.base().wrapping_add(im.slide), im.slide, im.path.clone(), 0));
+    }
+    Some(o.handle)
 }
 
 fn run_plan<F: LinFs>(proc: &mut Proc, sys: &mut LinSystem<F>, tid: Pid, plan: darwin::Plan, arm: bool) -> Sys {

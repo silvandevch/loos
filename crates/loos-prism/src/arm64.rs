@@ -877,10 +877,35 @@ impl Cpu {
             }
             return Ok(());
         }
+        // LDAPUR / STLUR (release-consistent, unscaled offset).
+        if i & 0x3f20_0c00 == 0x1900_0000 {
+            let bytes = 1u32 << (i >> 30);
+            let addr = self.xs(rn).wrapping_add(sext(((i >> 12) & 0x1ff) as u64, 9) as u64);
+            match (i >> 22) & 3 {
+                0 => {
+                    let v = self.xr(rt);
+                    self.store(mem, addr, bytes, v)?;
+                }
+                opc => {
+                    let v = self.load(mem, addr, bytes)?;
+                    let v = match opc {
+                        1 => v,
+                        2 => sext(v, bytes * 8) as u64,
+                        _ => sext(v, bytes * 8) as u64 & 0xffff_ffff,
+                    };
+                    self.set(rt, v, true);
+                }
+            }
+            return Ok(());
+        }
         if i & 0x3a00_0000 != 0x3800_0000 {
             return undef;
         }
         let size_bits = i >> 30;
+        // LSE atomics (any acquire/release flavour) and LDAPR.
+        if !vec && i & 0x0120_0c00 == 0x0020_0000 {
+            return self.atomic(mem, i, 1 << size_bits);
+        }
         let opc = (i >> 22) & 3;
         // (bytes, load, signed-to: 0 none / 32 / 64)
         let (bytes, load, sx) = if vec {
@@ -966,6 +991,7 @@ impl Cpu {
             (0, 6) => old.max(s),
             (0, 7) => old.min(s),
             (1, 0) => s,
+            (1, 4) => old, // LDAPR
             _ => return Err(Stop::Undefined(i)),
         };
         self.store(mem, addr, bytes, new)?;
@@ -1249,6 +1275,31 @@ impl Cpu {
             self.q[rd] = r;
             return Ok(());
         }
+        if matches!(i & 0xffbf_fc00, 0x5e21_d800 | 0x7e21_d800 | 0x5ea1_b800 | 0x7ea1_b800) {
+            // SCVTF/UCVTF/FCVTZS/FCVTZU (scalar, integer in a SIMD register): Sd/Dd <- Sn/Dn
+            let dbl = i & (1 << 22) != 0;
+            let unsigned = i & (1 << 29) != 0;
+            let to_fp = i & 0x0080_0000 == 0;
+            let raw = if dbl { self.q[rn] as u64 } else { self.q[rn] as u32 as u64 };
+            self.q[rd] = if to_fp {
+                let v = match (unsigned, dbl) {
+                    (false, true) => raw as i64 as f64,
+                    (true, true) => raw as f64,
+                    (false, false) => raw as u32 as i32 as f64,
+                    (true, false) => raw as u32 as f64,
+                };
+                if dbl { v.to_bits() as u128 } else { (v as f32).to_bits() as u128 }
+            } else {
+                let f = if dbl { f64::from_bits(raw) } else { f32::from_bits(raw as u32) as f64 };
+                match (unsigned, dbl) {
+                    (false, true) => f as i64 as u64 as u128,
+                    (true, true) => f as u64 as u128,
+                    (false, false) => f as i32 as u32 as u128,
+                    (true, false) => f as u32 as u128,
+                }
+            };
+            return Ok(());
+        }
         if i & 0xffff_fc00 == 0x5ef1_b800 {
             // ADDP (scalar): Dd = Vn.D[0] + Vn.D[1]
             let v = self.q[rn];
@@ -1408,6 +1459,9 @@ mod tests {
     #[test]
     fn float_math() {
         // fmov d0,#1.5; scvtf d1,x0 (x0=4); fmul d2,d0,d1; fcvtzs x3,d2; brk
+        // scvtf d0,d0 with d0 = -3; fcvtzs d1,d0
+        let (c2, _) = run(&[0x5e61d800, 0x5ee1b801, 0xd4200000], |c| c.q[0] = (-3i64) as u64 as u128);
+        assert_eq!((f64::from_bits(c2.q[0] as u64), c2.q[1] as u64 as i64), (-3.0, -3));
         let (c, _) = run(&[0x1e6f1000, 0x9e620001, 0x1e610802, 0x9e780043, 0xd4200000], |c| c.x[0] = 4);
         assert_eq!(c.x[3], 6);
     }

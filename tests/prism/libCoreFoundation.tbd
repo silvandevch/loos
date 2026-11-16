@@ -1,0 +1,25 @@
+--- !tapi-tbd
+tbd-version: 4
+targets: [ x86_64-macos, arm64-macos ]
+install-name: '/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation'
+current-version: 1
+exports:
+  - targets: [ x86_64-macos, arm64-macos ]
+    symbols: [ ___CFConstantStringClassReference, _CFRetain, _CFRelease, _CFGetRetainCount, _CFGetTypeID, _CFStringGetTypeID,
+               _CFArrayGetTypeID, _CFNumberGetTypeID, _CFEqual, _CFStringGetLength, _CFStringGetCString, _CFStringCreateMutable,
+               _CFStringAppend, _CFStringAppendCString, _CFStringCreateWithFormat, _CFNumberCreate, _CFNumberGetValue, _CFArrayCreate,
+               _CFArrayGetCount, _CFArrayGetValueAtIndex, _CFDictionaryCreateMutable, _CFDictionarySetValue, _CFDictionaryGetValue,
+               _CFBooleanGetValue, _CFDataCreate, _kCFTypeArrayCallBacks, _kCFTypeDictionaryKeyCallBacks,
+               _kCFTypeDictionaryValueCallBacks, _kCFBooleanTrue, ___kCFBooleanTrue, ___kCFBooleanFalse, _kCFBooleanFalse,
+               _kCFTypeSetCallBacks, _NSRangeException, _NSDefaultRunLoopMode, _kCFRunLoopDefaultMode, _CFSetCreateMutable,
+               _CFSetAddValue, _CFSetContainsValue, _CFSetGetCount, _CFAbsoluteTimeGetCurrent, _CFRunLoopGetCurrent,
+               _CFRunLoopRunInMode, _CFRunLoopStop, _CFRunLoopTimerCreate, _CFRunLoopAddTimer, _CFRunLoopTimerInvalidate,
+               _CFRunLoopSourceCreate, _CFRunLoopAddSource, _CFRunLoopSourceSignal, _CFRunLoopSourceInvalidate,
+               _CFRunLoopObserverCreateWithHandler, _CFRunLoopAddObserver, _CFURLCreateWithString, _CFURLCopyHostName,
+               _CFURLGetPortNumber, _CFBundleGetMainBundle, _CFBundleGetIdentifier, _CFBundleGetValueForInfoDictionaryKey,
+               _CFPropertyListCreateWithData ]
+    objc-classes: [ NSObject, NSString, NSMutableString, NSNumber, NSArray, NSMutableArray, NSDictionary, NSMutableDictionary,
+                    NSData, NSMutableData, NSConstantIntegerNumber,
+                    NSConstantDoubleNumber, NSConstantFloatNumber, NSConstantArray, NSConstantDictionary,
+                    NSSet, NSMutableSet, NSDate, NSException, NSTimer, NSRunLoop, NSURL, NSPropertyListSerialization, NSBundle ]
+...

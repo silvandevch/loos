@@ -50,12 +50,21 @@ fn build(src: &Path, out: &Path) -> Result<Vec<u8>, String> {
             if f.extension().is_some_and(|x| x == "m") {
                 cc.args(["-x", "objective-c", "-fno-objc-arc", "-fobjc-runtime=macosx-11.0"]);
             }
-            run(cc.args(["-target", &format!("{arch}-apple-macos11"), "-O2", "-fno-vectorize", "-fno-slp-vectorize", "-ffreestanding", "-nostdlibinc", "-fno-stack-protector", "-fno-builtin", "-Wall", "-Wno-unused-function", "-c"]).arg(f).arg("-o").arg(&o))?;
+            run(cc.args(["-target", &format!("{arch}-apple-macos11"), "-O2", "-fno-vectorize", "-fno-slp-vectorize", "-ffreestanding", "-nostdlibinc", "-fno-stack-protector", "-fno-builtin", "-funwind-tables", "-Wall", "-Wno-unused-function", "-Werror=objc-method-access", "-c"]).arg(f).arg("-o").arg(&o))?;
             objs.push(o);
         }
-        let d = out.join(format!("libprism_{arch}.dylib"));
+        // The linker writes its output through a memory mapping; on some filesystems (seen on
+        // the drive this tree lives on) pages of it read back as zeros. Link in the temp directory.
+        let tmp = std::env::temp_dir().join(format!("prism-runtime-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
+        let d = tmp.join(format!("libprism_{arch}.dylib"));
         run(Command::new(&ld).args(["-arch", arch, "-platform_version", "macos", "11.0", "11.0", "-dylib", "-install_name", "/usr/lib/system/libprism.dylib", "-undefined", "dynamic_lookup", "-no_fixup_chains"]).args(&objs).arg("-o").arg(&d))?;
         let mut bytes = std::fs::read(&d).map_err(|e| e.to_string())?;
+        let _ = std::fs::remove_dir_all(&tmp);
+        let _ = std::fs::write(out.join(format!("libprism_{arch}.dylib")), &bytes); // kept for debugging
+        if bytes.len() < 4 || bytes[..4] != 0xfeed_facfu32.to_le_bytes() {
+            return Err(format!("{:?} failed: {} is not a Mach-O file", ld, d.display()));
+        }
         if arch == "arm64" {
             rewrite_arm64_stubs(&mut bytes)?;
         }

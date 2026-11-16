@@ -505,7 +505,84 @@ fn image_field(c: &mut Call, f: impl Fn(&(u64, u64, alloc::string::String, u64))
     c.ret(v)
 }
 
+/// The address `dlsym` gives for `name` in a system library: Prism's C runtime, a libSystem data
+/// cell, or the stub of a function Prism implements (bound now if the program did not import it).
+fn system_symbol(c: &mut Call, name: &str) -> Option<u64> {
+    if let Some(a) = c.st.runtime.and_then(|r| crate::loader::symbol_in(&c.st.loaded[r..=r], 0, name)) {
+        return Some(a);
+    }
+    if let Some(off) = crate::libsys::data_symbol(name) {
+        return Some(SHIM_DATA + off);
+    }
+    let i = match c.st.stubs.iter().position(|s| s == name) {
+        Some(i) => i,
+        None => {
+            if !crate::libsys::State::implements(name) {
+                return None;
+            }
+            let mut stubs = c.st.stubs.clone();
+            stubs.push(name.into());
+            crate::loader::map_stubs(c.mem, stubs.len() - 1, stubs.len()).ok()?;
+            c.st.set_stubs(stubs);
+            c.st.stubs.len() - 1
+        }
+    };
+    Some(crate::loader::SHIM_BASE + i as u64 * crate::loader::STUB_SIZE)
+}
+
 pub static FUNCS: &[(&str, Func)] = &[
+    // dlopen: the image is mapped here; libc/dyld.c then runs its initializers.
+    f!("___prism_dlopen", |c| {
+        let p = c.arg();
+        if p == 0 {
+            return c.ret(crate::loader::HANDLE_BASE); // the main program
+        }
+        let path = alloc::string::String::from_utf8_lossy(&c.cstr(p)).into_owned();
+        Act::Dlopen(path)
+    }),
+    f!("___prism_dl_inits", |c| {
+        let (buf, max) = (c.arg(), c.arg() as usize);
+        let n = c.st.dl_inits.len().min(max);
+        for (k, f) in c.st.dl_inits.drain(..n).enumerate() {
+            let _ = c.mem.write_u64(buf + k as u64 * 8, f);
+        }
+        c.ret(n as u64)
+    }),
+    f!("___prism_dlsym", |c| {
+        use crate::loader::{symbol_in, HANDLE_BASE, HANDLE_SYSTEM};
+        let (h, p) = (c.arg(), c.arg());
+        let mut name = alloc::string::String::from("_");
+        name += &alloc::string::String::from_utf8_lossy(&c.cstr(p));
+        let n = c.st.loaded.len();
+        let found = match h as i64 {
+            // RTLD_NEXT, RTLD_DEFAULT, RTLD_SELF: every image in load order, then the system.
+            -3..=-1 => (0..n).filter(|&i| Some(i) != c.st.runtime).find_map(|i| symbol_in(&c.st.loaded, i, &name)).or_else(|| system_symbol(c, &name)),
+            -5 => symbol_in(&c.st.loaded, 0, &name), // RTLD_MAIN_ONLY
+            _ if h == HANDLE_SYSTEM => system_symbol(c, &name),
+            _ if h >= HANDLE_BASE && ((h - HANDLE_BASE) as usize) < n => symbol_in(&c.st.loaded, (h - HANDLE_BASE) as usize, &name).or_else(|| system_symbol(c, &name)),
+            _ => None,
+        };
+        c.ret(found.unwrap_or(0))
+    }),
+    f!("_dladdr", |c| {
+        let (addr, info) = (c.arg(), c.arg());
+        let hit = c.st.loaded.iter().position(|im| im.macho.segments.iter().any(|s| s.vmsize > 0 && addr.wrapping_sub(s.vmaddr.wrapping_add(im.slide)) < s.vmsize));
+        let Some(i) = hit else { return c.ret(0) };
+        let Some(im) = c.st.images.get(i).cloned() else { return c.ret(0) };
+        let mut name = im.3;
+        if name == 0 {
+            let mut s = im.2.into_bytes();
+            s.push(0);
+            name = c.st.heap.alloc(c.mem, s.len() as u64);
+            let _ = c.mem.write(name, &s);
+            c.st.images[i].3 = name;
+        }
+        // Dl_info: {dli_fname, dli_fbase, dli_sname, dli_saddr}
+        for (k, v) in [name, im.0, 0, 0].into_iter().enumerate() {
+            let _ = c.mem.write_u64(info + k as u64 * 8, v);
+        }
+        c.ret(1)
+    }),
     f!("__dyld_image_count", |c| { let n = c.st.images.len() as u64; c.ret(n) }),
     f!("__dyld_get_image_header", |c| image_field(c, |im| im.0)),
     f!("__dyld_get_image_vmaddr_slide", |c| image_field(c, |im| im.1)),

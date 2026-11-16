@@ -440,11 +440,13 @@ static int frame_info(struct _Unwind_Context *ctx, uint32_t *enc_out) {
 static int step(struct _Unwind_Context *ctx) {
     uint32_t enc;
     if (frame_info(ctx, &enc) < 0) return -1;
-    uint64_t pc = ctx->r[R_IP] - 1;
+    uint64_t pc = ctx->r[R_IP] - 1, sp = ctx->r[R_SP];
     int r;
     if (enc && enc != 0xffffffff && (enc & MODE_MASK) == M_DWARF) r = step_dwarf(ctx, image_for(pc)->eh_frame + (enc & 0xffffff), pc);
     else r = step_compact(ctx, enc, ctx->func);
     if (r) return r;
+    /* A frame that returns to itself: its unwind information is missing or wrong. */
+    if (ctx->r[R_IP] - 1 == pc && ctx->r[R_SP] == sp) return -1;
     return ctx->r[R_IP] ? 0 : 1;
 }
 

@@ -16,6 +16,7 @@ exports:
                _objc_getClass, _sel_registerName, _class_getName, _object_getClassName, _objc_getProtocol,
                _class_conformsToProtocol, _objc_setAssociatedObject, _objc_getAssociatedObject, _class_addMethod,
                _objc_enumerationMutation, _objc_exception_throw, __objc_empty_cache, ___objc_personality_v0,
-               _objc_begin_catch, _objc_end_catch, _objc_exception_rethrow, _objc_ehtype_vtable, _OBJC_EHTYPE_id, _objc_terminate ]
+               _objc_begin_catch, _objc_end_catch, _objc_exception_rethrow, _objc_ehtype_vtable, _OBJC_EHTYPE_id, _objc_terminate,
+               _objc_sync_enter, _objc_sync_exit, __objc_registerTaggedPointerClass, __objc_isTaggedPointer ]
     objc-classes: [ NSObject, Protocol ]
 ...

@@ -32,8 +32,8 @@ __attribute__((objc_root_class))
 - (oneway void)release { if (_prism_objc_rootRelease(self)) [self dealloc]; }
 - (id)autorelease { extern id _prism_objc_rootAutorelease(id); return _prism_objc_rootAutorelease(self); }
 - (NSUInteger)retainCount { return _prism_objc_rootRetainCount(self); }
-- (BOOL)_tryRetain { [self retain]; return YES; }
-- (BOOL)_isDeallocating { return NO; }
+- (BOOL)_tryRetain { return _prism_objc_rootTryRetain(self); }
+- (BOOL)_isDeallocating { return _prism_objc_rootIsDeallocating(self); }
 - (BOOL)allowsWeakReference { return YES; }
 - (BOOL)retainWeakReference { return YES; }
 - (Class)class { return object_getClass(self); }

@@ -287,7 +287,7 @@ fn runs_objective_c_on_the_interpreter() {
     let Some(bin) = read("objc_arm64") else { return };
     let mut sys = system(&[("/bin/objc", &bin)]);
     let mut prism = Prism::new();
-    let pid = prism.spawn(&mut sys, "/bin/objc", &["objc".to_string()], &[]).unwrap();
+    let pid = match prism.spawn(&mut sys, "/bin/objc", &["objc".to_string()], &[]) { Ok(p) => p, Err(e) => panic!("spawn: errno {e}: {}", sys.diag) };
     let mut rounds = 0;
     while sys.thread(pid).is_some() {
         rounds += 1;
@@ -298,8 +298,97 @@ fn runs_objective_c_on_the_interpreter() {
     let out = String::from_utf8_lossy(&sys.console_out).into_owned();
     assert_eq!(
         out,
-        "load: Rect\ninitialize: Rect\nexc: caught=5 rethrown=9 cleanups=12\nobjc: area=12 sq=25 per=20 kinds=101 weak=1 blocks=83 once=1 fwd=42 dyn=7 assoc=1 dealloc=2 class=Square\n",
+        "load: Rect\ninitialize: Rect\nrt: tagged=-77 kind=1 class=Tiny weak=1 sync=2 exit=-1 atomic=1\nexc: caught=5 rethrown=9 cleanups=12\nobjc: area=12 sq=25 per=20 kinds=101 weak=1 blocks=83 once=1 fwd=42 dyn=7 assoc=1 dealloc=2 class=Square\n",
         "diag: {}",
         sys.diag
     );
+}
+
+/// CoreFoundation (ARC): toll-free CF/NS objects, constant strings and literals, on the interpreter.
+#[test]
+fn runs_corefoundation_on_the_interpreter() {
+    let Some(bin) = read("cf_arm64") else { return };
+    let mut sys = system(&[("/bin/cf", &bin)]);
+    let mut prism = Prism::new();
+    let pid = match prism.spawn(&mut sys, "/bin/cf", &["cf".to_string()], &[]) { Ok(p) => p, Err(e) => panic!("spawn: errno {e}: {}", sys.diag) };
+    let mut rounds = 0;
+    while sys.thread(pid).is_some() {
+        rounds += 1;
+        assert!(rounds < 10_000, "runaway: {}\nout: {}", sys.diag, String::from_utf8_lossy(&sys.console_out));
+        prism.run_arm(&mut sys, pid, 100_000);
+        sys.deliver_signal(pid);
+    }
+    let out = String::from_utf8_lossy(&sys.console_out).into_owned();
+    assert_eq!(out, CF_EXPECTED, "diag: {}", sys.diag);
+}
+const CF_EXPECTED: &str = "const: class=__NSCFConstantString len=5 eq=1 cf=1
+str: hello, wörld | HELLO, WÖRLD | len=12 | 7-hello-c 2.50 00042 ff | prefix=1 sub=wörld int=-12
+num: 42 2.5 1 v=42 eq=1 id bool=1 cf=7
+arr: pear,apple,fig | apple fig pear | n=3 total=9 has=1 cf=2 42
+desc: (
+    1,
+    \"two words\",
+    (
+        x
+    )
+)
+dict: one=1 list=3 missing=1 count=50 sum=166650 cf=9 {
+    \"a b\" = 1;
+}
+data: <deadbeef 01> len=6 eq=1 rc=2
+";
+
+/// Foundation pieces (exceptions, sets, dates, run loop and timers, URLs, property lists, the
+/// main bundle) in an app bundle, on the interpreter; the process ends with an uncaught exception.
+#[test]
+fn runs_foundation_app_on_the_interpreter() {
+    let Some(bin) = read("Found_arm64.app/Contents/MacOS/found") else { return };
+    let r = |p: &str| read(&format!("Found_arm64.app/Contents/{p}")).unwrap();
+    let (info, greeting, strings) = (r("Info.plist"), r("Resources/greeting.txt"), r("Resources/en.lproj/Localizable.strings"));
+    let app = "/Applications/Found.app/Contents";
+    let mut fs = MemFs::new();
+    for d in ["/bin", "/Applications", "/tmp", "/dev", "/Applications/Found.app", app, &format!("{app}/MacOS"), &format!("{app}/Resources"), &format!("{app}/Resources/en.lproj")] {
+        fs.add_dir(d);
+    }
+    fs.add_file(&format!("{app}/MacOS/found"), &bin, 0o755);
+    fs.add_file(&format!("{app}/Info.plist"), &info, 0o644);
+    fs.add_file(&format!("{app}/Resources/greeting.txt"), &greeting, 0o644);
+    fs.add_file(&format!("{app}/Resources/en.lproj/Localizable.strings"), &strings, 0o644);
+    let mut sys = LinSystem::new(fs);
+    sys.stdin_eof = true;
+    let mut prism = Prism::new();
+    let exe = format!("{app}/MacOS/found");
+    let pid = match prism.spawn(&mut sys, &exe, &["found".to_string()], &["HOME=/tmp".to_string()]) { Ok(p) => p, Err(e) => panic!("spawn: errno {e}: {}", sys.diag) };
+    let mut rounds = 0;
+    while sys.thread(pid).is_some() {
+        rounds += 1;
+        assert!(rounds < 20_000, "runaway: {}\nout: {}", sys.diag, String::from_utf8_lossy(&sys.console_out));
+        if sys.thread(pid).unwrap().state == TState::Runnable {
+            prism.run_arm(&mut sys, pid, 100_000);
+            sys.deliver_signal(pid);
+        } else {
+            sys.advance(1_000_000);
+        }
+    }
+    let out = String::from_utf8_lossy(&sys.console_out).into_owned();
+    assert_eq!(out, FOUND_EXPECTED, "diag: {}", sys.diag);
+}
+const FOUND_EXPECTED: &str = "x";
+
+/// dlopen of a plug-in with an initializer, an Objective-C class and imports of its own.
+#[test]
+fn dlopens_a_plugin_on_the_interpreter() {
+    let (Some(bin), Some(lib)) = (read("dl_arm64"), read("libplug_arm64.dylib")) else { return };
+    let mut sys = system(&[("/bin/dl", &bin), ("/bin/libplug.dylib", &lib)]);
+    let mut prism = Prism::new();
+    let pid = prism.spawn(&mut sys, "/bin/dl", &["dl".to_string()], &[]).unwrap();
+    let mut rounds = 0;
+    while sys.thread(pid).is_some() {
+        rounds += 1;
+        assert!(rounds < 10_000, "runaway: {}", sys.diag);
+        prism.run_arm(&mut sys, pid, 100_000);
+        sys.deliver_signal(pid);
+    }
+    let out = String::from_utf8_lossy(&sys.console_out).into_owned();
+    assert_eq!(out, "load: Plugin\ndl: before=0 value=152 len=5 labs=9 same=1 in=libplug.dylib clean=1 missing=0 err=1 nosym=0 self=1 close=0\n", "diag: {}", sys.diag);
 }

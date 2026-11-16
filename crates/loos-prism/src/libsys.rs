@@ -208,6 +208,8 @@ pub enum Act {
     Missing,
     /// Abnormal termination (`abort`, stack-protector failure) with this message.
     Abort(String),
+    /// `dlopen` of this path: Prism loads the image and returns its handle (0 on failure).
+    Dlopen(String),
 }
 
 /// Per-process libSystem state.
@@ -241,6 +243,16 @@ pub struct State {
     pub epoch_ns: u64,
     /// Diagnostics for the system log.
     pub notes: String,
+    /// The loader's view of the images (export tables, dependencies), for `dlopen` and `dlsym`.
+    pub loaded: Vec<crate::loader::Image>,
+    /// Index of Prism's C runtime in `loaded`.
+    pub runtime: Option<usize>,
+    /// Initializers of images `dlopen` mapped, until the program's `dlopen` runs them.
+    pub dl_inits: Vec<u64>,
+}
+
+fn find_func(name: &str) -> Option<Func> {
+    FUNCS.iter().chain(crate::posix::FUNCS).chain(crate::posix2::FUNCS).chain(crate::getopt::FUNCS).chain(crate::signal::FUNCS).chain(crate::posix3::FUNCS).chain(crate::process::FUNCS).chain(crate::wide::FUNCS).chain(crate::misc::FUNCS).chain(crate::cf::string::FUNCS).chain(crate::cf::number::FUNCS).chain(crate::cf::collection::FUNCS).chain(crate::cf::url::FUNCS).chain(crate::cf::plist::FUNCS).find(|f| f.0 == name).map(|f| f.1)
 }
 
 pub(crate) type Func = fn(&mut Call) -> Act;
@@ -248,8 +260,19 @@ pub(crate) type Func = fn(&mut Call) -> Act;
 impl State {
     /// State for a freshly loaded program.
     pub fn new(stubs: Vec<String>) -> Self {
-        let funcs = stubs.iter().map(|s| FUNCS.iter().chain(crate::posix::FUNCS).chain(crate::posix2::FUNCS).chain(crate::getopt::FUNCS).chain(crate::signal::FUNCS).chain(crate::posix3::FUNCS).chain(crate::process::FUNCS).chain(crate::wide::FUNCS).chain(crate::misc::FUNCS).find(|f| f.0 == s.as_str()).map(|f| f.1)).collect();
+        let funcs = stubs.iter().map(|s| find_func(s)).collect();
         Self { stubs, funcs, rng: 0x853c_49e6_748f_ea9b, ..Self::default() }
+    }
+
+    /// Stubs `dlopen` bound after the program started (`stubs` extends the current list).
+    pub fn set_stubs(&mut self, stubs: Vec<String>) {
+        self.funcs.extend(stubs[self.stubs.len().min(stubs.len())..].iter().map(|s| find_func(s)));
+        self.stubs = stubs;
+    }
+
+    /// Does Prism's libSystem implement function `name` (with its leading underscore)?
+    pub fn implements(name: &str) -> bool {
+        find_func(name).is_some()
     }
 
     /// Run stub `i`.

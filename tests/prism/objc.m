@@ -84,13 +84,10 @@ static int log_dealloc;
 @interface Other : NSObject @end
 @implementation Other @end
 static int cleanups;
-@interface Holder : NSObject @end
-@implementation Holder
-- (void)dealloc { cleanups++; }
-@end
+static void count_cleanup(int *p) { cleanups += *p; }
 static void thrower(int code) {
-    Holder *h = [Holder new]; /* released by the unwinder's cleanup */
-    (void)h;
+    __attribute__((cleanup(count_cleanup))) int one = 1; /* run by the unwinder on the way out */
+    (void)one;
     Oops *o = [Oops new];
     o.code = code;
     @throw o;
@@ -101,6 +98,26 @@ static int middle(int code) {
     @finally { cleanups += 10; }
     return 0;
 }
+
+/* A tagged-pointer class: the pointer is the value (tag 5; the layouts are the macOS ones). */
+void _objc_registerTaggedPointerClass(unsigned, Class);
+int objc_sync_exit(id);
+@interface Tiny : NSObject
+- (long)value;
+@end
+@implementation Tiny
+#if __arm64__
+- (long)value { return ((long)self << 1) >> 4; }
+static id tiny(long v) { return (__bridge id)(void *)(1ul << 63 | ((unsigned long)v << 3 & ~(1ul << 63)) | 5); }
+#else
+- (long)value { return (long)self >> 4; }
+static id tiny(long v) { return (__bridge id)(void *)((unsigned long)v << 4 | 5 << 1 | 1); }
+#endif
+@end
+@interface Box : NSObject
+@property (atomic, strong) NSObject *item;
+@end
+@implementation Box @end
 
 static int dyn(id self, SEL _cmd) { (void)self; (void)_cmd; return 7; }
 @interface Dynamic : NSObject @end
@@ -139,6 +156,15 @@ int main(void) {
     @try {
         @try { thrower(9); } @catch (id e) { @throw; }
     } @catch (Oops *o) { rethrown = o.code; }
+    _objc_registerTaggedPointerClass(5, [Tiny class]);
+    id t = tiny(-77);
+    __weak id wt = t;
+    int sync = 0;
+    Box *box = [Box new];
+    @synchronized(box) { @synchronized(box) { sync = 2; } }
+    box.item = [Helper new];
+    printf("rt: tagged=%ld kind=%d class=%s weak=%d sync=%d exit=%d atomic=%d\n", [(Tiny *)t value], [t isKindOfClass:[Tiny class]],
+           object_getClassName(t), wt == t, sync, objc_sync_exit(box), [box.item isKindOfClass:[Helper class]]);
     printf("exc: caught=%d rethrown=%d cleanups=%d\n", caught, rethrown, cleanups);
     printf("objc: area=%d sq=%d per=%d kinds=%d weak=%d blocks=%d once=%d fwd=%d dyn=%d assoc=%d dealloc=%d class=%s\n",
            area, sq, per, kinds, weak_gone, blocks, once, fwd, dynv, assoc, log_dealloc, object_getClassName(objc_getClass("Square")));

@@ -74,6 +74,7 @@ struct rw {
     uint32_t nprotos, capprotos;
     struct cache *cache;
     Class next; /* all realized classes */
+    uintptr_t init_thread; /* the thread running +initialize */
 };
 #define RW_INITIALIZED 1
 #define RW_INITIALIZING 2
@@ -87,6 +88,7 @@ static inline const struct class_ro *ro_of(Class c) {
 
 /* objc.c */
 SEL sel_registerName(const char *);
+const char *sel_getName(SEL);
 Class objc_getClass(const char *);
 IMP class_getMethodImplementation(Class, SEL);
 id objc_msgSend(id, SEL, ...);
@@ -103,9 +105,21 @@ extern SEL _prism_sel_retain, _prism_sel_release, _prism_sel_autorelease, _prism
 void *_Block_copy(const void *);
 void _Block_release(const void *);
 
+BOOL _prism_objc_rootTryRetain(id);
+BOOL _prism_objc_rootIsDeallocating(id);
+/* Tagged pointers (objc.c): tags 0-6, extended tags 8-263. */
+id _prism_objc_tagged_make(unsigned tag, intptr_t value);
+intptr_t _prism_objc_tagged_value(id);
+unsigned _prism_objc_tagged_tag(id);
+BOOL _prism_objc_tagged_fits(unsigned tag, intptr_t value);
+BOOL _objc_isTaggedPointer(const void *);
+void _objc_registerTaggedPointerClass(unsigned tag, Class);
+
 /* Declarations nsobject.m uses. */
 id class_createInstance(Class, size_t);
 Class class_getSuperclass(Class);
 Class object_getClass(id);
+const char *object_getClassName(id);
+const char *class_getName(Class);
 BOOL class_respondsToSelector(Class, SEL);
 BOOL class_conformsToProtocol(Class, struct protocol_t *);
