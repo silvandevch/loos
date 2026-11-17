@@ -12,6 +12,9 @@ extern crate alloc;
 
 pub mod adv;
 pub mod api;
+pub mod com;
+pub mod dwrite;
+pub mod ttf;
 pub mod cio;
 pub mod crt;
 pub mod dib;
@@ -47,6 +50,8 @@ pub enum PeError {
 pub enum Ret {
     /// Resume the process with this value in `rax`.
     Value(u64),
+    /// Resume with this `FLOAT` (bits) in `xmm0`: methods whose return type is floating point.
+    Float(u32),
     /// Process ended with this exit code.
     Exit(u32),
     /// Process went to sleep forever (a resident service): stop running it.
@@ -101,6 +106,18 @@ pub struct Process {
     pub name: String,
     /// Bytes written to stdout/stderr since the last [`Process::take_console`].
     console: Vec<u8>,
+    /// Typed console input not yet read (`ReadFile`/`ReadConsole` on the stdin handle).
+    stdin: Vec<u8>,
+    /// A console window feeds stdin: reads without a full line block instead of returning end of file.
+    pub console_host: bool,
+    /// Imports from DLL files not bound yet (see [`Process::link_imports`]).
+    deferred: Vec<pe::Deferred>,
+    /// DirectWrite fonts and COM objects.
+    pub(crate) dw: dwrite::State,
+    /// Names given to `RegisterWindowMessageW`, by message number - 0xC000.
+    pub(crate) gui_atoms: Vec<String>,
+    /// Title set by `SetConsoleTitleW`.
+    pub console_title: String,
     cmdline_addr: u64,
     /// Stub whose `syscall` ends a window-procedure callback.
     pub cb_stub: u64,
@@ -208,7 +225,7 @@ impl Process {
         put(&mut tb, 0x1000 + 0x20, teb + 0x2000); // PEB.ProcessParameters
         tb[0x2004..0x2008].copy_from_slice(&0x400u32.to_le_bytes());
         mem.write(teb, &tb).map_err(|_| PeError::NoMemory)?;
-        let mut p = Process { teb, pid, session, mem, entry: loaded.entry, rsp, base: loaded.base, name: name.into(), console: Vec::new(), cmdline_addr, cb_stub: loaded.cb_stub, soft_stubs: false, trace: false, threads: alloc::vec![thread::Thread::main(pid, teb)], cur: 0, cur_rsp: 0, regs: [0; 16], ret_addr: 0, images: Vec::new(), unhandled_filter: 0, xmm: [[0; 16]; 4], gls: Vec::new(), gl_cur: None, net: None, socks: Vec::new(), ws_err: 0, ws_init: 0, adv: Default::default(), modal: Vec::new(), crt: Default::default(), data: loaded.arena, rsrc: Default::default(), checks: Default::default(), dibs: Default::default(), dns: None, dns_seq: 0, scratch: 0, scratch_next: 0, spawned: Vec::new(), objs: Vec::new(), tls_count: 1, thread_exit_stub: loaded.thread_exit_stub, vfs: Default::default(), open: Vec::new(), finds: Vec::new(), modules: Vec::new(), next_dll_base: Process::dll_area(), pending_init: Vec::new(), stub_cache: Default::default(), stub_next: 0, stub_end: 0, dialog_open: String::new(), dialog_save: String::new(), menus: Default::default(), heap_base: 0, heap_next: 0, tls: alloc::vec![0; 1], cmdline_w: 0, env_w: 0, logged: Vec::new(), unresolved: loaded.unresolved };
+        let mut p = Process { teb, pid, session, mem, entry: loaded.entry, rsp, base: loaded.base, name: name.into(), console: Vec::new(), stdin: Vec::new(), console_host: false, console_title: String::new(), deferred: loaded.deferred, gui_atoms: Vec::new(), dw: Default::default(), cmdline_addr, cb_stub: loaded.cb_stub, soft_stubs: false, trace: false, threads: alloc::vec![thread::Thread::main(pid, teb)], cur: 0, cur_rsp: 0, regs: [0; 16], ret_addr: 0, images: Vec::new(), unhandled_filter: 0, xmm: [[0; 16]; 4], gls: Vec::new(), gl_cur: None, net: None, socks: Vec::new(), ws_err: 0, ws_init: 0, adv: Default::default(), modal: Vec::new(), crt: Default::default(), data: loaded.arena, rsrc: Default::default(), checks: Default::default(), dibs: Default::default(), dns: None, dns_seq: 0, scratch: 0, scratch_next: 0, spawned: Vec::new(), objs: Vec::new(), tls_count: 1, thread_exit_stub: loaded.thread_exit_stub, vfs: Default::default(), open: Vec::new(), finds: Vec::new(), modules: Vec::new(), next_dll_base: Process::dll_area(), pending_init: Vec::new(), stub_cache: Default::default(), stub_next: 0, stub_end: 0, dialog_open: String::new(), dialog_save: String::new(), menus: Default::default(), heap_base: 0, heap_next: 0, tls: alloc::vec![0; 1], cmdline_w: 0, env_w: 0, logged: Vec::new(), unresolved: loaded.unresolved };
         let nt = u32::from_le_bytes(image[0x3c..0x40].try_into().unwrap()) as usize;
         let rd = |o: usize| u32::from_le_bytes(image[o..o + 4].try_into().unwrap());
         p.register_image(loaded.base, u64::from(rd(nt + 24 + 56)), rd(nt + 24 + 112 + 24), rd(nt + 24 + 112 + 28));
@@ -218,6 +235,33 @@ impl Process {
     /// Takes and clears pending console output.
     pub fn take_console(&mut self) -> Vec<u8> {
         core::mem::take(&mut self.console)
+    }
+
+    /// Queues typed console input (a console window calls this with each finished line).
+    pub fn push_stdin(&mut self, b: &[u8]) {
+        self.stdin.extend_from_slice(b);
+    }
+
+    /// `ReadFile`/`ReadConsoleA/W` on the stdin handle: hands out at most one line. Blocks (the GUI driver retries
+    /// after more input) while a console window is attached and no line is complete; otherwise reads end of file.
+    pub(crate) fn console_read(&mut self, a: [u64; 4], wide: bool) -> Ret {
+        let line_end = self.stdin.iter().position(|&c| c == b'\n');
+        let Some(end) = line_end.or(if self.console_host { None } else { Some(self.stdin.len().saturating_sub(1)) }) else { return Ret::Idle };
+        let unit = if wide { 2 } else { 1 };
+        let n = if self.stdin.is_empty() { 0 } else { (end + 1).min(a[2] as usize) };
+        let taken: Vec<u8> = self.stdin.drain(..n).collect();
+        let bytes: Vec<u8> = if wide { taken.iter().flat_map(|&c| [c, 0]).collect() } else { taken };
+        let _ = self.mem.write(a[1], &bytes);
+        if a[3] != 0 {
+            let _ = self.mem.write(a[3], &((bytes.len() / unit) as u32).to_le_bytes());
+        }
+        Ret::Value(1)
+    }
+
+    /// Whether a PE image targets the console subsystem (IMAGE_SUBSYSTEM_WINDOWS_CUI).
+    pub fn is_console_image(image: &[u8]) -> bool {
+        let lfanew = image.get(0x3c..0x40).map_or(0, |b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize);
+        image.get(lfanew + 0x5c..lfanew + 0x5e).is_some_and(|b| u16::from_le_bytes([b[0], b[1]]) == 3)
     }
 
     pub(crate) fn console_write(&mut self, b: &[u8]) {

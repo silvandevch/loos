@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 loos-lin = { path = "../loos-lin" }
 loos-win32k = { path = "../loos-win32k" }
+loos-shell = { path = "../loos-shell" }
 loos-registry = { path = "../loos-registry" }
 loos-security = { path = "../loos-security" }
 

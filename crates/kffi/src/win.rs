@@ -65,12 +65,26 @@ struct WinKernel {
     exited: Vec<(u64, u32)>,
 }
 
+/// Text of the on-screen console window while a console-subsystem program runs in the GUI (`None` otherwise).
+static mut CONSOLE_TEXT: Option<String> = None;
+
 fn flush(p: &mut Process) {
     let out = p.take_console();
     if !out.is_empty() {
+        let text = String::from_utf8_lossy(&out);
         say("win: ");
-        say(&String::from_utf8_lossy(&out));
+        say(&text);
+        // SAFETY: single CPU statics.
+        if let Some(c) = unsafe { (*core::ptr::addr_of_mut!(CONSOLE_TEXT)).as_mut() } {
+            c.push_str(&text.replace('\r', ""));
+        }
     }
+}
+
+/// Last lines of the console text that fit a window `rows` lines tall.
+fn console_tail(text: &str, rows: usize) -> String {
+    let lines: Vec<&str> = text.split('\n').collect();
+    lines[lines.len().saturating_sub(rows)..].join("\n")
 }
 
 /// Why [`drive`] returned.
@@ -105,6 +119,7 @@ fn new_frame(p: &Process) -> UFrame {
 /// Runs `frame` in ring 3, serving syscalls. With a window manager `w`, user32/gdi32 calls are served too.
 fn drive(p: &mut Process, frame: &mut UFrame, mut w: Option<&mut Win32k>) -> Stop {
     let (mut ver, mut cr3) = (u64::MAX, 0u64);
+    let mut last_fault = (0u64, 0u64);
     loop {
         if p.mem.version != ver {
             ver = p.mem.version;
@@ -130,6 +145,7 @@ fn drive(p: &mut Process, frame: &mut UFrame, mut w: Option<&mut Win32k>) -> Sto
             run_user(frame)
         };
         if vector == 0x100 {
+            last_fault = (0, 0);
             let g = frame.gpr;
             let nr = g[0] as u32;
             if nr == loos_winrt::gui::CB_RET {
@@ -167,8 +183,16 @@ fn drive(p: &mut Process, frame: &mut UFrame, mut w: Option<&mut Win32k>) -> Sto
                 unsafe { (*core::ptr::addr_of_mut!(SCHED)).push((i, f)) };
             }
             match r {
-                Ret::Value(v) => {
-                    frame.gpr[0] = v;
+                Ret::Value(_) | Ret::Float(_) => {
+                    // A FLOAT result goes to xmm0 (the saved FXSAVE image is restored on the way back to ring 3).
+                    frame.gpr[0] = match r {
+                        Ret::Float(bits) => {
+                            frame.fx[152..156].copy_from_slice(&bits.to_le_bytes());
+                            u64::from(bits)
+                        }
+                        Ret::Value(v) => v,
+                        _ => 0,
+                    };
                     // SAFETY: single CPU statics.
                     unsafe {
                         SPIN = 0;
@@ -233,7 +257,11 @@ fn drive(p: &mut Process, frame: &mut UFrame, mut w: Option<&mut Win32k>) -> Sto
             continue;
         }
         let cr2 = read_cr2();
-        if vector == 14 && p.mem.handle_fault(cr2, frame.error & 2 != 0).is_some_and(|(va, pa, prot)| map_page(cr3 as *mut u64, va, pa, prot)) {
+        // Error code: bit 1 write, bit 4 instruction fetch. The same address faulting again right after it was
+        // resolved means the mapping cannot satisfy the access: report it instead of looping.
+        let repeat = vector == 14 && last_fault == (cr2, frame.rip);
+        last_fault = (cr2, frame.rip);
+        if vector == 14 && !repeat && p.mem.handle_fault_kind(cr2, frame.error & 2 != 0, frame.error & 0x10 != 0).is_some_and(|(va, pa, prot)| map_page(cr3 as *mut u64, va, pa, prot)) {
             continue;
         }
         if raise_fault(p, frame, w.as_deref_mut(), vector, cr2) {
@@ -251,6 +279,14 @@ fn drive(p: &mut Process, frame: &mut UFrame, mut w: Option<&mut Win32k>) -> Sto
             say(" ");
             // SAFETY: serial output.
             unsafe { serial_dec(r) };
+        }
+        say(&alloc::format!(" at {}", p.describe_addr(frame.rip)));
+        say(" code-on-stack:");
+        for i in 0..64u64 {
+            let v = p.mem.read_u64(frame.rsp + i * 8).unwrap_or(0);
+            if p.images_contain(v) {
+                say(&alloc::format!(" {}", p.describe_addr(v)));
+            }
         }
         say(" stack:");
         for i in 0..12u64 {
@@ -639,7 +675,38 @@ pub unsafe extern "C" fn loos_win_gui(initrd: *const u8, len: usize, image: *con
     let keys = keys.trim_start_matches('!').to_string();
     let mut win = Win32k::new(w, h);
     win.set_upcall(alloc::boxed::Box::new(upcall));
+    // Console-subsystem programs (cmd.exe, CLI tools) get a console window: their output is shown in it and typed
+    // lines become their stdin. GUI programs draw their own windows.
+    let console = Process::is_console_image(&bytes);
+    let mut con_hwnd = 0;
+    let mut con_frame = 0;
+    let mut con_line = String::new();
+    let con_rows = ((h - 140) / 16).max(4) as usize;
+    if console {
+        p.console_host = true;
+        // SAFETY: single CPU statics.
+        unsafe { CONSOLE_TEXT = Some(String::new()) };
+        // A framed top-level window (title = console title) with a child Edit for the text buffer.
+        con_frame = win.create_window_ex(0, "Static", &alloc::format!("C:\\Windows\\System32\\{image}"), 0x10CF_0000, 40, 40, w - 80, h - 100, 0, 0, 0).unwrap_or(0);
+        let cr = win.get_client_rect(con_frame).unwrap_or_default();
+        con_hwnd = win.create_window_ex(0, "Edit", "", 0x5000_0000, 0, 0, cr.right - cr.left, cr.bottom - cr.top, con_frame, 1, 0).unwrap_or(0);
+        say("win: console window for a console-subsystem program\n");
+    }
     let mut frame = new_frame(&p);
+    // Imports from DLL files on the guest volume (Qt, libstdc++, ...): map them and run their DllMain, dependencies
+    // first, before the program's entry point.
+    let bound = p.link_imports();
+    if bound > 0 {
+        let mut inits = 0;
+        while let Some((entry, base)) = p.next_init() {
+            if let Stop::Exit(c) = call_guest(&mut p, &mut frame, Some(&mut win), entry, [base, 1, 0, 0]) {
+                say(&alloc::format!("win: DllMain at {entry:#x} ended the process ({c:#x})\n"));
+                return -1;
+            }
+            inits += 1;
+        }
+        say(&alloc::format!("win: linked {bound} DLL imports, {inits} DllMain calls\n"));
+    }
     // Input script: plain characters are typed, `~` is Enter, `@x,y;` clicks at (x, y). After every action the
     // program runs until it waits for input again and the frame is presented.
     enum Act {
@@ -680,6 +747,18 @@ pub unsafe extern "C" fn loos_win_gui(initrd: *const u8, len: usize, image: *con
             ANY_IDLE = false;
         }
         let stop = drive(&mut p, &mut frame, Some(&mut win));
+        if console {
+            flush(&mut p);
+            // SAFETY: single CPU statics.
+            let shown = unsafe { (*core::ptr::addr_of!(CONSOLE_TEXT)).clone().unwrap_or_default() } + &con_line + "_";
+            let _ = win.set_window_text(con_hwnd, &console_tail(&shown, con_rows));
+            if !p.console_title.is_empty() && win.get_window_text(con_frame).ok().as_deref() != Some(p.console_title.as_str()) {
+                let _ = win.set_window_text(con_frame, &p.console_title);
+            }
+            // A console program never pumps messages: the host paints its own windows.
+            let _ = win.update_window(con_frame);
+            let _ = win.update_window(con_hwnd);
+        }
         win.compose(fb);
         // SAFETY: C glue presenting the back buffer.
         unsafe { gui_present() };
@@ -689,6 +768,20 @@ pub unsafe extern "C" fn loos_win_gui(initrd: *const u8, len: usize, image: *con
         let Some(act) = acts.get(next) else { break stop };
         next += 1;
         match *act {
+            Act::Key(vk) if console => {
+                // The console host owns the keyboard: echo the character, Enter hands the line to the program.
+                if vk == 13 {
+                    // SAFETY: single CPU statics.
+                    if let Some(c) = unsafe { (*core::ptr::addr_of_mut!(CONSOLE_TEXT)).as_mut() } {
+                        c.push_str(&con_line);
+                        c.push('\n');
+                    }
+                    p.push_stdin(alloc::format!("{con_line}\r\n").as_bytes());
+                    con_line.clear();
+                } else if let Some(ch) = char::from_u32(vk) {
+                    con_line.push(ch.to_ascii_lowercase());
+                }
+            }
             Act::Key(vk) => {
                 win.inject_key(vk, true);
                 win.inject_key(vk, false);

@@ -372,8 +372,30 @@ fn runs_foundation_app_on_the_interpreter() {
     }
     let out = String::from_utf8_lossy(&sys.console_out).into_owned();
     assert_eq!(out, FOUND_EXPECTED, "diag: {}", sys.diag);
+    assert!(!sys.diag.contains("fault"), "diag: {}", sys.diag);
 }
-const FOUND_EXPECTED: &str = "x";
+const FOUND_EXPECTED: &str = "exc: NSRangeException: *** -[NSConstantArray objectAtIndex:]: index 7 beyond bounds [0 .. 2] | code 42! | 1
+set: count=3 has=1 n=3 sorted=a,c,d sub=1 cf=1/1
+date: 2001-01-01 00:00:00 +0000 2026-01-01 06:00:00 +0000 cmp=-1
+delayed: hi
+runloop: first=4 ticks=3 cf=2 source=5 entries>=1 took=1 finished=1
+url: https example.com 8443 /docs/a/index.html q=1 top | https://user@example.com:8443/docs/img/logo%20big.png logo big.png | files.example.org -1
+file: file:///tmp/some%20dir/file.txt /tmp/some dir/file.txt 1 file:///tmp/some%20dir/ /tmp/some dir/file.txt/x
+path: libfoo.1.dylib dylib /usr/local/../lib /usr/lib/libfoo.1.dylib libfoo.1 a/b /|x|y|/
+plist: xml=1/100 bin=1/200 file=1 2001-01-01 01:00:00 +0000 <0102ff> on=1 step=1/2
+bundle: Found.app org.loos.found 1.2 greeting.txt \"Hello from a resource\" Grüezi Found
+fm: made=1 a,a/b,a/b/two.txt,a/one.txt,c,c/b,c/b/two.txt,moved.txt size=5 type=NSFileTypeRegular copied=1 moved=1 dir=1/1 removed=1 left=a,moved.txt missing=4/NSCocoaErrorDomain
+proc: found args=1 home=/tmp pid=1 os>=11:1/1 uuid=36 same=1 bad=1
+defaults: answer=42 enabled=1 list=2 volume=7 name=default temp=1 file=1 changes=5 pings=2
+modes: default=0 mine=1 common=2
+openstep: {/    k = \"two words\";/    n = (/        1,/        x/    );/}/|hello = \"Grüezi\";
+archive: NSKeyedArchiver (
+    P(3,-4),
+    P(3,-4)
+) same=1 2001-01-01 00:01:00 +0000 t1+t2 __NSCFString 5 https://example.com/a ok refused=1/4864
+*** Terminating app due to uncaught exception 'Custom', reason: 'bye 3'
+libc++abi: terminating due to uncaught exception of type NSException
+";
 
 /// dlopen of a plug-in with an initializer, an Objective-C class and imports of its own.
 #[test]

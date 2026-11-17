@@ -19,11 +19,6 @@ id const NSOldStyleException = CFSTR("NSOldStyleException");
 id const NSCharacterConversionException = CFSTR("NSCharacterConversionException");
 id const NSParseErrorException = CFSTR("NSParseErrorException");
 
-@interface NSException : NSObject {
-@public
-    id _name, _reason, _userInfo, _stack;
-}
-@end
 
 @implementation NSException
 + (id)exceptionWithName:(id)name reason:(id)reason userInfo:(id)info { return [[[self alloc] initWithName:name reason:reason userInfo:info] autorelease]; }
@@ -84,4 +79,54 @@ static void uncaught(id e) {
 void _prism_ns_exception_init(void) {
     extern void (*objc_setUncaughtExceptionHandler(void (*)(id)))(id);
     objc_setUncaughtExceptionHandler(uncaught);
+}
+
+/* ------------------------------------------------------------------ NSError */
+
+id const NSCocoaErrorDomain = CFSTR("NSCocoaErrorDomain");
+id const NSPOSIXErrorDomain = CFSTR("NSPOSIXErrorDomain");
+id const NSOSStatusErrorDomain = CFSTR("NSOSStatusErrorDomain");
+id const NSLocalizedDescriptionKey = CFSTR("NSLocalizedDescription");
+id const NSLocalizedFailureReasonErrorKey = CFSTR("NSLocalizedFailureReason");
+id const NSUnderlyingErrorKey = CFSTR("NSUnderlyingError");
+id const NSFilePathErrorKey = CFSTR("NSFilePath");
+id const NSURLErrorKey = CFSTR("NSURL");
+id const NSDebugDescriptionErrorKey = CFSTR("NSDebugDescription");
+
+@implementation NSError
++ (id)errorWithDomain:(id)d code:(NSInteger)c userInfo:(id)u { return [[[self alloc] initWithDomain:d code:c userInfo:u] autorelease]; }
+- (id)initWithDomain:(id)d code:(NSInteger)c userInfo:(id)u {
+    _domain = [d copy];
+    _code = c;
+    _userInfo = [u copy];
+    return self;
+}
+- (id)domain { return _domain; }
+- (NSInteger)code { return _code; }
+- (id)userInfo { return _userInfo ? _userInfo : [NSDictionary dictionary]; }
+- (id)localizedDescription {
+    id d = [_userInfo objectForKey:NSLocalizedDescriptionKey];
+    if (d) return d;
+    if ([_domain isEqual:NSPOSIXErrorDomain]) {
+        extern char *strerror(int);
+        return [NSString stringWithFormat:CFSTR("The operation couldn’t be completed. %s"), strerror((int)_code)];
+    }
+    return [NSString stringWithFormat:CFSTR("The operation couldn’t be completed. (%@ error %ld.)"), _domain, (long)_code];
+}
+- (id)localizedFailureReason { return [_userInfo objectForKey:NSLocalizedFailureReasonErrorKey]; }
+- (id)localizedRecoverySuggestion { return nil; }
+- (id)description { return [NSString stringWithFormat:CFSTR("Error Domain=%@ Code=%ld \"%@\""), _domain, (long)_code, [self localizedDescription]]; }
+- (id)copyWithZone:(NSZone *)z { (void)z; return [self retain]; }
+- (void)dealloc { [_domain release]; [_userInfo release]; [super dealloc]; }
+@end
+
+/* A Cocoa error for `path` from errno `e`, as Foundation reports file errors. */
+id _prism_file_error(int e, id path) {
+    /* NSFileNoSuchFileError 4, NSFileReadNoPermissionError 257, NSFileWriteNoPermissionError 513,
+     * NSFileWriteFileExistsError 516, NSFileReadUnknownError 256, NSFileWriteUnknownError 512 */
+    NSInteger code = e == 2 ? 4 : e == 13 || e == 1 ? 513 : e == 17 ? 516 : 512;
+    id under = [NSError errorWithDomain:NSPOSIXErrorDomain code:e userInfo:nil];
+    id info = path ? [NSDictionary dictionaryWithObjectsAndKeys:path, NSFilePathErrorKey, under, NSUnderlyingErrorKey, nil]
+                   : [NSDictionary dictionaryWithObject:under forKey:NSUnderlyingErrorKey];
+    return [NSError errorWithDomain:NSCocoaErrorDomain code:code userInfo:info];
 }

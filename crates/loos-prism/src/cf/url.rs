@@ -234,8 +234,14 @@ pub(crate) fn path_op(s: &[u8], op: u64, arg: &[u8]) -> Vec<u8> {
             o
         }
         3 => match t.iter().rposition(|&b| b == b'/') {
-            Some(0) => b"/".to_vec(),
-            Some(i) => t[..i].to_vec(),
+            Some(i) => {
+                // drop the separator run too: "/a//b" → "/a"
+                let mut end = i;
+                while end > 0 && t[end - 1] == b'/' {
+                    end -= 1;
+                }
+                if end == 0 { b"/".to_vec() } else { t[..end].to_vec() }
+            }
             None => Vec::new(),
         },
         4 => {
@@ -347,6 +353,7 @@ mod tests {
         assert_eq!(path_op(b"/a//./b/../c/", 6, b""), b"/a/c");
         assert_eq!(path_op(b"/", 2, b"x"), b"/x");
         assert_eq!(path_op(b"/x", 3, b""), b"/");
+        assert_eq!(path_op(b"/a/..//b//c.d", 3, b""), b"/a/..//b");
         assert_eq!(escape(b"a b/c", b"/"), b"a%20b/c");
         let _ = vec![0u8];
     }

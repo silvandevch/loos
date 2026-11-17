@@ -1275,6 +1275,23 @@ impl Cpu {
             self.q[rd] = r;
             return Ok(());
         }
+        if i & 0x9f80_fc00 == 0x0f00_a400 && (i >> 19) & 15 != 0 {
+            // SSHLL/USHLL{2} (SXTL/UXTL): widen each element of a half of Vn, shifted left
+            let immh = (i >> 19) & 15;
+            let es: u32 = if immh >= 4 { 32 } else if immh >= 2 { 16 } else { 8 };
+            let shift = ((i >> 16) & 0x7f) - es;
+            let unsigned = i & (1 << 29) != 0;
+            let src = if i & (1 << 30) != 0 { self.q[rn] >> 64 } else { self.q[rn] } as u64;
+            let mut r: u128 = 0;
+            for l in 0..(64 / es) {
+                let e = (src >> (l * es)) & ((1u64 << es) - 1);
+                let v = if unsigned { e } else { ((e << (64 - es)) as i64 >> (64 - es)) as u64 };
+                let w = (v << shift) as u128 & ((1u128 << (2 * es)) - 1);
+                r |= w << (l * 2 * es);
+            }
+            self.q[rd] = r;
+            return Ok(());
+        }
         if matches!(i & 0xffbf_fc00, 0x5e21_d800 | 0x7e21_d800 | 0x5ea1_b800 | 0x7ea1_b800) {
             // SCVTF/UCVTF/FCVTZS/FCVTZU (scalar, integer in a SIMD register): Sd/Dd <- Sn/Dn
             let dbl = i & (1 << 22) != 0;
@@ -1462,6 +1479,9 @@ mod tests {
         // scvtf d0,d0 with d0 = -3; fcvtzs d1,d0
         let (c2, _) = run(&[0x5e61d800, 0x5ee1b801, 0xd4200000], |c| c.q[0] = (-3i64) as u64 as u128);
         assert_eq!((f64::from_bits(c2.q[0] as u64), c2.q[1] as u64 as i64), (-3.0, -3));
+        // sxtl v1.2d, v1.2s; uxtl v2.8h, v0.8b
+        let (c3, _) = run(&[0x0f20a421, 0x2f08a402, 0xd4200000], |c| { c.q[1] = 0xffff_fffe_0000_0005; c.q[0] = 0x80ff; });
+        assert_eq!((c3.q[1], c3.q[2]), ((u64::MAX - 1) as u128 * (1u128 << 64) + 5, 0x0080_00ff));
         let (c, _) = run(&[0x1e6f1000, 0x9e620001, 0x1e610802, 0x9e780043, 0xd4200000], |c| c.x[0] = 4);
         assert_eq!(c.x[3], 6);
     }

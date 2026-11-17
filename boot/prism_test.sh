@@ -35,6 +35,12 @@ with tarfile.open(dst, "w", format=tarfile.USTAR_FORMAT) as t:
         mkdir(t, d)
     add(t, g + "/MacOS/Greet_x86_64", open(f"{src}/{g[13:]}/MacOS/Greet_x86_64", "rb").read())
     add(t, g + "/Frameworks/libgreet.dylib", open(f"{src}/{g[13:]}/Frameworks/libgreet.dylib", "rb").read())
+    for a in ("x86_64", "arm64"):
+        f = f"Applications/Found_{a}.app"
+        for d in (f, f + "/Contents", f + "/Contents/MacOS", f + "/Contents/Resources", f + "/Contents/Resources/en.lproj"):
+            mkdir(t, d)
+        for rel in ("MacOS/found", "Info.plist", "Resources/greeting.txt", "Resources/en.lproj/Localizable.strings"):
+            add(t, f"{f}/Contents/{rel}", open(f"{src}/Found_{a}.app/Contents/{rel}", "rb").read(), 0o755 if rel.startswith("MacOS") else 0o644)
     add(t, "Applications/Hello.app/Contents/Info.plist", b'<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>Hello</string></dict></plist>', 0o644)
 PY
 fail=0
@@ -100,6 +106,29 @@ for prog in /bin/cf_x86_64 /bin/cf_arm64; do
         grep -aqF "$want" "$log" || { echo "prism test FAILED for $prog: no \"$want\""; tail -20 "$log"; fail=1; }
     done
     rm -f "$log"
+done
+for prog in /Applications/Found_x86_64.app /Applications/Found_arm64.app; do
+    img=$("$here/bios/build.sh" "$out" --module initrd="$tarf" --cmdline "console=ttyS0 loos.test=1 loos.lin=HOME=/tmp,$prog") || exit 1
+    log=$(mktemp)
+    timeout 180 qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-off} "$root/scripts/qemu-accel.sh" args)} -display none -vga std -smp 1 -m 256M \
+        -serial "file:$log" -drive "file=$img,format=raw,if=ide" -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
+    echo "== $prog (Foundation: exceptions, sets, dates, run loop, URLs, property lists, bundle)"
+    grep -aE "^(prism:|exc:|set:|date:|delayed:|runloop:|url:|file:|path:|plist:|bundle:|fm:|proc:|defaults:|modes:|openstep:|archive:|\) same|\*\*\*)" "$log" | grep -v "starting macOS"
+    for want in "exc: NSRangeException: *** -[NSConstantArray objectAtIndex:]: index 7 beyond bounds [0 .. 2] | code 42! | 1" \
+        "set: count=3 has=1 n=3 sorted=a,c,d sub=1 cf=1/1" "delayed: hi" "runloop: first=4 ticks=3 cf=2 source=5 entries>=1 took=1 finished=1" \
+        "url: https example.com 8443 /docs/a/index.html q=1 top | https://user@example.com:8443/docs/img/logo%20big.png logo big.png | files.example.org -1" \
+        "path: libfoo.1.dylib dylib /usr/local/../lib /usr/lib/libfoo.1.dylib libfoo.1 a/b /|x|y|/" \
+        "plist: xml=1/100 bin=1/200 file=1 2001-01-01 01:00:00 +0000 <0102ff> on=1 step=1/2" \
+        "org.loos.found 1.2 greeting.txt \"Hello from a resource\" Grüezi Found" \
+        "fm: made=1 a,a/b,a/b/two.txt,a/one.txt,c,c/b,c/b/two.txt,moved.txt size=5 type=NSFileTypeRegular copied=1 moved=1 dir=1/1 removed=1 left=a,moved.txt missing=4/NSCocoaErrorDomain" \
+        "home=/tmp pid=1 os>=11:1/1 uuid=36 same=1 bad=1" \
+        "defaults: answer=42 enabled=1 list=2 volume=7 name=default temp=1 file=1 changes=5 pings=2" "modes: default=0 mine=1 common=2" \
+        "openstep: {/    k = \"two words\";/    n = (/        1,/        x/    );/}/|hello = \"Grüezi\";" \
+        ") same=1 2001-01-01 00:01:00 +0000 t1+t2 __NSCFString 5 https://example.com/a ok refused=1/4864" \
+        "*** Terminating app due to uncaught exception 'Custom', reason: 'bye 3'"; do
+        grep -aqF "$want" "$log" || { echo "prism test FAILED for $prog: no \"$want\""; tail -20 "$log"; fail=1; }
+    done
+    [ -n "${PRISM_LOGDIR-}" ] && cp "$log" "$PRISM_LOGDIR/$(basename $prog).log"; rm -f "$log"
 done
 for prog in /Applications/dl_x86_64/dl /Applications/dl_arm64/dl; do
     img=$("$here/bios/build.sh" "$out" --module initrd="$tarf" --cmdline "console=ttyS0 loos.test=1 loos.lin=$prog") || exit 1

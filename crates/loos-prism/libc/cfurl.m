@@ -77,7 +77,7 @@ static id path_op(id s, unsigned long op, id arg) {
 /* ------------------------------------------------------------------ NSURL */
 
 #define T_URL 29
-@interface NSURL : NSObject { @public id _string; NSURL *_base; }
+@interface NSURL (Ivars)
 @end
 
 static id url_new(Class c, id string, id base) {
@@ -240,8 +240,6 @@ Boolean CFURLResourceIsReachable(id u, void *err) { (void)err; return [u checkRe
 #define T_BUNDLE 31
 id _prism_plist_from_file(id path); /* cfplist.m */
 
-@interface NSBundle : NSObject { @public id _path, _resources, _executable, _info; BOOL _app; }
-@end
 static NSBundle *main_bundle;
 static id bundles; /* path → bundle */
 

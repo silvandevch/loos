@@ -28,6 +28,7 @@ pub mod arm64;
 pub mod bundle;
 pub mod cf;
 pub mod darwin;
+pub mod electron;
 pub mod libsys;
 pub mod posix;
 pub mod posix2;
@@ -179,6 +180,17 @@ impl Prism {
     /// Start a macOS program (Mach-O file or `.app` bundle). Intel code runs natively; arm64-only
     /// programs run on the interpreter.
     pub fn spawn<F: LinFs>(&mut self, sys: &mut LinSystem<F>, path: &str, argv: &[String], envp: &[String]) -> Result<Pid, i64> {
+        // Electron apps run their JavaScript on the Linux build of Electron (see `electron`).
+        if let Some(b) = bundle::open(&mut sys.fs, path) {
+            if let Some(v) = electron::version(&mut sys.fs, &b) {
+                let mut diag = String::new();
+                let r = electron::prepare(&mut sys.fs, &b, &v, argv, envp, &mut diag);
+                sys.diag += &diag;
+                let l = r?;
+                sys.diag += &format!("prism: {} is an Electron {v} app; running it on Linux Electron\n", b.path);
+                return sys.spawn(&l.exe, &l.argv, &l.envp);
+            }
+        }
         let (mem, regs, exe, proc) = self.load(sys, path, argv, envp)?;
         let pid = sys.spawn_image(mem, regs, exe, argv)?;
         self.procs.insert(pid, proc);
@@ -371,7 +383,13 @@ impl Prism {
                         cpu.pc = cpu.x[30];
                     }
                     proc.arm = Some(cpu);
-                    Some(finish(proc, sys, tid, pid, i, act, true))
+                    // abort() and missing functions do not return: stop before running past them
+                    let fatal = matches!(act, Act::Abort(_) | Act::Missing);
+                    let r = finish(proc, sys, tid, pid, i, act, true);
+                    if fatal {
+                        return Some(r);
+                    }
+                    Some(r)
                 }
                 arm64::Stop::Svc(_) => {
                     let n = cpu.x[16] as i64;

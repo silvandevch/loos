@@ -807,6 +807,29 @@ impl Lin {
                         hex(off);
                     }
                     say("\n");
+                    // The code addresses on the stack, nearest first: a rough backtrace.
+                    if let Some(p) = self.sys.process_mut(pid) {
+                        let (mut shown, mut last) = (0, 0);
+                        for i in 0..4096u64 {
+                            let Ok(w) = p.mem.read_u64(frame.rsp + 8 * i) else { break };
+                            if w == last {
+                                continue;
+                            }
+                            if let Some((name, off)) = p.mem.locate(w) {
+                                last = w;
+                                say("lin:   at ");
+                                say(name);
+                                say(" +");
+                                // SAFETY: serial output.
+                                hex(off);
+                                say("\n");
+                                shown += 1;
+                                if shown == 24 {
+                                    break;
+                                }
+                            }
+                        }
+                    }
                     let recent = self.sys.recent_syscalls(tid);
                     say(&recent);
                     self.sys.fault(tid, vector, frame.error, cr2);
@@ -911,7 +934,11 @@ pub unsafe extern "C" fn loos_lin_boot(
     ];
     // Leading `VAR=value` entries of loos.lin= are extra environment: loos.lin=FOO=1,/usr/bin/app,arg
     while argv.first().is_some_and(|a| a.contains('=') && !a.starts_with('/')) {
-        env.push(argv.remove(0));
+        let var = argv.remove(0);
+        let name = &var[..=var.find('=').unwrap_or(0)];
+        // An entry replaces the default of the same name, so getenv and environ agree.
+        env.retain(|e| !e.starts_with(name));
+        env.push(var);
     }
     // Mach-O files and .app bundles go to LoOS Prism; everything else is a Linux program.
     let mut prism = loos_prism::Prism::new();

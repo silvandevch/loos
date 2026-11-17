@@ -1176,7 +1176,19 @@ impl<F: LinFs> LinSystem<F> {
         }
         if self.trace && self.trace_only.as_ref().is_none_or(|only| only.contains(&nr)) {
             let name = crate::syscalls_generated::syscall_name(nr);
-            let line = format!("[{tid}] {name}#{nr}({:#x}, {:#x}, {:#x}, {:#x}) = {r:?}\n", a[0], a[1], a[2], a[3]);
+            // Path arguments are shown as text.
+            let path_arg = match nr {
+                2 | 4 | 6 | 21 | 59 | 80 | 83 | 84 | 87 | 89 => Some(a[0]),
+                257 | 262 | 267 | 269 | 322 | 332 | 439 => Some(a[1]),
+                _ => None,
+            };
+            let pid = self.threads.get(&tid).map(|t| t.pid);
+            let shown = path_arg
+                .zip(pid)
+                .and_then(|(addr, pid)| self.process_mut(pid)?.mem.read_cstr(addr, 512).ok())
+                .map(|p| format!(" \"{p}\""))
+                .unwrap_or_default();
+            let line = format!("[{tid}] {name}#{nr}({:#x}, {:#x}, {:#x}, {:#x}){shown} = {r:?}\n", a[0], a[1], a[2], a[3]);
             self.console_out.extend(line.as_bytes());
         }
         self.drain();

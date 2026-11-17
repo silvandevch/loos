@@ -33,7 +33,11 @@ const TABLE: &[(&str, u32)] = &[
     ("GetProcessHeap", 15),
     ("GetCurrentProcess", 19),
     ("NtTerminateProcess", 21),
+    ("DWriteCreateFactory", DWRITE_CREATE_FACTORY),
 ];
+
+/// `dwrite.dll!DWriteCreateFactory`.
+const DWRITE_CREATE_FACTORY: u32 = 0x3f00;
 
 /// Syscall number for an imported function name.
 pub fn lookup(name: &str) -> Option<u32> {
@@ -105,12 +109,18 @@ impl Process {
             }
             9 => ok(now_ms),
             10 => {
-                // VirtualAlloc(addr, size, type, protect): anonymous, zeroed, always read/write.
+                // VirtualAlloc(addr, size, type, protect): anonymous and zeroed, with the requested page protection
+                // (PAGE_EXECUTE_READWRITE for JIT compilers such as PCRE2's; PAGE_NOACCESS reservations stay
+                // read/write so a later commit needs no remap).
                 if a[1] == 0 || a[1] > (1 << 30) {
                     self.set_last_error(ERROR_INVALID_PARAMETER);
                     return ok(0);
                 }
-                ok(self.mem.map_anywhere(ceil(a[1]), PROT_READ | PROT_WRITE, &[], "valloc").unwrap_or(0))
+                let prot = match crate::k32::unix_prot(a[3] as u32) {
+                    0 => PROT_READ | PROT_WRITE,
+                    p => p,
+                };
+                ok(self.mem.map_anywhere(ceil(a[1]), prot, &[], "valloc").unwrap_or(0))
             }
             11 => ok(1),
             12 => ok(u64::from(self.last_error())),
@@ -130,15 +140,25 @@ impl Process {
             17 => ok(1),
             18 => ok(self.pid),
             19 => ok(u64::MAX),
+            DWRITE_CREATE_FACTORY => self.dwrite_create_factory(a),
+            n if (crate::com::COM_BASE..UNRESOLVED_BASE).contains(&n) => self.com_call(n, a, self.cur_rsp).unwrap_or(ok(crate::com::E_NOTIMPL)),
             n if n >= UNRESOLVED_BASE => {
                 let i = (n - UNRESOLVED_BASE) as usize;
                 let name = self.unresolved.get(i).cloned().unwrap_or_default();
                 if !self.logged.contains(&name) {
                     let msg = alloc::format!("[winrt] {}: unimplemented import {name}\n", self.name);
                     self.console_write(msg.as_bytes());
-                    self.logged.push(name);
+                    self.logged.push(name.clone());
                 }
-                if self.soft_stubs { ok(0) } else { Ret::Exit(STATUS_NOT_IMPLEMENTED as u32) }
+                if !self.soft_stubs {
+                    return Ret::Exit(STATUS_NOT_IMPLEMENTED as u32);
+                }
+                // Returning 0 would read as S_OK from COM-style creators and leave their out-pointer unset: answer
+                // E_NOTIMPL so the caller takes its fallback (e.g. Qt's GDI font database instead of DirectWrite).
+                let f = name.rsplit('!').next().unwrap_or("");
+                let hresult = f.contains("Factory") || f.starts_with("D3D") || f.starts_with("DComposition") || f.starts_with("CreateDXGI")
+                    || f.starts_with("Ro") || f.starts_with("Co") || f.starts_with("DwmGet") || f.starts_with("DwmSet");
+                ok(if hresult { 0x8000_4001 } else { 0 })
             }
             _ => self.thread_syscall(nr, a, self.cur_rsp, now_ms).or_else(|| self.ws_syscall(nr, a, self.cur_rsp, now_ms)).or_else(|| self.k32_syscall(nr, a, self.cur_rsp, now_ms)).or_else(|| self.adv_syscall(nr, a, self.cur_rsp, now_ms)).or_else(|| self.crt_syscall(nr, a, self.cur_rsp, now_ms)).unwrap_or(ok(0)),
         }

@@ -77,6 +77,9 @@ adds files to the guest volume; `GUI_OPEN`/`GUI_SAVE` answer the file dialogs. C
 | PE64 loader, ~300 kernel32/user32/gdi32 imports, TEB/PEB | works | `shots/hello_gui.png`, `shots/notepad*.png` |
 | `LoadLibrary`/`GetProcAddress`/`DllMain`, relocation | works | `tests/win/selftest.exe` |
 | Files (in-memory volume), menus, Edit control | works | `shots/notepad_open.png`, `notepad_save.png` |
+| Console programs (CUI): console window, typed lines to stdin, ReadConsole/WriteConsoleW, SetConsoleTitleW | works | `shots/cmd_console.png` (`cmd.exe`: ver, echo, dir) |
+| DLL dependencies at start: EXE imports bound from DLL files on the volume, DllMain in dependency order | works | Qt 6.11: 21 DLLs + qwindows load, QtCore initialises (`tests/win/qt/build.sh`) |
+| Qt 6 Widgets | ✗ blocked | needs DirectWrite (Qt's default font database calls the DWrite factory unconditionally): bus #157 |
 | Threads: CreateThread, events, mutexes, semaphores, critical sections, TLS, timeouts (cooperative) | works | `tests/win/threads.exe` |
 | SEH: table-driven unwind, `__try/__except/__finally`, RaiseException, CPU faults -> exceptions, RtlUnwindEx, `__C_specific_handler` | works (C); C++ personality routines use the same RtlUnwindEx path, untested | `tests/win/seh.exe` (clang `-Xclang -fasync-exceptions`) |
 | Winsock: TCP/UDP, blocking + non-blocking, select, DNS, getaddrinfo | works over loos-net + e1000 | `tests/win/nettest.exe` (HTTP GET to the QEMU host) |

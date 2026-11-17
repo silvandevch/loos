@@ -66,9 +66,43 @@ functions on them, `CFRetain`/`CFRelease`/`CFEqual`/`CFHash`/`CFGetTypeID`, stri
 with `%@`, and `NSLog`. `@"..."` constants get their class the way blocks do:
 `__CFConstantStringClassReference` becomes a copy of `__NSCFConstantString`. The compiler's
 constant literals (`NSConstantIntegerNumber`, `NSConstantDoubleNumber`, `NSConstantArray`,
-`NSConstantDictionary`, `__kCFBooleanTrue`) are classes of their own. Not yet: `CFSet`,
-`CFRunLoop`, `CFURL`, `CFBundle`, property lists, and `NSException` (range errors print and
-abort).
+`NSConstantDictionary`, `__kCFBooleanTrue`) are classes of their own.
+
+Beyond the values:
+
+- `NSSet`/`CFSet` share the dictionary's hash table; `NSDate`/`CFDate` hold a `CFAbsoluteTime`.
+- `CFRunLoop`/`NSRunLoop` (`libc/cfrunloop.m`): timers (`CFRunLoopTimer`, `NSTimer`,
+  `performSelector:afterDelay:`), version-0 sources, observers and `CFRunLoopPerformBlock`, each
+  scheduled in a set of modes; a run in a mode services what is in that mode, or in the common
+  modes when it is one of them. There is one run loop (one thread per process); it sleeps with
+  `nanosleep` until the next timer.
+- `CFURL`/`NSURL` and `NSString`'s path methods (`libc/cfurl.m`, logic in `src/cf/url.rs`: RFC 3986
+  parsing and resolution, percent escapes, path components).
+- `CFBundle`/`NSBundle`: the main bundle is the `.app` around the executable (or its directory),
+  with `Info.plist`, resources (also in `en.lproj`/`Base.lproj`) and `Localizable.strings`.
+- Property lists (`libc/cfplist.m`, `src/cf/plist.rs`): reading and writing XML (keys sorted, as
+  CF does), binary and OpenStep/strings text. The text format has only strings, data, arrays and
+  dictionaries, so numbers, booleans and dates are written as text. (macOS refuses to write it.) `CFPropertyList*`,
+  `NSPropertyListSerialization`, and the `contentsOfFile`/`writeToFile` methods of NSData,
+  NSString, NSArray and NSDictionary.
+- `NSException` (`libc/nsexception.m`): range errors, nil arguments, unrecognized selectors and
+  mutation during enumeration raise the exceptions macOS raises, catchable with `@catch`;
+  `objc_msgSend` has unwind info so exceptions pass through it. An uncaught one prints macOS's
+  `*** Terminating app due to uncaught exception ...` line (after an `NSSetUncaughtExceptionHandler`
+  handler) and aborts.
+
+- Foundation services: `NSFileManager` (`libc/nsfile.m`, with `NSDirectoryEnumerator` and the
+  search-path functions), `NSProcessInfo` and `NSUUID` (`libc/nsprocess.m`), `NSUserDefaults`
+  and `CFPreferences` (argument, application, global and registration domains; each change is
+  written at once to `~/Library/Preferences/<domain>.plist` as on macOS), `NSNotificationCenter`
+  (observers held weakly, blocks, `NSNotificationQueue`) and `CFNotificationCenter`
+  (`libc/nsnotification.m`), and `NSError`.
+- Keyed archiving (`libc/nsarchive.m`): `NSKeyedArchiver`/`NSKeyedUnarchiver` in Apple's format
+  (a binary plist of `$objects` linked by UIDs), secure coding with allowed classes, shared and
+  cyclic references, and coding for the built-in classes.
+
+Not yet: `NSCharacterSet`, `NSScanner`, `NSFormatter`s, `NSAttributedString`, `NSOperationQueue`
+and threads (Prism runs one thread per process).
 
 ## Processes
 
@@ -117,5 +151,7 @@ checking. A program cannot tell the difference unless it inspects pointer bits i
   strtod/strtof, mbrtowc, fnmatch, strptime, strtonum, syslog), `tests/prism/objc.m`
   (Objective-C with ARC: classes, categories, blocks, weak references, forwarding, exceptions,
   tagged pointers, `@synchronized`), `tests/prism/dl.c` with `plug.m` (dlopen), `tests/prism/cf.m`
-  (CoreFoundation, toll-free bridging and literals) and `tests/prism/spawn.c` (fork, exec, posix_spawn with a pipe, execvp) for
+  (CoreFoundation, toll-free bridging and literals), `tests/prism/found.m` as `Found.app`
+  (exceptions, sets, dates, run loop and modes, URLs, property lists, the main bundle, files,
+  process info, defaults, notifications, keyed archiving) and `tests/prism/spawn.c` (fork, exec, posix_spawn with a pipe, execvp) for
   both architectures. All QEMU runs are headless (`QEMU_DISPLAY=gtk` shows a window).

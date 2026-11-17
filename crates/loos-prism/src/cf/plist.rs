@@ -321,6 +321,86 @@ pub(crate) fn to_xml(v: &V) -> Vec<u8> {
     o
 }
 
+// ------------------------------------------------------------------ OpenStep text output
+
+fn step_string(o: &mut Vec<u8>, s: &[u8]) {
+    let bare = !s.is_empty() && s.iter().all(|b| b.is_ascii_alphanumeric() || b"_$+/:.-".contains(b));
+    if bare {
+        o.extend_from_slice(s);
+        return;
+    }
+    o.push(b'"');
+    for &b in s {
+        match b {
+            b'"' => o.extend_from_slice(b"\\\""),
+            b'\\' => o.extend_from_slice(b"\\\\"),
+            b'\n' => o.extend_from_slice(b"\\n"),
+            b'\t' => o.extend_from_slice(b"\\t"),
+            b'\r' => o.extend_from_slice(b"\\r"),
+            _ => o.push(b),
+        }
+    }
+    o.push(b'"');
+}
+
+/// The old NeXT text format. It has only strings, data, arrays and dictionaries: numbers,
+/// booleans and dates are written as their text, as Apple's writer did.
+fn write_step(o: &mut Vec<u8>, v: &V, depth: usize) {
+    let pad = |o: &mut Vec<u8>, n: usize| o.extend(core::iter::repeat_n(b' ', 4 * n));
+    match v {
+        V::Dict(d) => {
+            o.extend_from_slice(b"{\n");
+            let mut sorted: Vec<&(Vec<u8>, V)> = d.iter().collect();
+            sorted.sort_by(|a, b| a.0.cmp(&b.0));
+            for (k, x) in sorted {
+                pad(o, depth + 1);
+                step_string(o, k);
+                o.extend_from_slice(b" = ");
+                write_step(o, x, depth + 1);
+                o.extend_from_slice(b";\n");
+            }
+            pad(o, depth);
+            o.push(b'}');
+        }
+        V::Array(a) => {
+            o.extend_from_slice(b"(\n");
+            for (i, x) in a.iter().enumerate() {
+                pad(o, depth + 1);
+                write_step(o, x, depth + 1);
+                if i + 1 < a.len() {
+                    o.push(b',');
+                }
+                o.push(b'\n');
+            }
+            pad(o, depth);
+            o.push(b')');
+        }
+        V::Str(s) => step_string(o, s),
+        V::Data(d) => {
+            o.push(b'<');
+            for (i, b) in d.iter().enumerate() {
+                if i > 0 && i % 4 == 0 {
+                    o.push(b' ');
+                }
+                o.extend_from_slice(format!("{b:02x}").as_bytes());
+            }
+            o.push(b'>');
+        }
+        V::Int(i) => step_string(o, format!("{i}").as_bytes()),
+        V::Real(f) => step_string(o, real_text(*f).as_bytes()),
+        V::Bool(b) => step_string(o, if *b { b"1" } else { b"0" }),
+        V::Date(t) => step_string(o, format_date(*t).as_bytes()),
+        V::Uid(u) => step_string(o, format!("{u}").as_bytes()),
+    }
+}
+
+pub(crate) fn to_openstep(v: &V) -> Vec<u8> {
+    let mut o = Vec::new();
+    write_step(&mut o, v, 0);
+    o.push(b'\n');
+    o
+}
+
 // ------------------------------------------------------------------ binary
 
 fn be(b: &[u8]) -> u64 {
@@ -801,12 +881,16 @@ pub static FUNCS: &[(&str, Func)] = &[
         }
         c.ret(block)
     }),
-    // (records, count, format: 100 XML / 200 binary, out length) → malloc'ed bytes, or NULL
+    // (records, count, format: 1 OpenStep / 100 XML / 200 binary, out length) → malloc'ed bytes, or NULL
     f!("___prism_cf_plist_write", |c| {
         let (recs, n, fmt, out_len) = (c.arg(), c.arg(), c.arg(), c.arg());
         let mut i = 0;
         let Some(v) = from_records(c, recs, &mut i, n, 0) else { return c.ret(0) };
-        let out = if fmt == 200 { to_binary(&v) } else { to_xml(&v) };
+        let out = match fmt {
+            200 => to_binary(&v),
+            1 => to_openstep(&v),
+            _ => to_xml(&v),
+        };
         let p = c.st.heap.alloc(c.mem, out.len() as u64 + 1);
         let _ = c.mem.write(p, &out);
         if out_len != 0 {
@@ -851,7 +935,7 @@ mod tests {
         let (x, f) = parse(&to_xml(&v)).unwrap();
         assert_eq!((sorted(x), f), (sorted(v.clone()), 100));
         let (b, f) = parse(&to_binary(&v)).unwrap();
-        assert_eq!((b, f), (v, 200));
+        assert_eq!((b, f), (v.clone(), 200));
         assert_eq!(format_date(0.0), "2001-01-01T00:00:00Z");
         assert_eq!(parse_date("2026-11-16T12:30:05Z").map(format_date).unwrap(), "2026-11-16T12:30:05Z");
         let (o, _) = parse(b"{ a = (1, \"two\", <0aff>); b = { c = d; }; }").unwrap();
@@ -859,6 +943,11 @@ mod tests {
             (b"a".to_vec(), V::Array(vec![V::Str(b"1".to_vec()), V::Str(b"two".to_vec()), V::Data(vec![10, 255])])),
             (b"b".to_vec(), V::Dict(vec![(b"c".to_vec(), V::Str(b"d".to_vec()))])),
         ]));
+        let (st, f) = parse(&to_openstep(&v)).unwrap();
+        assert_eq!(f, 1);
+        let V::Dict(d) = st else { panic!() };
+        assert!(d.iter().any(|(k, x)| k == b"name" && *x == V::Str("Prism é".as_bytes().to_vec())));
+        assert!(d.iter().any(|(k, x)| k == b"blob" && *x == V::Data(vec![0, 1, 2, 250, 251])));
         let (s, _) = parse(b"/* c */ \"hello\" = \"Hallo\";\n\"bye\" = \"Tsch\\u00fcss\";").unwrap();
         assert!(matches!(s, V::Dict(ref d) if d.len() == 2));
     }

@@ -144,6 +144,7 @@ impl Process {
                 self.open.push(Some(OpenFile { path, pos: 0 }));
                 v(FILE_BASE + (self.open.len() as u64 - 1) * 4)
             }
+            "ReadFile" if a[0] == 0x10 => Some(self.console_read(a, false)),
             "ReadFile" => {
                 let Some(i) = self.file_of(a[0]) else { return v(0) };
                 let (path, pos) = (self.open[i].as_ref()?.path.clone(), self.open[i].as_ref()?.pos as usize);
@@ -200,6 +201,44 @@ impl Process {
                     return v(1);
                 }
                 v(1)
+            }
+            "GetFileAttributesExW" => {
+                // (name, GetFileExInfoStandard, WIN32_FILE_ATTRIBUTE_DATA*): attributes @0, size high @28, low @32.
+                let path = self.wpath(a[0])?;
+                let (attr, len) = match self.vfs.get(&path) {
+                    Some(f) => (0x80u32, f.len() as u64),
+                    None if self.is_dir(&path) => (0x10, 0),
+                    None => {
+                        self.set_last_error(2);
+                        return v(0);
+                    }
+                };
+                let mut b = [0u8; 36];
+                b[0..4].copy_from_slice(&attr.to_le_bytes());
+                b[28..32].copy_from_slice(&((len >> 32) as u32).to_le_bytes());
+                b[32..36].copy_from_slice(&(len as u32).to_le_bytes());
+                let _ = self.mem.write(a[2], &b);
+                v(1)
+            }
+            "GetFullPathNameW" => {
+                // (name, chars, buffer, *filepart): the absolute C:\ path; the volume has no current directory but C:\.
+                let path = self.wpath(a[0])?;
+                let full = alloc::format!("C:{}", path.replace('/', "\\"));
+                let mut b = Vec::new();
+                for c in full.encode_utf16() {
+                    b.extend_from_slice(&c.to_le_bytes());
+                }
+                let chars = b.len() / 2;
+                if (a[1] as usize) <= chars {
+                    return v(chars as u64 + 1);
+                }
+                b.extend_from_slice(&[0, 0]);
+                let _ = self.mem.write(a[2], &b);
+                if a[3] != 0 {
+                    let last = full.rfind('\\').map_or(0, |i| full[..=i].encode_utf16().count());
+                    let _ = self.mem.write(a[3], &(a[2] + last as u64 * 2).to_le_bytes());
+                }
+                v(chars as u64)
             }
             "GetFileAttributesW" => {
                 let path = self.wpath(a[0])?;

@@ -142,8 +142,26 @@ void _prism_raise(const char *name, const char *fmt, ...) __attribute__((noretur
 - (NSInteger)compare:(id)o;
 + (id)dateWithTimeIntervalSinceReferenceDate:(double)s;
 @end
+@interface NSEnumerator : NSObject
+@end
 @interface NSMutableDictionary : NSDictionary
 - (void)setObject:(id)o forKey:(id)k;
+@end
+@interface NSNumber (PrismCtors)
++ (id)numberWithUnsignedLongLong:(unsigned long long)v;
++ (id)numberWithUnsignedShort:(unsigned short)v;
++ (id)numberWithUnsignedInt:(unsigned int)v;
++ (id)numberWithInt:(int)v;
++ (id)numberWithBool:(BOOL)v;
++ (id)numberWithDouble:(double)v;
++ (id)numberWithLongLong:(long long)v;
+@end
+@interface NSURL : NSObject { @public id _string; NSURL *_base; }
++ (id)fileURLWithPath:(id)p isDirectory:(BOOL)d;
++ (id)fileURLWithPath:(id)p;
+@end
+@interface NSData (PrismFiles)
++ (id)dataWithContentsOfFile:(id)p;
 @end
 
 /* Methods the classes send one another (declared so the compiler uses the right return types). */
@@ -171,6 +189,7 @@ void _prism_raise(const char *name, const char *fmt, ...) __attribute__((noretur
 - (id)URLForResource:(id)n withExtension:(id)e subdirectory:(id)s;
 - (id)localizedStringForKey:(id)k value:(id)v table:(id)t;
 - (id)URLByAppendingPathComponent:(id)c isDirectory:(BOOL)d;
+- (id)URLByAppendingPathComponent:(id)c;
 - (id)URLByDeletingLastPathComponent;
 - (id)URLByAppendingPathExtension:(id)e;
 - (id)URLByDeletingPathExtension;
@@ -201,6 +220,80 @@ void _prism_raise(const char *name, const char *fmt, ...) __attribute__((noretur
 - (void)appendBytes:(const void *)b length:(NSUInteger)n;
 - (id)objectEnumerator;
 - (void)setObject:(id)o forKey:(id)k;
+- (unsigned short)unsignedShortValue;
+- (id)sortedArrayUsingSelector:(SEL)s;
+- (id)lastObject;
+- (id)firstObject;
+- (void)removeLastObject;
+- (id)allObjects;
+- (id)initWithObjects:(id)first, ...;
+- (BOOL)fileExistsAtPath:(id)p isDirectory:(BOOL *)d;
+- (BOOL)fileExistsAtPath:(id)p;
+- (BOOL)createDirectoryAtPath:(id)p withIntermediateDirectories:(BOOL)i attributes:(id)a error:(id *)e;
+- (BOOL)copyItemAtPath:(id)a toPath:(id)b error:(id *)e;
+- (BOOL)removeItemAtPath:(id)p error:(id *)e;
+- (BOOL)createSymbolicLinkAtPath:(id)p withDestinationPath:(id)d error:(id *)e;
+- (id)destinationOfSymbolicLinkAtPath:(id)p error:(id *)e;
+- (id)nextObject;
+- (void)removeObjectForKey:(id)k;
+- (void)addEntriesFromDictionary:(id)d;
+- (id)propertyList;
+- (id)stringValue;
+- (BOOL)boolValue;
+- (BOOL)synchronize;
+- (void)postNotificationName:(id)n object:(id)o;
+- (id)stringByAppendingPathExtension:(id)e;
+- (id)absoluteString;
++ (id)defaultManager;
++ (id)defaultCenter;
++ (id)mainBundle;
++ (id)processInfo;
++ (id)UUID;
+- (id)UUIDString;
+- (id)arguments;
+- (id)processName;
+- (id)_domain:(id)n;
++ (id)URLWithString:(id)s;
++ (id)URLWithString:(id)s relativeToURL:(id)b;
++ (id)dictionaryWithDictionary:(id)d;
+- (void)postNotificationName:(id)n object:(id)o userInfo:(id)u;
+- (void)postNotification:(id)n;
+- (BOOL)containsObject:(id)o;
+- (void)unionSet:(id)s;
+- (void)removeObject:(id)o;
++ (id)setWithObject:(id)o;
++ (id)setWithArray:(id)a;
++ (id)setWithSet:(id)s;
+- (id)initWithObjects:(id)first, ...;
+- (id)componentsSeparatedByString:(id)s;
++ (id)numberWithUnsignedInteger:(NSUInteger)v;
++ (id)numberWithLong:(long)v;
+- (unsigned int)unsignedIntValue;
+- (BOOL)writeToFile:(id)p atomically:(BOOL)a;
+- (void)setData:(id)d;
+- (void)encodeWithCoder:(id)c;
+- (id)initWithCoder:(id)c;
++ (id)setWithObjects:(id)first, ...;
+- (id)replacementObjectForKeyedArchiver:(id)c;
+- (Class)classForKeyedArchiver;
+- (id)awakeAfterUsingCoder:(id)c;
+- (void)_encodeObjects:(id)items forKey:(id)k;
+- (id)_decodeObjectsForKey:(id)k;
+- (void)encodeObject:(id)o forKey:(id)k;
+- (id)decodeObjectForKey:(id)k;
+- (void)encodeDouble:(double)v forKey:(id)k;
+- (double)decodeDoubleForKey:(id)k;
+- (void)encodeInteger:(NSInteger)v forKey:(id)k;
+- (NSInteger)decodeIntegerForKey:(id)k;
+- (void)encodeBytes:(const void *)b length:(NSUInteger)n forKey:(id)k;
+- (const void *)decodeBytesForKey:(id)k returnedLength:(NSUInteger *)n;
+- (id)initWithString:(id)s;
+- (id)initWithArray:(id)a;
+- (id)initWithTimeIntervalSinceReferenceDate:(double)t;
+- (id)encodedData;
+- (id)initRequiringSecureCoding:(BOOL)s;
+- (id)initForReadingFromData:(id)d error:(id *)e;
+- (id)initForReadingWithData:(id)d;
 @end
 @interface NSData (PrismMethods)
 + (id)dataWithBytes:(const void *)b length:(NSUInteger)n;
@@ -209,6 +302,8 @@ void _prism_raise(const char *name, const char *fmt, ...) __attribute__((noretur
 @interface NSDictionary (PrismMethods)
 + (id)dictionary;
 + (id)dictionaryWithObject:(id)o forKey:(id)k;
++ (id)dictionaryWithObjectsAndKeys:(id)first, ...;
+- (id)allValues;
 @end
 @interface NSArray (PrismMethods)
 + (id)array;
@@ -221,6 +316,43 @@ void _prism_raise(const char *name, const char *fmt, ...) __attribute__((noretur
 @interface NSNumber (PrismMethods)
 + (id)numberWithInteger:(NSInteger)v;
 @end
+
+id _prism_file_error(int e, id path); /* nsexception.m */
+id _prism_enumerator(id items, BOOL back); /* cfbase.m */
+id _prism_plist_from_file(id path); /* cfplist.m */
+id _prism_plist_data(id plist, unsigned long format); /* cfplist.m: serialized bytes or nil */
+BOOL _prism_write_file(id path, id data, BOOL atomically); /* cfplist.m */
+
+@interface NSBundle : NSObject { @public id _path, _resources, _executable, _info; BOOL _app; }
+@end
+@interface NSFileManager : NSObject { @public id _delegate; }
+@end
+@interface NSNotificationCenter : NSObject { @public id _observers; NSUInteger _posting; }
+@end
+Boolean CFPropertyListIsValid(id plist, CFIndex format);
+@interface NSException : NSObject { @public id _name, _reason, _userInfo, _stack; }
+- (id)reason;
+@end
+@interface NSError : NSObject { @public id _domain, _userInfo; NSInteger _code; }
++ (id)errorWithDomain:(id)d code:(NSInteger)c userInfo:(id)u;
+- (id)initWithDomain:(id)d code:(NSInteger)c userInfo:(id)u;
+- (id)domain;
+- (NSInteger)code;
+- (id)userInfo;
+@end
+@interface NSNull : NSObject
+@end
+@interface NSUUID : NSObject { @public unsigned char _b[16]; }
+- (void)getUUIDBytes:(unsigned char *)b;
+- (id)initWithUUIDBytes:(const unsigned char *)b;
+@end
+@interface NSPropertyListSerialization : NSObject
++ (id)propertyListWithData:(id)d options:(NSUInteger)o format:(NSUInteger *)f error:(id *)e;
+@end
+extern id kCFNull;
+
+id _prism_uid(uint32_t v); /* cfplist.m: a keyed-archive UID */
+long _prism_uid_value(id o);
 
 /* Is `o` an instance of `c` or a subclass (also through a copied class such as the constant string's)? */
 static inline BOOL cf_is(id o, Class c) {

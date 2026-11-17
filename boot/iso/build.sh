@@ -10,32 +10,9 @@ cmdline="installer"
 while [ $# -gt 0 ]; do case $1 in --cmdline) cmdline=$2; shift 2;; *) echo "bad arg $1" >&2; exit 2;; esac; done
 for t in xorriso mformat mcopy mmd; do command -v $t >/dev/null || { echo "missing $t (dnf/apt install xorriso mtools)" >&2; exit 1; }; done
 mkdir -p "$out"
-# Compatibility-layer file systems carried on the media (and copied to the installed system): sample Windows and Linux apps.
-winrt=$out/winroot.tar; linrt=$out/initrd.tar
-python3 - "$root" "$winrt" <<'PY'
-import sys, tarfile
-root, dst = sys.argv[1:3]
-with tarfile.open(dst, "w", format=tarfile.USTAR_FORMAT) as t:
-    for d in ("Windows", "Windows/System32", "Users", "Users/user"):
-        i = tarfile.TarInfo(d); i.type = tarfile.DIRTYPE; i.mode = 0o755; t.addfile(i)
-    for src, name in (("tests/win/hello_gui.exe", "hello_gui.exe"), ("apps/loos-notepad/notepad.exe", "notepad.exe"),
-                      ("apps/loos-cmd/cmd.exe", "cmd.exe"), ("tests/win/nettest.exe", "nettest.exe"), ("tests/win/selftest.exe", "selftest.exe")):
-        t.add(f"{root}/{src}", arcname=f"Windows/System32/{name}")
-PY
-clang --target=x86_64-linux-gnu -static -nostdlib -O2 -ffreestanding -fno-stack-protector -fno-pic -mno-red-zone "$root/tests/lin/lbox.c" -o "$out/lbox"
-clang --target=x86_64-linux-gnu -static -nostdlib -O2 -ffreestanding -fno-stack-protector -fno-pic -mno-red-zone -I"$root/src/lin" \
-    "$root/tests/lin/gui.c" "$root/tests/lin/looswin_client.c" -o "$out/gui"
-python3 - "$out" "$linrt" <<'PY'
-import io, sys, tarfile
-out, dst = sys.argv[1:3]
-with tarfile.open(dst, "w", format=tarfile.USTAR_FORMAT) as t:
-    for d in ("bin", "etc"):
-        i = tarfile.TarInfo(d); i.type = tarfile.DIRTYPE; i.mode = 0o755; t.addfile(i)
-    for n in ("lbox", "gui"):
-        t.add(f"{out}/{n}", arcname=f"bin/{n}")
-    m = b"LoOS says hello from the initrd\n"
-    i = tarfile.TarInfo("etc/motd"); i.size = len(m); i.mode = 0o644; t.addfile(i, io.BytesIO(m))
-PY
+# Compatibility-layer file systems carried on the media (and copied to the installed system): Windows, Linux and macOS apps.
+mods=$("$root/boot/compat-modules.sh" "$out")
+winrt=$(sed -n 's/^winroot=//p' <<<"$mods"); linrt=$(sed -n 's/^initrd=//p' <<<"$mods")
 "$root/boot/uefi/build.sh" "$out" --module winroot="$winrt" --module initrd="$linrt" --cmdline "$cmdline" >/dev/null
 stage=$out/iso-root; rm -rf "$stage"; mkdir -p "$stage/EFI/BOOT" "$stage/LOOS"
 # El Torito EFI system image: a bare FAT volume with the same layout as the ESP the firmware would see on a disk.

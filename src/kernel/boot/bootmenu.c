@@ -4,14 +4,33 @@
 #include <string.h>
 
 /* The first three entries are fixed; compatibility-layer demos follow when the media carries their file systems. */
-struct extra { const char *label, *module, *cmd; };
+/* An entry appears when its module is on the media and carries `file` (a USTAR member name). */
+struct extra { const char *label, *module, *file, *cmd; };
 static const struct extra extras[] = {
-    { "Windows app: Hello (LoOS Windows layer)", "winroot", "loos.gui=hello_gui.exe loos.net=1" },
-    { "Windows app: Notepad", "winroot", "loos.gui=notepad.exe loos.net=1" },
-    { "Windows app: network test", "winroot", "loos.gui=nettest.exe loos.net=1" },
-    { "Linux app: GUI demo (LoOS Linux layer)", "initrd", "loos.lin=/bin/gui" },
-    { "Linux app: syscall self-test", "initrd", "loos.lin=/bin/lbox,selftest" },
+    { "Windows app: Hello (LoOS Windows layer)", "winroot", "Windows/System32/hello_gui.exe", "loos.gui=hello_gui.exe loos.net=1" },
+    { "Windows app: Notepad", "winroot", "Windows/System32/notepad.exe", "loos.gui=notepad.exe loos.net=1" },
+    { "Windows console: Command Prompt", "winroot", "Windows/System32/cmd.exe", "loos.gui=cmd.exe" },
+    { "Windows app: network test", "winroot", "Windows/System32/nettest.exe", "loos.gui=nettest.exe loos.net=1" },
+    { "Linux app: GUI demo (LoOS Linux layer)", "initrd", "bin/gui", "loos.lin=/bin/gui" },
+    { "Linux app: syscall self-test", "initrd", "bin/lbox", "loos.lin=/bin/lbox,selftest" },
+    { "macOS app: Foundation demo (LoOS Prism)", "initrd", "Applications/Found_x86_64.app/Contents/MacOS/found", "loos.lin=HOME=/tmp,/Applications/Found_x86_64.app" },
+    { "macOS app: Apple Silicon hello (arm64 on Prism)", "initrd", "bin/mac_hello_arm64", "loos.lin=HOME=/tmp,/bin/mac_hello_arm64" },
 };
+
+/* Whether the USTAR archive at `p` holds a member called `name` (with or without a leading "./"). */
+static int tar_has(const uint8_t *p, size_t len, const char *name)
+{
+    size_t nl = strlen(name);
+    for (size_t off = 0; off + 512 <= len && p[off]; ) {
+        const char *n = (const char *)p + off;
+        if (n[0] == '.' && n[1] == '/') n += 2;
+        if (!strncmp(n, name, nl) && (n[nl] == 0 || (n[nl] == '/' && n[nl + 1] == 0))) return 1;
+        uint64_t sz = 0;
+        for (int i = 124; i < 136 && p[off + i] >= '0' && p[off + i] <= '7'; i++) sz = sz * 8 + (uint64_t)(p[off + i] - '0');
+        off += 512 + (size_t)((sz + 511) & ~511ull);
+    }
+    return 0;
+}
 #define N_BASE 3
 #define MAX_ITEMS (N_BASE + (int)(sizeof extras / sizeof extras[0]))
 static const char *items[MAX_ITEMS] = { "Start LoOS normally", "Safe mode (one CPU, basic display)", "Restart" };
@@ -23,7 +42,8 @@ static void collect_items(const struct loos_bootinfo *bi)
     N_ITEMS = N_BASE;
     for (size_t i = 0; i < sizeof extras / sizeof extras[0]; i++)
         for (uint32_t m = 0; m < bi->module_count; m++)
-            if (!strncmp(bi->modules[m].name, extras[i].module, strlen(extras[i].module))) {
+            if (!strncmp(bi->modules[m].name, extras[i].module, strlen(extras[i].module))
+                && tar_has((const uint8_t *)(uintptr_t)bi->modules[m].phys, bi->modules[m].size, extras[i].file)) {
                 items[N_ITEMS] = extras[i].label; item_cmd[N_ITEMS++] = extras[i].cmd;
                 break;
             }
@@ -71,7 +91,11 @@ int bootmenu_run(struct video *v, struct loos_bootinfo *bi, int force, uint32_t 
     collect_items(bi);
     if (!force && !crash && !f8_held(wait_ms)) return 0;
     int sel = crash ? 1 : 0, secs = 9;
-    if (auto_pick >= 0) { draw(v, auto_pick, crash, -1); serial_puts("bootmenu: picked "); serial_puts(items[auto_pick]); serial_puts("\n"); return auto_pick == 1; }
+    if (auto_pick >= 0 && auto_pick < N_ITEMS) {                /* tests: answer the menu, then apply the pick like Enter does */
+        sel = auto_pick; draw(v, sel, crash, -1); serial_puts("bootmenu: picked "); serial_puts(items[sel]); serial_puts("\n");
+        if (sel == 2) return 0;                                  /* no restart from a test */
+        goto apply;
+    }
     uint32_t t0 = time_ms();
     draw(v, sel, crash, secs);
     for (;;) {
@@ -95,6 +119,7 @@ int bootmenu_run(struct video *v, struct loos_bootinfo *bi, int force, uint32_t 
 chosen:
     serial_puts("bootmenu: "); serial_puts(items[sel]); serial_puts("\n");
     if (sel == 2) { outb(0x64, 0xFE); for (;;) __asm__ volatile("hlt"); }
+apply:
     if (sel >= N_BASE) {                                     /* a demo: hand its words to the kernel through the command line */
         size_t n = strlen(bi->cmdline), l = strlen(item_cmd[sel]);
         if (n + l + 2 < sizeof bi->cmdline) { bi->cmdline[n] = ' '; memcpy(bi->cmdline + n + 1, item_cmd[sel], l + 1); }

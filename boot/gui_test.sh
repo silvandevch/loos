@@ -20,15 +20,27 @@ with tarfile.open(sys.argv[2], "w", format=tarfile.USTAR_FORMAT) as t:
 PY
 img=$("$here/bios/build.sh" "$out" --module winroot="$tarf" --cmdline "console=ttyS0 loos.test=1 loos.gui=$name loos.net=1 loos.gui.keys=$keys loos.gui.open=${GUI_OPEN:-} loos.gui.save=${GUI_SAVE:-}") || exit 1
 log=$out/gui.log; sd=$(mktemp -d); sock=$sd/qmp.sock
-qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-off} "$root/scripts/qemu-accel.sh" args)} -display none -vga std -smp 1 -m 512M \
+qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-off} "$root/scripts/qemu-accel.sh" args)} -display none -vga std -smp 1 -m ${QEMU_MEM:-512M} \
     -serial "file:$log" -drive "file=$img,format=raw,if=ide" -monitor "unix:$sock,server,nowait" -no-reboot &
 q=$!
-for _ in $(seq 1 240); do grep -q "final frame presented\|exited\|FAILED\|fault" "$log" 2>/dev/null && break; sleep 1; done
+# GUI_WAIT seconds for the program to settle (default 240). On a timeout the guest's instruction pointer is sampled
+# through the monitor ("hang: RIP=..." lines) so a spin can be located.
+done=0
+for _ in $(seq 1 "${GUI_WAIT:-240}"); do grep -q "final frame presented\|exited\|FAILED\|fault" "$log" 2>/dev/null && { done=1; break; }; sleep 1; done
+if [ $done = 0 ]; then
+    python3 -c "
+import re,socket,time
+for _ in range(4):
+    s=socket.socket(socket.AF_UNIX); s.connect('$sock'); time.sleep(.2); s.recv(65536)
+    s.send(b'info registers\n'); time.sleep(.5); r=s.recv(65536).decode(errors='replace'); s.close()
+    m=re.search(r'RIP=([0-9a-f]+)', r); n=re.search(r'RSP=([0-9a-f]+)', r)
+    print('hang: RIP=%s RSP=%s' % (m and m.group(1), n and n.group(1))); time.sleep(.7)" | tee -a "$log"
+fi
 sleep 1
 printf 'screendump %s.ppm\n' "$png" | python3 -c "
 import socket,sys,time
 s=socket.socket(socket.AF_UNIX); s.connect('$sock'); time.sleep(.3); s.send(sys.stdin.read().encode()); time.sleep(1.5)"
 kill $q 2>/dev/null; wait $q 2>/dev/null
-grep -E "^(win|\[winrt\])" "$log"
+grep -E "^(win|\[winrt\]|hang)" "$log"
 python3 -c "
 from PIL import Image; Image.open('$png.ppm').save('$png')" && rm -f "$png.ppm" && echo "screenshot: $png"

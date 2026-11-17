@@ -36,7 +36,11 @@ const NAMES: &[&str] = &[
     "SHGetFolderPathW", "CharNextW", "GetTextExtentPoint32W", "CreateFontIndirectW", "CreateFontW", "GetTextFaceW",
     "IsWindowVisible", "EnableWindow", "SetWindowTheme", "DragAcceptFiles", "MessageBeep", "SetEndOfFile", "GetFileSizeEx",
     "GetOpenFileNameW", "GetSaveFileNameW", "CommDlgExtendedError", "ChooseFontW", "PrintDlgW", "ChooseColorW", "LoadLibraryA", "LoadLibraryExA",
-    "GetModuleHandleA", "__C_specific_handler",
+    "GetModuleHandleA", "__C_specific_handler", "ReadConsoleA", "ReadConsoleW",
+    "GetCurrentDirectoryW", "GetConsoleCP", "SetConsoleTitleW", "ExpandEnvironmentStringsW",
+    "SHGetKnownFolderPath", "GetThreadPriority", "AttachConsole", "RtlGetVersion", "SystemFunction036",
+    "GetFileVersionInfoSizeW", "_wgetenv_s", "GetFullPathNameW", "SetErrorMode", "GetFileAttributesExW",
+    "VirtualQuery", "AddVectoredExceptionHandler", "RemoveVectoredExceptionHandler", "GetModuleFileNameA",
 ];
 
 /// Syscall number of a kernel32-family import.
@@ -51,7 +55,106 @@ fn put_wide(s: &str, out: &mut Vec<u8>) {
     out.extend_from_slice(&[0, 0]);
 }
 
+const PAGE_NOACCESS: u32 = 0x01;
+
+/// Path of a known folder (`KNOWNFOLDERID` bytes) on the guest volume.
+fn known_folder(g: &[u8]) -> Option<&'static str> {
+    if g.len() < 16 {
+        return None;
+    }
+    let d1 = u32::from_le_bytes([g[0], g[1], g[2], g[3]]);
+    let (d2, d3) = (u16::from_le_bytes([g[4], g[5]]), u16::from_le_bytes([g[6], g[7]]));
+    Some(match (d1, d2, d3) {
+        (0x3EB685DB, 0x65F9, 0x4CF6) => "C:\\Users\\user\\AppData\\Roaming",
+        (0xF1B32785, 0x6FBA, 0x4FCF) => "C:\\Users\\user\\AppData\\Local",
+        (0xA520A1A4, 0x1780, 0x4FF6) => "C:\\Users\\user\\AppData\\LocalLow",
+        (0xFDD39AD0, 0x238F, 0x46AF) => "C:\\Users\\user\\Documents",
+        (0xB4BFCC3A, 0xDB2C, 0x424C) => "C:\\Users\\user\\Desktop",
+        (0x374DE290, 0x123F, 0x4565) => "C:\\Users\\user\\Downloads",
+        (0x33E28130, 0x4E1E, 0x4676) => "C:\\Users\\user\\Pictures",
+        (0x4BD8D571, 0x6D19, 0x48D3) => "C:\\Users\\user\\Music",
+        (0x18989B1D, 0x99B5, 0x455B) => "C:\\Users\\user\\Videos",
+        (0x5E6C858F, 0x0E22, 0x4760) => "C:\\Users\\user",
+        (0x62AB5D82, 0xFDC1, 0x4DC3) => "C:\\ProgramData",
+        (0xFD228CB7, 0xAE11, 0x4AE3) => "C:\\Windows\\Fonts",
+        (0xF38BF404, 0x1D43, 0x42F2) => "C:\\Windows",
+        (0x1AC14E77, 0x02E7, 0x4E5D) => "C:\\Windows\\System32",
+        (0x905E63B6, 0xC1BF, 0x494E) => "C:\\Program Files",
+        _ => return None,
+    })
+}
+
+/// Windows `PAGE_*` value for read/write/execute bits.
+fn win_prot(p: u32) -> u32 {
+    use loos_lin::mem::{PROT_READ, PROT_WRITE};
+    match (p & PROT_READ != 0, p & PROT_WRITE != 0, p & PROT_EXEC != 0) {
+        (_, true, true) => 0x40,
+        (_, false, true) => 0x20,
+        (_, true, false) => 0x04,
+        (true, false, false) => 0x02,
+        _ => PAGE_NOACCESS,
+    }
+}
+
+/// Read/write/execute bits for a Windows `PAGE_*` value (guard and caching modifiers ignored).
+pub(crate) fn unix_prot(p: u32) -> u32 {
+    use loos_lin::mem::{PROT_READ, PROT_WRITE};
+    match p & 0xff {
+        0x02 => PROT_READ,
+        0x04 | 0x08 => PROT_READ | PROT_WRITE,
+        0x10 | 0x20 => PROT_READ | PROT_EXEC,
+        0x40 | 0x80 => PROT_READ | PROT_WRITE | PROT_EXEC,
+        _ => 0,
+    }
+}
+
 impl Process {
+    /// `VirtualQuery(addr, MEMORY_BASIC_INFORMATION*, size)`: describes the mapping (or the free gap) around `addr`.
+    fn virtual_query(&mut self, addr: u64, out: u64, len: u64) -> u64 {
+        if len < 48 {
+            self.set_last_error(24); // ERROR_BAD_LENGTH
+            return 0;
+        }
+        let page = addr & !0xfff;
+        let hit = self.mem.regions().find(|r| r.start <= addr && addr < r.end()).map(|r| (r.start, r.end(), r.prot));
+        let mut b = [0u8; 48];
+        match hit {
+            Some((start, end, prot)) => {
+                let image = self.images_contain(start);
+                b[0..8].copy_from_slice(&page.to_le_bytes());
+                b[8..16].copy_from_slice(&start.to_le_bytes());
+                b[16..20].copy_from_slice(&win_prot(prot).to_le_bytes());
+                b[24..32].copy_from_slice(&(end - page).to_le_bytes());
+                b[32..36].copy_from_slice(&0x1000u32.to_le_bytes()); // MEM_COMMIT
+                b[36..40].copy_from_slice(&win_prot(prot).to_le_bytes());
+                b[40..44].copy_from_slice(&(if image { 0x100_0000u32 } else { 0x2_0000 }).to_le_bytes()); // MEM_IMAGE / MEM_PRIVATE
+            }
+            None => {
+                let next = self.mem.regions().map(|r| r.start).filter(|&s| s > page).min().unwrap_or(0x7fff_ffff_0000);
+                b[0..8].copy_from_slice(&page.to_le_bytes());
+                b[16..20].copy_from_slice(&PAGE_NOACCESS.to_le_bytes());
+                b[24..32].copy_from_slice(&(next - page).to_le_bytes());
+                b[32..36].copy_from_slice(&0x1_0000u32.to_le_bytes()); // MEM_FREE
+                b[36..40].copy_from_slice(&PAGE_NOACCESS.to_le_bytes());
+            }
+        }
+        let _ = self.mem.write(out, &b);
+        48
+    }
+
+    /// Writes `s` as UTF-16 with a terminator to `out` when `cap` (in characters) fits it. Returns the characters
+    /// written (without the terminator unless `with_nul`), or the size needed including the terminator.
+    fn put_wide_sized(&mut self, s: &str, out: u64, cap: usize, with_nul: bool) -> u64 {
+        let mut b = Vec::new();
+        put_wide(s, &mut b);
+        let chars = b.len() / 2;
+        if out == 0 || cap < chars {
+            return chars as u64;
+        }
+        let _ = self.mem.write(out, &b);
+        (if with_nul { chars } else { chars - 1 }) as u64
+    }
+
     pub(crate) fn heap_alloc(&mut self, n: u64) -> u64 {
         if self.heap_base == 0 {
             self.heap_base = self.mem.map_anywhere(HEAP_SIZE, 3, &[], "heap").unwrap_or(0);
@@ -75,7 +178,7 @@ impl Process {
         self.mem.read_u64(rsp + 0x28 + 8 * (n - 5)).unwrap_or(0)
     }
 
-    fn wstr_at(&mut self, a: u64, max: usize) -> Option<String> {
+    pub(crate) fn wstr_at(&mut self, a: u64, max: usize) -> Option<String> {
         let mut v = Vec::new();
         for i in 0..max as u64 {
             let mut b = [0u8; 2];
@@ -100,6 +203,127 @@ impl Process {
             return Some(r);
         }
         match name {
+            "ReadConsoleA" | "ReadConsoleW" => return Some(self.console_read(a, name.ends_with('W'))),
+            "GetConsoleCP" => return v(437),
+            "GetThreadPriority" | "SetErrorMode" => return v(0),
+            "AttachConsole" | "GetFileVersionInfoSizeW" => {
+                self.set_last_error(if name == "AttachConsole" { 6 } else { 1813 }); // no parent console / no version resource
+                return v(0);
+            }
+            "_wgetenv_s" => {
+                // (*required, buffer, chars, name): the environment is empty.
+                if a[0] != 0 {
+                    let _ = self.mem.write(a[0], &0u64.to_le_bytes());
+                }
+                if a[1] != 0 && a[2] != 0 {
+                    let _ = self.mem.write(a[1], &[0u8, 0]);
+                }
+                return v(0);
+            }
+            "RtlGetVersion" | "GetVersionExW" => {
+                // OSVERSIONINFO(EX)W: the claimed version is Windows 10 22H2 (major 10, build 19045, VER_PLATFORM_WIN32_NT).
+                for (off, val) in [(4u64, 10u32), (8, 0), (12, 19045), (16, 2)] {
+                    let _ = self.mem.write(a[0] + off, &val.to_le_bytes());
+                }
+                let _ = self.mem.write(a[0] + 20, &[0u8; 256]);
+                return v(if name == "RtlGetVersion" { 0 } else { 1 });
+            }
+            "SystemFunction036" => {
+                // RtlGenRandom(buffer, length): seeds such as hash-table salts. Not cryptographic: the clock, the buffer
+                // address and the heap position through a xorshift mixer (no hardware entropy source is wired here).
+                let mut x = (now_ms << 20) ^ 0x9e37_79b9_7f4a_7c15 ^ a[0] ^ self.heap_next.rotate_left(32) | 1;
+                let n = (a[1] as usize).min(1 << 16);
+                let mut out = Vec::with_capacity(n);
+                while out.len() < n {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    out.extend_from_slice(&x.to_le_bytes());
+                }
+                out.truncate(n);
+                let _ = self.mem.write(a[0], &out);
+                return v(1);
+            }
+            "SHGetKnownFolderPath" => {
+                // (rfid, flags, token, PWSTR*): the folder's path in CoTaskMem the caller frees.
+                let g = self.mem.read_vec(a[0], 16).unwrap_or_default();
+                let path = known_folder(&g);
+                let Some(path) = path else {
+                    let _ = self.mem.write(a[3], &0u64.to_le_bytes());
+                    return v(0x8007_0002); // HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)
+                };
+                let mut b = Vec::new();
+                put_wide(path, &mut b);
+                let mem = self.heap_alloc(b.len() as u64);
+                let _ = self.mem.write(mem, &b);
+                let _ = self.mem.write(a[3], &mem.to_le_bytes());
+                return v(0);
+            }
+            "VirtualQuery" => return v(self.virtual_query(a[0], a[1], a[2])),
+            "VirtualProtect" => {
+                // (addr, size, new, *old): page protections map onto the address space's read/write/execute bits.
+                let old = self.mem.prot_at(a[0]).map_or(PAGE_NOACCESS, win_prot);
+                let start = a[0] & !0xfff;
+                let len = (a[0] + a[1].max(1) + 0xfff & !0xfff) - start;
+                if self.mem.protect(start, len, unix_prot(a[2] as u32)).is_err() {
+                    self.set_last_error(487); // ERROR_INVALID_ADDRESS
+                    return v(0);
+                }
+                if a[3] != 0 {
+                    let _ = self.mem.write(a[3], &old.to_le_bytes());
+                }
+                return v(1);
+            }
+            // Vectored handlers are accepted but not called: frame-based SEH still dispatches every exception.
+            "AddVectoredExceptionHandler" => return v(a[1].max(1)),
+            "RemoveVectoredExceptionHandler" => return v(1),
+            "GetModuleFileNameA" | "GetModuleFileNameW" => {
+                // (module, buffer, size in characters): truncates like Windows (ERROR_INSUFFICIENT_BUFFER).
+                let path = self.module_path(a[0]);
+                let mut b = Vec::new();
+                if name.ends_with('W') {
+                    put_wide(&path, &mut b);
+                } else {
+                    b.extend_from_slice(path.as_bytes());
+                    b.push(0);
+                }
+                let unit = if name.ends_with('W') { 2 } else { 1 };
+                let chars = b.len() / unit - 1;
+                let cap = a[2] as usize;
+                if cap == 0 {
+                    return v(0);
+                }
+                let n = chars.min(cap - 1);
+                let mut out = b[..n * unit].to_vec();
+                out.extend(core::iter::repeat_n(0, unit));
+                let _ = self.mem.write(a[1], &out);
+                if n < chars {
+                    self.set_last_error(122);
+                    return v(cap as u64);
+                }
+                return v(n as u64);
+            }
+            "SetConsoleTitleW" => {
+                self.console_title = self.wstr_at(a[0], 1024).unwrap_or_default();
+                return v(1);
+            }
+            // The guest volume is rooted at C:\ and the process never changes directory.
+            "GetCurrentDirectoryW" => return v(self.put_wide_sized("C:\\", a[1], a[0] as usize, false)),
+            // No environment block yet: the string expands to itself. The count includes the terminator.
+            "ExpandEnvironmentStringsW" => {
+                let src = self.wstr_at(a[0], 32 * 1024).unwrap_or_default();
+                return v(self.put_wide_sized(&src, a[1], a[2] as usize, true));
+            }
+            "WriteConsoleW" => {
+                // WriteConsoleW(handle, buffer, chars, written, reserved): UTF-16 to the console stream.
+                let units: Vec<u16> = self.mem.read_vec(a[1], (a[2] as usize).min(1 << 15) * 2).unwrap_or_default().chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+                let text = String::from_utf16_lossy(&units);
+                self.console_write(text.as_bytes());
+                if a[3] != 0 {
+                    let _ = self.mem.write(a[3], &(units.len() as u32).to_le_bytes());
+                }
+                return v(1);
+            }
             "LoadLibraryW" | "LoadLibraryExW" | "LoadLibraryA" | "LoadLibraryExA" => {
                 let n = if name.ends_with('W') { self.wstr_at(a[0], 520) } else { self.mem.read_cstr(a[0], 520).ok() };
                 let h = n.and_then(|n| self.load_library(&n)).unwrap_or(0);
@@ -301,13 +525,6 @@ impl Process {
                 }
                 v(1)
             }
-            "GetModuleFileNameW" => {
-                let mut b = Vec::new();
-                put_wide(&alloc::format!("C:\\Windows\\System32\\{}", self.name), &mut b);
-                let n = (b.len() / 2).min(a[2] as usize);
-                let _ = self.mem.write(a[1], &b[..n * 2]);
-                v(n as u64 - 1)
-            }
             "RtlPcToFileHeader" => {
                 if a[1] != 0 {
                     let _ = self.mem.write(a[1], &self.base.to_le_bytes());
@@ -377,7 +594,6 @@ impl Process {
                 let _ = self.mem.write(a[0], &b);
                 v(0)
             }
-            "GetVersionExW" => v(0),
             "GetUserDefaultLCID" | "GetThreadLocale" => v(0x409),
             "GetLocaleInfoW" => v(0),
             "GetSysColor" => v(0x00F0_F0F0),

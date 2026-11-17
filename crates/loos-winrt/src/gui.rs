@@ -52,7 +52,19 @@ const SPECIAL: &[&str] = &[
     "GetDlgItemTextW", "SetDlgItemTextW", "SendDlgItemMessageW", "CheckDlgButton", "IsDlgButtonChecked", "GetDialogBaseUnits",
     "MapDialogRect", "IsDialogMessageW", "GetDlgItemInt", "SetDlgItemInt", "StretchDIBits", "SetDIBitsToDevice",
     "CreateDIBSection", "CreateDIBitmap", "GetDIBits", "SetDIBits", "GetObjectW", "GdiFlush",
+    // monitors, DPI, system parameters, keyboard layouts (Qt's qwindows platform plugin)
+    "EnumDisplayMonitors", "MonitorFromWindow", "MonitorFromPoint", "MonitorFromRect", "GetMonitorInfoW", "GetDpiForMonitor",
+    "GetThreadDpiAwarenessContext", "IsValidDpiAwarenessContext", "SetThreadDpiAwarenessContext", "GetDpiForWindow",
+    "GetDpiForSystem", "SystemParametersInfoW", "SystemParametersInfoForDpi", "RegisterWindowMessageW", "GetClassInfoW",
+    "GetClassInfoExW", "CreateBitmap", "GetKeyboardLayout", "GetKeyboardLayoutNameW", "GetKeyboardLayoutList",
+    "AddClipboardFormatListener", "RemoveClipboardFormatListener", "SetClipboardViewer", "AreDpiAwarenessContextsEqual",
+    "SetProcessDpiAwarenessContext", "GetDisplayConfigBufferSizes", "QueryDisplayConfig", "DisplayConfigGetDeviceInfo",
 ];
+
+/// The single display's monitor handle.
+const HMONITOR: u64 = 0x1_0001;
+/// First atom `RegisterWindowMessage` hands out (the registered-message range starts at 0xC000).
+const MSG_ATOM_BASE: u64 = 0xC000;
 
 /// Syscall number for a user32/gdi32 import.
 /// Import name for a user32/gdi32 syscall number (tracing).
@@ -121,6 +133,55 @@ fn to_utf16(s: &str) -> Vec<u8> {
 }
 
 impl Process {
+    /// RECT of the whole screen (the only monitor), as guest bytes.
+    fn monitor_rect(&self, w: &Win32k) -> [u8; 16] {
+        let mut rc = [0u8; 16];
+        rc[8..12].copy_from_slice(&w.screen.0.to_le_bytes());
+        rc[12..16].copy_from_slice(&w.screen.1.to_le_bytes());
+        rc
+    }
+
+    /// `SystemParametersInfo(action, uiParam, pvParam)`: the work area, non-client metrics and the handful of
+    /// boolean settings toolkits query. Unknown actions fail (0) so callers keep their defaults.
+    fn system_parameter(&mut self, w: &Win32k, action: u32, ui: u32, out: u64) -> bool {
+        match action {
+            0x30 => self.mem.write(out, &self.monitor_rect(w)).is_ok(), // SPI_GETWORKAREA
+            0x29 => {
+                // SPI_GETNONCLIENTMETRICS: NONCLIENTMETRICSW (cbSize from the caller), every font "Segoe UI" 9pt.
+                let size = self.mem.read_u32(out).unwrap_or(0).max(ui) as usize;
+                if size < 500 {
+                    return false;
+                }
+                let mut b = alloc::vec![0u8; size];
+                b[0..4].copy_from_slice(&(size as u32).to_le_bytes());
+                for (off, val) in [(4usize, 1i32), (8, 17), (12, 17), (16, 23), (20, 22)] {
+                    b[off..off + 4].copy_from_slice(&val.to_le_bytes()); // border, scroll sizes, caption size
+                }
+                // LOGFONTW (92 bytes) at caption 24, small caption 124 (+4 dims before), menu 224, status 316, message 408.
+                for f in [24usize, 124 + 8, 224 + 8, 316, 408] {
+                    if f + 92 <= size {
+                        let lf = &mut b[f..f + 92];
+                        lf[0..4].copy_from_slice(&(-12i32).to_le_bytes());
+                        lf[16..20].copy_from_slice(&400i32.to_le_bytes());
+                        for (i, c) in "Segoe UI".encode_utf16().enumerate() {
+                            lf[28 + i * 2..30 + i * 2].copy_from_slice(&c.to_le_bytes());
+                        }
+                    }
+                }
+                self.mem.write(out, &b).is_ok()
+            }
+            // SPI_GETFONTSMOOTHING, SPI_GETKEYBOARDCUES, SPI_GETCLIENTAREAANIMATION and friends: a BOOL answer.
+            0x4A | 0x100A | 0x1042 | 0x1002 | 0x1004 | 0x1006 | 0x1012 | 0x1016 | 0x101A => {
+                let on = u32::from(action == 0x4A);
+                self.mem.write(out, &on.to_le_bytes()).is_ok()
+            }
+            0x200C => self.mem.write(out, &2u32.to_le_bytes()).is_ok(), // SPI_GETFONTSMOOTHINGTYPE: ClearType
+            0x68 | 0x6A => self.mem.write(out, &3u32.to_le_bytes()).is_ok(), // SPI_GETWHEELSCROLLLINES/CHARS
+            0x16 => self.mem.write(out, &500u32.to_le_bytes()).is_ok(),      // SPI_GETKEYBOARDDELAY-ish (ms)
+            _ => false,
+        }
+    }
+
     fn menu_items(&self, h: u64) -> Vec<loos_win32k::MenuItem> {
         let Some(m) = self.menus.get(&h) else { return Vec::new() };
         m.iter()
@@ -197,6 +258,11 @@ impl Process {
         self.mem.map_anywhere(b.len() as u64, 3, &b, "scratch").unwrap_or(0)
     }
 
+    /// Guest copy of `b` for a callback argument (same lifetime rules as [`Process::scratch`]).
+    fn scratch_bytes(&mut self, b: &[u8]) -> u64 {
+        self.mem.map_anywhere(b.len() as u64, 3, b, "scratch").unwrap_or(0)
+    }
+
     /// Like [`Process::gui_syscall_inner`], logging each call and result when `trace` is set.
     pub fn gui_syscall(&mut self, nr: u32, a: [u64; 4], rsp: u64, now_ms: u64, w: &mut Win32k) -> Ret {
         let r = self.gui_syscall_inner(nr, a, rsp, now_ms, w);
@@ -219,12 +285,11 @@ impl Process {
             self.cur_rsp = rsp;
             return self.gl_syscall(nr, a, rsp, w);
         }
-        if nr >= crate::api::UNRESOLVED_BASE {
-            return self.syscall(nr, a, now_ms);
-        }
+        // Everything that is not user32/gdi32 (kernel32 family, CRT, COM methods, DirectWrite, unresolved imports)
+        // goes through the one dispatcher that console programs use too.
         if nr >= crate::k32::K32_BASE {
             self.cur_rsp = rsp;
-            return self.thread_syscall(nr, a, rsp, now_ms).or_else(|| self.ws_syscall(nr, a, rsp, now_ms)).or_else(|| self.k32_syscall(nr, a, rsp, now_ms)).or_else(|| self.adv_syscall(nr, a, rsp, now_ms)).or_else(|| self.crt_syscall(nr, a, rsp, now_ms)).unwrap_or(v(0));
+            return self.syscall(nr, a, now_ms);
         }
         // WM_SETTEXT / WM_GETTEXT / WM_GETTEXTLENGTH carry guest pointers: serve them here, against the window's text.
         if matches!(name_of(nr), "SendMessageW" | "SendMessageA" | "DefWindowProcW" | "DefWindowProcA") && matches!(a[1], 0xC | 0xD | 0xE) {
@@ -295,9 +360,93 @@ impl Process {
                 let _ = w.message_box(a[0] as u32, &t.unwrap_or_default(), &c.unwrap_or_default(), a[3] as u32);
                 v(1)
             }
+            "EnumDisplayMonitors" => {
+                // (hdc, clip, MONITORENUMPROC, lparam): one monitor covering the screen; the callback runs in the guest.
+                let rc = self.monitor_rect(w);
+                let p = self.scratch_bytes(&rc);
+                let _ = w.call_window_proc(Proc::User(a[2]), HMONITOR as u32, a[0] as u32, p as usize, a[3] as isize);
+                v(1)
+            }
+            "MonitorFromWindow" | "MonitorFromPoint" | "MonitorFromRect" => v(HMONITOR as i64),
+            "GetMonitorInfoW" => {
+                // MONITORINFO(EX)W: cbSize, rcMonitor, rcWork, dwFlags (MONITORINFOF_PRIMARY), szDevice for the EX form.
+                let size = self.mem.read_u32(a[1]).unwrap_or(0);
+                let rc = self.monitor_rect(w);
+                let mut b = Vec::new();
+                b.extend_from_slice(&size.to_le_bytes());
+                b.extend_from_slice(&rc);
+                b.extend_from_slice(&rc);
+                b.extend_from_slice(&1u32.to_le_bytes());
+                if size >= 104 {
+                    let mut dev = [0u8; 64];
+                    for (i, c) in "\\\\.\\DISPLAY1".encode_utf16().enumerate() {
+                        dev[i * 2..i * 2 + 2].copy_from_slice(&c.to_le_bytes());
+                    }
+                    b.extend_from_slice(&dev);
+                }
+                v(i64::from(self.mem.write(a[1], &b).is_ok()))
+            }
+            "GetDpiForMonitor" => {
+                // (monitor, type, *x, *y) -> S_OK: 96 DPI, the desktop is drawn at 100%.
+                let _ = self.mem.write(a[2], &96u32.to_le_bytes());
+                let _ = self.mem.write(a[3], &96u32.to_le_bytes());
+                v(0)
+            }
+            "GetDpiForWindow" | "GetDpiForSystem" => v(96),
+            // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 (-4): every context is accepted and reported as that one.
+            "GetThreadDpiAwarenessContext" | "SetThreadDpiAwarenessContext" => v(-4),
+            "IsValidDpiAwarenessContext" => v(1),
+            "SystemParametersInfoW" | "SystemParametersInfoForDpi" => v(i64::from(self.system_parameter(w, a[0] as u32, a[1] as u32, a[2]))),
+            "RegisterWindowMessageW" => {
+                // The same name always gets the same message number.
+                let Some(n) = wide(&mut self.mem, a[0]) else { return v(0) };
+                let n = n.to_lowercase();
+                let i = match self.gui_atoms.iter().position(|x| *x == n) {
+                    Some(i) => i,
+                    None => {
+                        self.gui_atoms.push(n);
+                        self.gui_atoms.len() - 1
+                    }
+                };
+                v((MSG_ATOM_BASE + i as u64) as i64)
+            }
+            // A class lookup before registration: "not registered" (ERROR_CLASS_DOES_NOT_EXIST) lets the caller register it.
+            "GetClassInfoW" | "GetClassInfoExW" => {
+                self.set_last_error(1411);
+                v(0)
+            }
+            "CreateBitmap" => v(w.create_bitmap(a[0] as i32, a[1] as i32).map_or(0, i64::from)),
+            "GetKeyboardLayout" => v(0x0409_0409),
+            "GetKeyboardLayoutNameW" => {
+                let mut b = Vec::new();
+                for c in "00000409".encode_utf16().chain(core::iter::once(0)) {
+                    b.extend_from_slice(&c.to_le_bytes());
+                }
+                v(i64::from(self.mem.write(a[0], &b).is_ok()))
+            }
+            "GetKeyboardLayoutList" => {
+                if a[0] != 0 && a[1] != 0 {
+                    let _ = self.mem.write(a[1], &0x0409_0409u64.to_le_bytes());
+                }
+                v(1)
+            }
+            "AddClipboardFormatListener" | "RemoveClipboardFormatListener" | "SetProcessDpiAwarenessContext" => v(1),
+            "AreDpiAwarenessContextsEqual" => v(i64::from(a[0] == a[1])),
+            // CCD display configuration returns Win32 error codes (0 = success): ERROR_NOT_SUPPORTED with zeroed
+            // counts, so callers fall back to the monitor APIs instead of sizing buffers from garbage.
+            "GetDisplayConfigBufferSizes" | "QueryDisplayConfig" => {
+                for p in [a[1], a[2]] {
+                    if name == "GetDisplayConfigBufferSizes" && p != 0 {
+                        let _ = self.mem.write(p, &0u32.to_le_bytes());
+                    }
+                }
+                v(50)
+            }
+            "DisplayConfigGetDeviceInfo" => v(50),
+            "SetClipboardViewer" => v(0),
             "GetSystemMetrics" => v(match a[0] as i32 {
-                0 | 16 | 61 | 78 => 1024, // SCREEN/MAXIMIZED client/MAXTRACK/VIRTUALSCREEN width
-                1 | 17 | 62 | 79 => 768,
+                0 | 16 | 61 | 78 => i64::from(w.screen.0), // SCREEN/MAXIMIZED client/MAXTRACK/VIRTUALSCREEN width
+                1 | 17 | 62 | 79 => i64::from(w.screen.1),
                 2 | 3 | 20 | 21 => 17,    // CX/CYVSCROLL, scroll arrows
                 4 => 24,                  // CYCAPTION
                 5 | 6 => 1,               // CX/CYBORDER

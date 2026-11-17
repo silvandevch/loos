@@ -703,14 +703,24 @@ impl UserMem {
     /// fills demand-zero pages and breaks copy-on-write. Returns the page to (re)map as
     /// `(va, pa, prot)`, or `None` when the access is a genuine fault.
     pub fn handle_fault(&mut self, addr: u64, write: bool) -> Option<(u64, u64, u32)> {
+        self.handle_access(addr, if write { PROT_WRITE } else { PROT_READ | PROT_EXEC })
+    }
+
+    /// [`UserMem::handle_fault`] for an instruction fetch (`exec`), a write, or a read: a fetch from a page without
+    /// execute permission is a genuine fault (remapping it unchanged would fault again forever).
+    pub fn handle_fault_kind(&mut self, addr: u64, write: bool, exec: bool) -> Option<(u64, u64, u32)> {
+        self.handle_access(addr, if write { PROT_WRITE } else if exec { PROT_EXEC } else { PROT_READ | PROT_EXEC })
+    }
+
+    fn handle_access(&mut self, addr: u64, need: u32) -> Option<(u64, u64, u32)> {
         if self.find(addr).is_none() {
             self.grow_stack(addr);
         }
         let r = self.find(addr)?;
-        let need = if write { PROT_WRITE } else { PROT_READ | PROT_EXEC };
         if r.prot & need == 0 {
             return None;
         }
+        let write = need == PROT_WRITE;
         let k = r.start;
         let va = floor(addr);
         let i = ((va - k) / PAGE) as usize;

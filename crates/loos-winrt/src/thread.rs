@@ -28,13 +28,15 @@ pub struct Thread {
     pub done: Option<u32>,
     pub(crate) deadline: Option<u64>,
     pub(crate) yielded: bool,
+    /// Condition-variable wait in progress: (variable, generation when the wait began, woken).
+    pub(crate) cv: Option<(u64, u64, bool)>,
     pub(crate) tls: Vec<u64>,
     pub(crate) last_error: u32,
 }
 
 impl Thread {
     pub(crate) fn main(tid: u64, teb: u64) -> Thread {
-        Thread { tid, teb, entry: 0, param: 0, rsp: 0, done: None, deadline: None, yielded: false, tls: Vec::new(), last_error: 0 }
+        Thread { tid, teb, entry: 0, param: 0, rsp: 0, done: None, deadline: None, yielded: false, cv: None, tls: Vec::new(), last_error: 0 }
     }
 }
 
@@ -52,7 +54,14 @@ const NAMES: &[&str] = &[
     "FlsAlloc", "FlsFree", "FlsGetValue", "FlsSetValue", "EnterCriticalSection", "LeaveCriticalSection", "TryEnterCriticalSection",
     "InitializeCriticalSection", "InitializeCriticalSectionEx", "InitializeCriticalSectionAndSpinCount", "DeleteCriticalSection",
     "SleepEx", "GetLastError", "SetLastError", "ResumeThread", "SuspendThread", "SetThreadPriority", "CloseHandleObj",
+    "InitializeSRWLock", "AcquireSRWLockExclusive", "AcquireSRWLockShared", "TryAcquireSRWLockExclusive", "TryAcquireSRWLockShared",
+    "ReleaseSRWLockExclusive", "ReleaseSRWLockShared", "InitializeConditionVariable", "WakeConditionVariable",
+    "WakeAllConditionVariable", "SleepConditionVariableCS", "SleepConditionVariableSRW", "GetCurrentThread", "DuplicateHandle",
 ];
+
+/// SRWLOCK word while held exclusively (otherwise it counts shared owners).
+const SRW_EXCLUSIVE: u64 = u64::MAX;
+const ERROR_TIMEOUT: u32 = 1460;
 
 /// Syscall number of a thread/synchronisation import.
 pub fn lookup(name: &str) -> Option<u32> {
@@ -342,12 +351,7 @@ impl Process {
             "DeleteCriticalSection" => v(0),
             "EnterCriticalSection" | "TryEnterCriticalSection" => {
                 // CRITICAL_SECTION: RecursionCount @12 (i32), OwningThread @16.
-                let me = self.threads[self.cur].tid;
-                let owner = self.mem.read_u64(a[0] + 16).unwrap_or(0);
-                if owner == 0 || owner == me {
-                    let rec = self.mem.read_u32(a[0] + 12).unwrap_or(0);
-                    let _ = self.mem.write(a[0] + 12, &(rec + 1).to_le_bytes());
-                    let _ = self.mem.write(a[0] + 16, &me.to_le_bytes());
+                if self.cs_take(a[0]) {
                     return v(1);
                 }
                 if name == "TryEnterCriticalSection" { v(0) } else { Some(Ret::Yield) }
@@ -366,7 +370,108 @@ impl Process {
                 v(0)
             }
             "ResumeThread" | "SuspendThread" | "SetThreadPriority" => v(0),
+            "InitializeSRWLock" | "InitializeConditionVariable" => {
+                let _ = self.mem.write(a[0], &0u64.to_le_bytes());
+                v(0)
+            }
+            "AcquireSRWLockExclusive" | "AcquireSRWLockShared" | "TryAcquireSRWLockExclusive" | "TryAcquireSRWLockShared" => {
+                if self.srw_take(a[0], name.contains("Exclusive")) {
+                    return v(1);
+                }
+                if name.starts_with("Try") { v(0) } else { Some(Ret::Yield) }
+            }
+            "ReleaseSRWLockExclusive" | "ReleaseSRWLockShared" => {
+                let w = self.mem.read_u64(a[0]).unwrap_or(0);
+                let nw = if w == SRW_EXCLUSIVE { 0 } else { w.saturating_sub(1) };
+                let _ = self.mem.write(a[0], &nw.to_le_bytes());
+                v(0)
+            }
+            // The variable's word is a wake generation; sleepers wait for it to move.
+            "WakeConditionVariable" | "WakeAllConditionVariable" => {
+                let g = self.mem.read_u64(a[0]).unwrap_or(0).wrapping_add(1);
+                let _ = self.mem.write(a[0], &g.to_le_bytes());
+                v(0)
+            }
+            "SleepConditionVariableCS" | "SleepConditionVariableSRW" => {
+                // (cv, lock, ms[, flags]): release the lock, wait for a wake or the timeout, then take the lock back.
+                let (cv, lock, ms) = (a[0], a[1], a[2] & 0xffff_ffff);
+                let srw = name.ends_with("SRW");
+                let shared = srw && a[3] & 1 != 0; // CONDITION_VARIABLE_LOCKMODE_SHARED
+                let gen = self.mem.read_u64(cv).unwrap_or(0);
+                let i = self.cur;
+                let woken = match self.threads[i].cv {
+                    None => {
+                        self.threads[i].cv = Some((cv, gen, false));
+                        self.threads[i].deadline = (ms != INFINITE).then_some(now_ms + ms);
+                        self.lock_release(lock, srw);
+                        return Some(Ret::Yield);
+                    }
+                    Some((_, start, w)) => w || gen != start,
+                };
+                let timed_out = !woken && self.threads[i].deadline.is_some_and(|d| now_ms >= d);
+                if !woken && !timed_out {
+                    return Some(Ret::Yield);
+                }
+                self.threads[i].cv = Some((cv, 0, true));
+                let got = if srw { self.srw_take(lock, !shared) } else { self.cs_take(lock) };
+                if !got {
+                    return Some(Ret::Yield);
+                }
+                self.threads[i].cv = None;
+                self.threads[i].deadline = None;
+                if timed_out {
+                    self.set_last_error(ERROR_TIMEOUT);
+                    return v(0);
+                }
+                v(1)
+            }
+            "GetCurrentThread" => v(0xffff_ffff_ffff_fffe),
+            "DuplicateHandle" => {
+                // (srcProcess, src, dstProcess, *dst, access, inherit, options): the pseudo thread handle becomes a
+                // real one; other handles are shared as they are.
+                let h = if a[1] == 0xffff_ffff_ffff_fffe { self.new_obj(Obj::Thread(self.cur)) } else { a[1] };
+                if a[3] != 0 {
+                    let _ = self.mem.write(a[3], &h.to_le_bytes());
+                }
+                v(1)
+            }
             _ => None,
+        }
+    }
+
+    /// Takes an SRW lock if it is free (exclusive) or not held exclusively (shared).
+    fn srw_take(&mut self, lock: u64, exclusive: bool) -> bool {
+        let w = self.mem.read_u64(lock).unwrap_or(0);
+        let nw = match (exclusive, w) {
+            (true, 0) => SRW_EXCLUSIVE,
+            (false, n) if n != SRW_EXCLUSIVE => n + 1,
+            _ => return false,
+        };
+        self.mem.write(lock, &nw.to_le_bytes()).is_ok()
+    }
+
+    /// Takes a critical section for the current thread (recursively) if no other thread owns it.
+    fn cs_take(&mut self, cs: u64) -> bool {
+        let me = self.threads[self.cur].tid;
+        let owner = self.mem.read_u64(cs + 16).unwrap_or(0);
+        if owner != 0 && owner != me {
+            return false;
+        }
+        let rec = self.mem.read_u32(cs + 12).unwrap_or(0);
+        let _ = self.mem.write(cs + 12, &(rec + 1).to_le_bytes());
+        let _ = self.mem.write(cs + 16, &me.to_le_bytes());
+        true
+    }
+
+    /// Releases the lock a condition-variable sleeper holds (fully, for a recursive critical section).
+    fn lock_release(&mut self, lock: u64, srw: bool) {
+        if srw {
+            let w = self.mem.read_u64(lock).unwrap_or(0);
+            let nw = if w == SRW_EXCLUSIVE { 0 } else { w.saturating_sub(1) };
+            let _ = self.mem.write(lock, &nw.to_le_bytes());
+        } else {
+            let _ = self.mem.write(lock + 12, &0u32.to_le_bytes());
+            let _ = self.mem.write(lock + 16, &0u64.to_le_bytes());
         }
     }
 

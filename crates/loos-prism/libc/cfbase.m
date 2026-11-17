@@ -61,7 +61,6 @@ static id make(Class c, uint64_t flags) { id o = class_createInstance(c, 0); CF(
 
 /* ------------------------------------------------------------------ NSNull */
 
-@interface NSNull : NSObject @end
 @implementation NSNull
 + (id)null { extern id kCFNull; return kCFNull; }
 - (id)retain { return self; }
@@ -1042,3 +1041,49 @@ const void *CFDateCreate(CFAllocatorRef a, double t) { (void)a; return date_at(t
 double CFDateGetAbsoluteTime(const void *d) { return [(id)d timeIntervalSinceReferenceDate]; }
 double CFDateGetTimeIntervalSinceDate(const void *d, const void *o) { return [(id)d timeIntervalSinceDate:(id)o]; }
 CFIndex CFDateCompare(const void *a, const void *b, void *ctx) { (void)ctx; return [(id)a compare:(id)b]; }
+
+/* ------------------------------------------------------------------ NSEnumerator */
+
+
+@implementation NSEnumerator
+- (id)nextObject { return nil; }
+- (id)allObjects { id a = [NSMutableArray array]; for (id o; (o = [self nextObject]);) [a addObject:o]; return a; }
+- (NSUInteger)countByEnumeratingWithState:(NSFastEnumerationState *)st objects:(id *)buf count:(NSUInteger)n {
+    (void)n;
+    id o = [self nextObject];
+    if (!o) return 0;
+    st->state = 1;
+    st->itemsPtr = buf;
+    st->mutationsPtr = (unsigned long *)self;
+    buf[0] = o;
+    return 1;
+}
+@end
+/* Walks a snapshot array, forwards or backwards. */
+@interface __NSArrayEnumerator : NSEnumerator { @public id _items; NSUInteger _i; BOOL _back; }
+@end
+@implementation __NSArrayEnumerator
+- (id)nextObject {
+    NSUInteger n = [_items count];
+    if (_i >= n) return nil;
+    return [_items objectAtIndex:_back ? n - 1 - _i++ : _i++];
+}
+- (void)dealloc { [_items release]; [super dealloc]; }
+@end
+id _prism_enumerator(id items, BOOL back) {
+    __NSArrayEnumerator *e = [[__NSArrayEnumerator new] autorelease];
+    e->_items = [items copy];
+    e->_back = back;
+    return e;
+}
+@implementation NSArray (Enumerators)
+- (id)objectEnumerator { return _prism_enumerator(self, NO); }
+- (id)reverseObjectEnumerator { return _prism_enumerator(self, YES); }
+@end
+@implementation NSDictionary (Enumerators)
+- (id)keyEnumerator { return _prism_enumerator([self allKeys], NO); }
+- (id)objectEnumerator { return _prism_enumerator([self allValues], NO); }
+@end
+@implementation NSSet (Enumerators)
+- (id)objectEnumerator { return _prism_enumerator([self allObjects], NO); }
+@end

@@ -28,6 +28,21 @@ pub struct Loaded {
     pub unresolved: Vec<String>,
     /// Data symbols and runtime cells of the C runtime.
     pub arena: crate::crt::DataArena,
+    /// Imports from DLLs the runtime does not provide: bound by [`crate::Process::link_imports`] once the guest volume
+    /// is populated (until then their slots hold "unimplemented" stubs).
+    pub deferred: Vec<Deferred>,
+}
+
+/// An executable's import from a DLL file, bound after load.
+pub struct Deferred {
+    /// Address of the IAT slot.
+    pub slot: u64,
+    /// DLL file name as imported.
+    pub dll: String,
+    /// Imported name, or `None` for an ordinal import.
+    pub name: Option<String>,
+    /// Ordinal (ordinal imports only).
+    pub ord: u32,
 }
 
 fn u16_at(b: &[u8], o: usize) -> Result<u16, PeError> {
@@ -138,6 +153,7 @@ pub fn load(mem: &mut UserMem, file: &[u8]) -> Result<Loaded, PeError> {
     let stub_base = base + ceil(size_of_image as u64);
     let mut stubs: Vec<[u8; STUB]> = Vec::new();
     let mut unresolved = Vec::new();
+    let mut deferred = Vec::new();
     let arena_base = mem.map_anywhere(0x8000, PROT_READ | PROT_WRITE, &[], "crtdata").unwrap_or(0);
     let mut arena = crate::crt::DataArena::new(arena_base, 0x8000);
     let exit_stub_index = {
@@ -176,6 +192,10 @@ pub fn load(mem: &mut UserMem, file: &[u8]) -> Result<Loaded, PeError> {
                         }
                     }
                 }
+                if !crate::dll::is_builtin(&dll) {
+                    let name = if thunk >> 63 != 0 { None } else { Some(String::from(cstr(&img, thunk as usize + 2)?)) };
+                    deferred.push(Deferred { slot: base + slot as u64, dll: dll.clone(), name, ord: (thunk & 0xffff) as u32 });
+                }
                 let nr = if thunk >> 63 != 0 {
                     unresolved.push(alloc::format!("{dll}!#{}", thunk & 0xffff));
                     api::UNRESOLVED_BASE + unresolved.len() as u32 - 1
@@ -210,7 +230,7 @@ pub fn load(mem: &mut UserMem, file: &[u8]) -> Result<Loaded, PeError> {
     }
     let flat: Vec<u8> = stubs.iter().flatten().copied().collect();
     mem.map_fixed(stub_base, flat.len() as u64, PROT_READ | PROT_EXEC, &flat, "stubs").map_err(|_| PeError::NoMemory)?;
-    Ok(Loaded { entry: base + entry_rva, base, exit_stub: stub_base + (exit_stub_index * STUB) as u64, cb_stub: stub_base + STUB as u64, thread_exit_stub: stub_base + 2 * STUB as u64, unresolved, arena })
+    Ok(Loaded { entry: base + entry_rva, base, exit_stub: stub_base + (exit_stub_index * STUB) as u64, cb_stub: stub_base + STUB as u64, thread_exit_stub: stub_base + 2 * STUB as u64, unresolved, arena, deferred })
 }
 
 /// One import of an image: by name or by ordinal, with the RVA of its IAT slot.

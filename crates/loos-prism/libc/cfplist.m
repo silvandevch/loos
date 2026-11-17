@@ -11,6 +11,27 @@ const void *CFNumberCreate(CFAllocatorRef, CFIndex, const void *);
 extern struct cfobj __kCFBooleanTrue, __kCFBooleanFalse;
 
 enum { IMMUTABLE = 0, MUTABLE_CONTAINERS = 1, MUTABLE_ALL = 2 };
+
+/* A keyed archive's object reference (binary plist UID), as CF represents it. */
+#define T_UID 41
+@interface __NSCFKeyedArchiverUID : NSObject { @public uint32_t _v; }
+@end
+@implementation __NSCFKeyedArchiverUID
+- (CFTypeID)_cfTypeID { return T_UID; }
+- (BOOL)isEqual:(id)o { return o == self || (cf_is(o, objc_getClass("__NSCFKeyedArchiverUID")) && ((__NSCFKeyedArchiverUID *)o)->_v == _v); }
+- (NSUInteger)hash { return _v; }
+- (id)copyWithZone:(NSZone *)z { (void)z; return [self retain]; }
+- (id)description { return [NSString stringWithFormat:CFSTR("<CFKeyedArchiverUID %p [%p]>{value = %u}"), self, (void *)0, _v]; }
+@end
+id _prism_uid(uint32_t v) {
+    __NSCFKeyedArchiverUID *u = [[__NSCFKeyedArchiverUID new] autorelease];
+    u->_v = v;
+    return u;
+}
+/* The value of a UID object, or -1 when `o` is not one. */
+long _prism_uid_value(id o) { return cf_is(o, objc_getClass("__NSCFKeyedArchiverUID")) ? ((__NSCFKeyedArchiverUID *)o)->_v : -1; }
+uint32_t _CFKeyedArchiverUIDGetValue(id o) { return (uint32_t)_prism_uid_value(o); }
+id _CFKeyedArchiverUIDCreate(CFAllocatorRef a, uint32_t v) { (void)a; return [_prism_uid(v) retain]; }
 enum { FORMAT_OPENSTEP = 1, FORMAT_XML = 100, FORMAT_BINARY = 200 };
 
 /* ------------------------------------------------------------------ records → objects */
@@ -49,10 +70,7 @@ static id build(const struct rec *r, unsigned long n, unsigned long *i, unsigned
         id d = [NSData dataWithBytes:(void *)x->a length:x->n];
         return opts == MUTABLE_ALL ? [[d mutableCopy] autorelease] : d;
     }
-    case 9: { /* a keyed archive's UID: a one-entry dictionary, as CF shows it */
-        long long v = (long long)x->a;
-        return [NSDictionary dictionaryWithObject:[(id)CFNumberCreate(0, 4, &v) autorelease] forKey:CFSTR("CF$UID")];
-    }
+    case 9: return _prism_uid((uint32_t)x->a);
     }
     return nil;
 }
@@ -96,6 +114,8 @@ static BOOL flatten(id v, struct out *o, int depth) {
         } else {
             push(o, (struct rec){4, 0, (uint64_t)[v longLongValue], 0});
         }
+    } else if (t == T_UID) {
+        push(o, (struct rec){9, 0, ((__NSCFKeyedArchiverUID *)v)->_v, 0});
     } else if (t == 42) {
         double d = [v timeIntervalSinceReferenceDate];
         uint64_t b;
@@ -124,7 +144,7 @@ static id serialize(id v, unsigned long format) {
     @autoreleasepool {
         if (flatten(v, &o, 0)) {
             unsigned long len = 0;
-            void *p = __prism_cf_plist_write(o.r, o.n, format == FORMAT_BINARY ? FORMAT_BINARY : FORMAT_XML, &len);
+            void *p = __prism_cf_plist_write(o.r, o.n, format == FORMAT_BINARY || format == FORMAT_OPENSTEP ? format : FORMAT_XML, &len);
             if (p) data = [[NSData alloc] initWithBytesNoCopy:p length:len freeWhenDone:YES];
         }
     }
@@ -197,7 +217,6 @@ Boolean CFPropertyListIsValid(id plist, CFIndex format) {
     return ok;
 }
 
-@interface NSPropertyListSerialization : NSObject @end
 @implementation NSPropertyListSerialization
 + (id)propertyListWithData:(id)data options:(NSUInteger)opts format:(NSUInteger *)format error:(id *)error {
     unsigned long f = 0;
@@ -221,7 +240,7 @@ Boolean CFPropertyListIsValid(id plist, CFIndex format) {
     if (err) *err = d ? nil : CFSTR("Property list invalid for format");
     return d;
 }
-+ (BOOL)propertyListIsValidForFormat:(NSUInteger)format { return format == FORMAT_XML || format == FORMAT_BINARY; }
++ (BOOL)propertyListIsValidForFormat:(NSUInteger)format { return format == FORMAT_XML || format == FORMAT_BINARY || format == FORMAT_OPENSTEP; }
 + (BOOL)propertyList:(id)plist isValidForFormat:(NSUInteger)format { return CFPropertyListIsValid(plist, format); }
 @end
 
@@ -240,6 +259,23 @@ Boolean CFPropertyListIsValid(id plist, CFIndex format) {
 - (BOOL)writeToFile:(id)path atomically:(BOOL)a { return write_file(path, self, a); }
 - (BOOL)writeToFile:(id)path options:(NSUInteger)o error:(id *)e { if (e) *e = nil; return write_file(path, self, o & 1); }
 - (BOOL)writeToURL:(id)url atomically:(BOOL)a { return [url isFileURL] && write_file([url path], self, a); }
+@end
+
+@implementation NSDictionary (StringsFile)
+/* `"key" = "value";` lines, the format of .strings files. */
+- (id)descriptionInStringsFileFormat {
+    id d = serialize(self, FORMAT_OPENSTEP);
+    if (!d) return nil;
+    id s = [[[NSString alloc] initWithBytes:[d bytes] length:[d length] encoding:4] autorelease];
+    /* drop the braces and the indentation of the top-level dictionary */
+    id out = [NSMutableString string];
+    for (id line in [s componentsSeparatedByString:CFSTR("\n")]) {
+        if ([line isEqual:CFSTR("{")] || [line isEqual:CFSTR("}")] || ![line length]) continue;
+        [out appendString:[line hasPrefix:CFSTR("    ")] ? [line substringFromIndex:4] : line];
+        [out appendString:CFSTR("\n")];
+    }
+    return out;
+}
 @end
 
 @implementation NSString (Files)
@@ -293,3 +329,6 @@ Boolean CFPropertyListIsValid(id plist, CFIndex format) {
     @end
 COLLECTION_FILES(NSDictionary, dictionary)
 COLLECTION_FILES(NSArray, array)
+
+id _prism_plist_data(id plist, unsigned long format) { return serialize(plist, format); }
+BOOL _prism_write_file(id path, id data, BOOL atomically) { return write_file(path, data, atomically); }

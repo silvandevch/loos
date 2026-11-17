@@ -50,6 +50,10 @@ fn build(src: &Path, out: &Path) -> Result<Vec<u8>, String> {
             if f.extension().is_some_and(|x| x == "m") {
                 cc.args(["-x", "objective-c", "-fno-objc-arc", "-fobjc-runtime=macosx-11.0"]);
             }
+            if arch == "x86_64" {
+                // Apple's default CPU (Penryn) has SSE4.1; the runtime must also run on baseline x86-64.
+                cc.arg("-march=x86-64");
+            }
             run(cc.args(["-target", &format!("{arch}-apple-macos11"), "-O2", "-fno-vectorize", "-fno-slp-vectorize", "-ffreestanding", "-nostdlibinc", "-fno-stack-protector", "-fno-builtin", "-funwind-tables", "-Wall", "-Wno-unused-function", "-Werror=objc-method-access", "-c"]).arg(f).arg("-o").arg(&o))?;
             objs.push(o);
         }

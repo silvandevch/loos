@@ -7,27 +7,35 @@
 set -u
 here=$(cd "$(dirname "$0")" && pwd); root=$here/..
 app=${1:-}
-# Data every desktop toolkit needs: fonts, icons, schemas, keyboard layouts, MIME database.
-common="/etc/fonts /usr/share/fonts/adwaita-sans-fonts /usr/share/fonts/google-noto-vf /usr/share/glib-2.0/schemas /usr/share/icons/Adwaita /usr/share/icons/hicolor /usr/share/xkeyboard-config-2 /usr/share/mime /usr/bin/bash /usr/bin/sh /usr/bin/uname /usr/bin/getconf"
+# Data every desktop toolkit needs: fonts, icons, schemas, keyboard layouts, MIME database, and glycin's image
+# loaders (gdk-pixbuf decodes PNG/SVG icons through them; GTK aborts when none is configured).
+common="/usr/share/glycin-loaders /usr/libexec/glycin-loaders /etc/fonts /usr/share/fonts/adwaita-sans-fonts /usr/share/fonts/google-noto-vf /usr/share/glib-2.0/schemas /usr/share/icons/Adwaita /usr/share/icons/hicolor /usr/share/xkeyboard-config-2 /usr/share/mime /usr/bin/bash /usr/bin/sh /usr/bin/uname /usr/bin/getconf"
 qt="/usr/lib64/qt6/plugins/platforms /usr/lib64/qt6/plugins/wayland-shell-integration /usr/lib64/qt6/plugins/wayland-decoration-client /usr/lib64/qt6/plugins/wayland-graphics-integration-client /usr/lib64/qt6/plugins/imageformats /usr/lib64/qt6/plugins/iconengines /usr/lib64/qt6/plugins/xcbglintegrations /usr/lib64/qt6/plugins/platformthemes /usr/lib64/qt6/plugins/styles /usr/share/icons/breeze"
 # Discord installs itself per user; only the program folder is shipped (never the user's profile).
 discord=$(ls -d "$HOME"/.config/discord/app-* 2>/dev/null | sort -V | tail -1)
 # Chromium-based apps dlopen NSS's crypto modules (not visible to ldd).
 nss="/usr/lib64/libsoftokn3.so /usr/lib64/libfreeblpriv3.so /usr/lib64/libfreebl3.so /usr/lib64/libnssckbi.so"
 electron="--no-sandbox --ozone-platform=wayland --disable-gpu --disable-gpu-compositing --no-zygote --disable-dev-shm-usage --in-process-gpu"
+# macOS Electron apps (Prism runs them on Linux Electron): slim copies of the .app bundles from a Mac
+# (Contents/Info.plist, MacOS, Resources and the Electron Framework's Info.plist) in out/mac-apps/;
+# Linux Electron installs on this host stand in as the runtimes in /usr/lib/prism/electron/<major>.
+mac=${MAC_APPS:-$root/out/mac-apps}; pe=/usr/lib/prism/electron
 # name | rootfs paths (besides $common) | environment | command line | keys to type (QEMU names; default l o o s)
 table() { cat <<EOF
-firefox|/usr/lib64/firefox /usr/lib64/libgtk-3.so.0 /usr/lib64/gdk-pixbuf-2.0|MOZ_DISABLE_CONTENT_SANDBOX=1 MOZ_CRASHREPORTER_DISABLE=1|/usr/lib64/firefox/firefox --no-remote --profile /tmp/ffprofile about:blank
+firefox|/usr/lib64/firefox /usr/lib64/libgtk-3.so.0 /usr/lib64/gdk-pixbuf-2.0|MOZ_DISABLE_CONTENT_SANDBOX=1 MOZ_CRASHREPORTER_DISABLE=1 HOME=/tmp|/usr/lib64/firefox/firefox --no-remote about:blank|ctrl-l l o o s
 kcalc|$qt /usr/bin/kcalc|QT_QPA_PLATFORM=wayland QT_QUICK_BACKEND=software|/usr/bin/kcalc|1 2 3
 kwrite|$qt /usr/bin/kwrite /usr/lib64/qt6/plugins/kf6 /usr/share/katepart5 /usr/share/kf6|QT_QPA_PLATFORM=wayland|/usr/bin/kwrite
 vscode|$nss /usr/share/code /usr/bin/code|ELECTRON_DISABLE_SANDBOX=1|/usr/share/code/code $electron --user-data-dir=/tmp/code --disable-extensions
 discord|$nss $discord|ELECTRON_DISABLE_SANDBOX=1|$discord/Discord $electron --user-data-dir=/tmp/discord
+mac-discord|$nss $discord=$pe/44 ln:$pe/44/electron=Discord $discord/updater.node=$pe/apps/com.hnc.Discord/updater.node $mac/Discord.app=/Applications/Discord.app||/Applications/Discord.app|tab tab
+mac-claude|$nss $discord=$pe/44 ln:$pe/44/electron=Discord $mac/Claude.app=/Applications/Claude.app||/Applications/Claude.app
+mac-vscode|$nss /usr/share/code=$pe/42 ln:$pe/42/electron=code $mac/VSCode.app=/Applications/VSCode.app||/Applications/VSCode.app --disable-extensions
 EOF
 }
 if [ -z "$app" ] || [ "$app" = list ]; then table | cut -d'|' -f1; exit 0; fi
 line=$(table | grep "^$app|") || { echo "unknown app $app (lin_app_test.sh list)"; exit 2; }
 IFS='|' read -r _ files envs cmd keys <<< "$line"
-files=$(for f in $common $files; do [ -e "$f" ] && echo "$f"; done)   # skip what this host lacks
+files=$(for f in $common $files; do s=${f%%=/*}; case $f in ln:*) echo "$f" ;; *) [ -e "$s" ] && echo "$f" ;; esac; done)   # skip what this host lacks
 out=${LOOS_BOOT_OUT:-$root/out/lin-app/$app}; mkdir -p "$out"; out=$(cd "$out" && pwd)
 args=$out/app.args              # too long for the kernel command line: loos.lin=@file reads it from the rootfs
 {

@@ -143,6 +143,16 @@ id _prism_cf_describe(id o) { return o ? [o description] : _prism_cf_string("(nu
 }
 - (NSRange)rangeOfString:(NSString *)o options:(NSUInteger)opts { return [self rangeOfString:o options:opts range:(NSRange){0, [self length]}]; }
 - (NSRange)rangeOfString:(NSString *)o { return [self rangeOfString:o options:0]; }
+- (id)componentsSeparatedByString:(NSString *)sep {
+    id out = [NSMutableArray array];
+    NSUInteger at = 0, n = [self length];
+    for (;;) {
+        NSRange r = [sep length] ? [self rangeOfString:sep options:0 range:(NSRange){at, n - at}] : (NSRange){NSNotFound, 0};
+        if (r.location == NSNotFound) { [out addObject:[self substringFromIndex:at]]; return out; }
+        [out addObject:[self substringWithRange:(NSRange){at, r.location - at}]];
+        at = r.location + r.length;
+    }
+}
 - (BOOL)containsString:(NSString *)o { return [self rangeOfString:o].length != 0; }
 - (BOOL)hasPrefix:(NSString *)o { return [self rangeOfString:o options:8].length != 0; }
 - (BOOL)hasSuffix:(NSString *)o { return [self rangeOfString:o options:8 | 4].length != 0; }

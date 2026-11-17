@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Builds a Linux root filesystem tar for the LoOS Linux layer from host binaries and every shared library they need.
 #   lin-rootfs.sh out.tar /usr/bin/echo /usr/bin/ls ...     (files land at the same path; /bin -> /usr/bin)
+#   src=/dst                                                (a file or folder staged at another path)
+#   ln:/dst=target                                          (a symbolic link)
 set -euo pipefail
 out=$1; shift
 here=$(cd "$(dirname "$0")" && pwd)
@@ -12,6 +14,16 @@ add() {                         # copy a file (and its symlink target) keeping i
 deps() { ldd "$1" 2>/dev/null | { grep -o '/[^ ]*' | sort -u | while read -r l; do [ -e "$l" ] && add "$l"; done || true; } || true; }
 # A directory argument is copied whole (minus tests, caches and site-packages); shared objects inside pull in their libraries.
 for b in "$@"; do
+    if [[ $b == ln:/* ]]; then
+        l=${b#ln:}; dst=${l%%=*}; mkdir -p "$stage$(dirname "$dst")"; ln -sfn "${l#*=}" "$stage$dst"
+        continue
+    fi
+    if [[ $b == *=/* ]]; then
+        src=${b%%=/*}; dst=/${b#*=/}; mkdir -p "$stage$(dirname "$dst")"
+        if [ -d "$src" ]; then mkdir -p "$stage$dst"; tar -C "$src" -cf - . | tar -C "$stage$dst" -xf -; else cp -L "$src" "$stage$dst"; fi
+        find "$src" -type f \( -name '*.so*' -o -perm -u+x \) | while read -r s; do if head -c4 "$s" | grep -q ELF; then deps "$s"; fi; done
+        continue
+    fi
     if [ -d "$b" ]; then
         mkdir -p "$stage$b"
         tar -C "$b" --exclude=test --exclude=tests --exclude=__pycache__ --exclude=site-packages --exclude=idlelib --exclude=tkinter -cf - . | tar -C "$stage$b" -xf -

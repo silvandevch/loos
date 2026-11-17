@@ -450,6 +450,20 @@ impl LinFs for MemFs {
         self.insert(path, Node::Link(target.into()), 0o777);
         Ok(())
     }
+    /// A snapshot copy that shares boot-image contents, so linking a large file from the initrd costs nothing.
+    fn link(&mut self, from: &str, to: &str) -> Result<(), i64> {
+        let e = self.ents.get(from).ok_or(ENOENT)?;
+        let Node::File(d) = &e.node else { return Err(EPERM) };
+        if self.ents.contains_key(to) {
+            return Err(EEXIST);
+        }
+        if !self.ents.contains_key(&Self::parent(to)) {
+            return Err(ENOENT);
+        }
+        let (node, mode) = (Node::File(d.clone()), e.mode);
+        self.insert(to, node, mode);
+        Ok(())
+    }
     fn list(&mut self, path: &str) -> Result<Vec<DirEnt>, i64> {
         match self.ents.get(path).ok_or(ENOENT)?.node {
             Node::Dir => {}
