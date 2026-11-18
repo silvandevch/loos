@@ -24,8 +24,8 @@ mac=${MAC_APPS:-$root/out/mac-apps}; pe=/usr/lib/prism/electron
 table() { cat <<EOF
 firefox|/usr/lib64/firefox /usr/lib64/libgtk-3.so.0 /usr/lib64/gdk-pixbuf-2.0|MOZ_DISABLE_CONTENT_SANDBOX=1 MOZ_CRASHREPORTER_DISABLE=1 HOME=/tmp|/usr/lib64/firefox/firefox --no-remote about:blank|ctrl-l l o o s
 kcalc|$qt /usr/bin/kcalc|QT_QPA_PLATFORM=wayland QT_QUICK_BACKEND=software|/usr/bin/kcalc|1 2 3
-kwrite|$qt /usr/bin/kwrite /usr/lib64/qt6/plugins/kf6 /usr/share/katepart5 /usr/share/kf6|QT_QPA_PLATFORM=wayland|/usr/bin/kwrite
-vscode|$nss /usr/share/code /usr/bin/code|ELECTRON_DISABLE_SANDBOX=1|/usr/share/code/code $electron --user-data-dir=/tmp/code --disable-extensions
+kwrite|$qt /usr/bin/kwrite /usr/lib64/qt6/plugins/kf6 /usr/share/katepart5 /usr/share/kf6|QT_QPA_PLATFORM=wayland|/usr/bin/kwrite|ctrl-n l o o s
+vscode|$nss /usr/share/code /usr/bin/code /usr/bin/bash|ELECTRON_DISABLE_SANDBOX=1 SHELL=/usr/bin/bash|/usr/share/code/code $electron --user-data-dir=/tmp/code --disable-extensions|ctrl-n l o o s
 discord|$nss $discord|ELECTRON_DISABLE_SANDBOX=1|$discord/Discord $electron --user-data-dir=/tmp/discord
 mac-discord|$nss $discord=$pe/44 ln:$pe/44/electron=Discord $discord/updater.node=$pe/apps/com.hnc.Discord/updater.node $mac/Discord.app=/Applications/Discord.app||/Applications/Discord.app|tab tab
 mac-claude|$nss $discord=$pe/44 ln:$pe/44/electron=Discord $mac/Claude.app=/Applications/Claude.app||/Applications/Claude.app

@@ -225,25 +225,21 @@ fn maximize_and_fullscreen_configure_a_real_size() {
 }
 
 #[test]
-fn buffers_are_released_when_replaced_not_on_commit() {
+fn buffers_are_released_once_copied_on_commit() {
     let mut s = connected();
     bind(&mut s, "wl_shm", 1, 10);
     bind(&mut s, "wl_compositor", 5, 30);
     let buf = Rc::new(RefCell::new(PageBuf::default()));
     s.receive_with_fds(&req(10, 0, u32s(&[20, 8])), &[SharedFd { buf }]).unwrap();
     s.receive(&req(20, 0, u32s(&[21, 0, 1, 1, 4, 0]))).unwrap(); // buffer A
-    s.receive(&req(20, 0, u32s(&[22, 4, 1, 1, 4, 0]))).unwrap(); // buffer B
     s.receive(&req(30, 0, u32s(&[31]))).unwrap();
     s.take_events();
-    let released = |s: &mut Server, b: u32| events(s).iter().any(|e| e.0 == b && e.1 == 0);
+    let released = |s: &mut Server, b: u32| events(s).iter().filter(|e| e.0 == b && e.1 == 0).count();
     s.receive(&req(31, 1, u32s(&[21, 0, 0]))).unwrap();
+    assert_eq!(released(&mut s, 21), 0, "attached, not yet committed: still the client's to fill");
     s.receive(&req(31, 6, vec![])).unwrap();
-    assert!(!released(&mut s, 21), "A is on screen: held");
-    s.receive(&req(31, 6, vec![])).unwrap(); // commit without a new buffer keeps A
-    assert!(!released(&mut s, 21));
-    s.receive(&req(31, 1, u32s(&[22, 0, 0]))).unwrap();
-    s.receive(&req(31, 6, vec![])).unwrap();
-    assert!(released(&mut s, 21), "B replaced A: A released");
+    assert_eq!(released(&mut s, 21), 1, "commit copied A: released at once");
+    s.receive(&req(31, 6, vec![])).unwrap(); // commit without a new buffer reuses the copy
     s.receive(&req(31, 0, vec![])).unwrap(); // surface destroyed
-    assert!(released(&mut s, 22), "B released with its surface");
+    assert_eq!(released(&mut s, 21), 0, "never released twice");
 }

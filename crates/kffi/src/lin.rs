@@ -592,6 +592,16 @@ impl Lin {
                 }
             }
         }
+        // Threads of the busiest process that made no syscall in these 10 s, with what they sleep in: a
+        // renderer or compositor thread stuck on a lost wake-up shows here while the main thread keeps running.
+        if let Some(pid) = hot.first().and_then(|((t, _), _)| self.sys.thread(*t)).map(|t| t.pid) {
+            let quiet: Vec<String> = self.sys.threads().filter(|t| t.pid == pid && !hot.iter().any(|((h, _), _)| *h == t.tid)).map(|t| {
+                let last = t.recent.back().map_or(String::from("-"), |(nr, a, _)| alloc::format!("{}({:#x},{:#x})", loos_lin::syscalls_generated::syscall_name(*nr), a[0], a[1]));
+                let st = if matches!(t.state, loos_lin::sys::TState::Blocked { .. }) { "blocked" } else { "run" };
+                alloc::format!("{}:{}:{st}:{last}", t.tid, t.name)
+            }).collect();
+            say(&alloc::format!("lin:   quiet threads of {pid}: {}\n", quiet.join(" ")));
+        }
         // Who the busiest thread is and its last few calls (enough to tell a loop's shape).
         if let Some(((t, _), _)) = hot.first() {
             if let Some(p) = self.sys.thread(*t).and_then(|th| self.sys.process(th.pid)) {

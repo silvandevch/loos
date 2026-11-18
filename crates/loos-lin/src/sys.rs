@@ -692,6 +692,10 @@ impl<F: LinFs> LinSystem<F> {
     pub fn thread(&self, tid: Pid) -> Option<&Thread> {
         self.threads.get(&tid)
     }
+    /// All threads, by tid.
+    pub fn threads(&self) -> impl Iterator<Item = &Thread> {
+        self.threads.values()
+    }
     /// Mutable thread.
     pub fn thread_mut(&mut self, tid: Pid) -> Option<&mut Thread> {
         self.threads.get_mut(&tid)

@@ -386,9 +386,6 @@ impl Server {
                     }
                 }
                 Iface::Surface => {
-                    if let Some(b) = o.surf.as_ref().and_then(|s| s.attached) {
-                        self.release_buffer(b);
-                    }
                     self.closed.push(id);
                     if self.pointer_focus == Some(id) {
                         self.pointer_focus = None;
@@ -702,13 +699,7 @@ impl Server {
         let cbs = core::mem::take(&mut s.pending_cbs);
         s.frame_cbs.extend(cbs);
         let Some(b) = s.pending.take() else { return self.present_tree(id) };
-        let previous = s.attached;
         s.attached = if b == 0 { None } else { Some(b) };
-        // The compositor holds the attached buffer until a newer one replaces it (as desktop
-        // compositors do); toolkits pace and recycle their buffers on that release.
-        if let Some(old) = previous.filter(|&old| Some(old) != self.surf(id).attached) {
-            self.release_buffer(old);
-        }
         match self.surf(id).attached {
             None => {
                 let s = self.surf(id);
@@ -725,6 +716,9 @@ impl Server {
                 let s = self.surf(id);
                 s.pixels = pixels;
                 s.size = (buffer.width, buffer.height);
+                // The pixels are copied, so the client gets the buffer back at once (as wlroots does for
+                // shm): toolkits that keep a single buffer per surface (Firefox) redraw only into a released one.
+                self.release_buffer(bid);
             }
         }
         self.present_tree(id)
