@@ -3,7 +3,7 @@
 //! services exist, and by every host test. Nothing here touches the network or the disk.
 #![allow(missing_docs)]
 
-use crate::backend::{FsEntry, FsVolume, FwRule, NetConn, PsProc, ShellBackend};
+use crate::backend::{FsEntry, FsVolume, FwRule, NetConn, PsProc, ShellBackend, FSA_EXEC};
 use crate::ffi::c_bytes;
 use alloc::vec::Vec;
 use core::ffi::{c_char, c_void};
@@ -46,6 +46,7 @@ pub struct MemBackend {
     vol: Vec<FsVolume>,
     proc_: Vec<PsProc>,
     file: Vec<File>,
+    mounts: Vec<(Vec<u8>, ShellBackend)>,
 }
 
 fn copy_str<const N: usize>(dst: &mut [u8; N], src: &[u8]) {
@@ -99,6 +100,7 @@ impl MemBackend {
             vol: Vec::new(),
             proc_: Vec::new(),
             file: Vec::new(),
+            mounts: Vec::new(),
         }
     }
 
@@ -116,9 +118,32 @@ impl MemBackend {
                 fp!(perm_apps), fp!(perm_get), fp!(perm_set), fp!(perm_state), fp!(perm_reset),
                 fp!(fs_list), fp!(fs_stat), fp!(fs_mkdir), fp!(fs_remove), fp!(fs_rename), fp!(fs_copy),
                 fp!(fs_read), fp!(fs_write), fp!(fs_volumes), fp!(ps_snapshot), fp!(ps_kill),
-                fp!(cfg_get), fp!(cfg_set),
+                fp!(cfg_get), fp!(cfg_set), fp!(fs_set_exec),
             ],
         }
+    }
+
+    /// Show another backend's file system under `prefix` (e.g. the compat runtime's root at "/programs"): its
+    /// folder appears in the parent, a volume is listed, and every file call below `prefix` goes there with
+    /// the path made relative to it.
+    pub fn mount(&mut self, prefix: &str, label: &str, fstype: &str, total: u64, avail: u64, be: ShellBackend) -> bool {
+        let p = norm(prefix.as_bytes());
+        if p == b"/" || self.mounts.iter().any(|(m, _)| *m == p) {
+            return false;
+        }
+        if self.node_find(&p).is_none() && !self.add_node_b(&p, true, 0, 1_700_000_000, FSA_READONLY) {
+            return false;
+        }
+        self.add_volume(prefix, label, fstype, total, avail, false);
+        self.mounts.push((p, be));
+        true
+    }
+    /// The backend and NUL-terminated inner path for `p` when it lies in a mount.
+    fn route(&self, p: &[u8]) -> Option<(ShellBackend, Vec<u8>)> {
+        let (pre, be) = self.mounts.iter().find(|(m, _)| under(p, m))?;
+        let mut inner = if p.len() == pre.len() { b"/".to_vec() } else { p[pre.len()..].to_vec() };
+        inner.push(0);
+        Some((*be, inner))
     }
 
     // ---- config
@@ -473,6 +498,9 @@ unsafe extern "C" fn perm_reset(u: *mut c_void, app: *const c_char, r: i32) -> b
 unsafe extern "C" fn fs_list(u: *mut c_void, path: *const c_char, out: *mut c_void, max: i32) -> i32 {
     let m = unsafe { m(u) };
     let p = norm(unsafe { c_bytes(path) });
+    if let Some((be, inner)) = m.route(&p) {
+        return be.fs_list(inner.as_ptr() as *const c_char, out, max);
+    }
     if p != b"/" && !m.node_find(&p).map_or(false, |i| m.node[i].dir) {
         return -1;
     }
@@ -492,6 +520,9 @@ unsafe extern "C" fn fs_list(u: *mut c_void, path: *const c_char, out: *mut c_vo
 unsafe extern "C" fn fs_stat(u: *mut c_void, path: *const c_char, out: *mut FsEntry) -> bool {
     let m = unsafe { m(u) };
     let p = norm(unsafe { c_bytes(path) });
+    if let Some((be, inner)) = m.route(&p) {
+        return be.fs_stat(inner.as_ptr() as *const c_char, out);
+    }
     let Some(o) = (unsafe { out.as_mut() }) else { return false };
     match m.node_find(&p) {
         Some(i) => {
@@ -510,11 +541,17 @@ unsafe extern "C" fn fs_stat(u: *mut c_void, path: *const c_char, out: *mut FsEn
 unsafe extern "C" fn fs_mkdir(u: *mut c_void, path: *const c_char) -> bool {
     let m = unsafe { m(u) };
     let p = norm(unsafe { c_bytes(path) });
+    if let Some((be, inner)) = m.route(&p) {
+        return be.fs_mkdir(inner.as_ptr() as *const c_char);
+    }
     m.parent_is_dir(&p) && m.add_node_b(&p, true, 0, 1_700_000_000, 0)
 }
 unsafe extern "C" fn fs_read(u: *mut c_void, path: *const c_char, out: *mut c_char, cap: usize) -> i64 {
     let m = unsafe { m(u) };
     let p = norm(unsafe { c_bytes(path) });
+    if let Some((be, inner)) = m.route(&p) {
+        return be.fs_read(inner.as_ptr() as *const c_char, out, cap);
+    }
     match m.node_find(&p) {
         Some(n) if !m.node[n].dir => {
             let data: &[u8] = m.file_find(&p).map_or(&[], |f| &m.file[f].data);
@@ -531,12 +568,18 @@ unsafe extern "C" fn fs_read(u: *mut c_void, path: *const c_char, out: *mut c_ch
 unsafe extern "C" fn fs_write(u: *mut c_void, path: *const c_char, data: *const c_char, len: usize) -> bool {
     let m = unsafe { m(u) };
     let p = norm(unsafe { c_bytes(path) });
+    if let Some((be, inner)) = m.route(&p) {
+        return be.fs_write(inner.as_ptr() as *const c_char, data, len);
+    }
     let d: &[u8] = if len == 0 || data.is_null() { &[] } else { unsafe { core::slice::from_raw_parts(data as *const u8, len) } };
     m.write(&p, d)
 }
 unsafe extern "C" fn fs_remove(u: *mut c_void, path: *const c_char) -> bool {
     let m = unsafe { m(u) };
     let p = norm(unsafe { c_bytes(path) });
+    if let Some((be, inner)) = m.route(&p) {
+        return be.fs_remove(inner.as_ptr() as *const c_char);
+    }
     match m.node_find(&p) {
         Some(i) if m.node[i].attrs & FSA_READONLY == 0 => {
             m.node.retain(|n| !under(&n.path, &p));
@@ -554,6 +597,14 @@ fn rebase(path: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
 unsafe extern "C" fn fs_rename(u: *mut c_void, from: *const c_char, to: *const c_char) -> bool {
     let m = unsafe { m(u) };
     let (f, t) = (norm(unsafe { c_bytes(from) }), norm(unsafe { c_bytes(to) }));
+    match (m.route(&f), m.route(&t)) {
+        (None, None) => {}
+        // within one mounted file system: its own call; across file systems: not supported (yet)
+        (Some((a, fi)), Some((_, ti))) if m.mounts.iter().any(|(pre, _)| under(&f, pre) && under(&t, pre)) => {
+            return a.fs_rename(fi.as_ptr() as *const c_char, ti.as_ptr() as *const c_char);
+        }
+        _ => return false,
+    }
     let Some(i) = m.node_find(&f) else { return false };
     if m.node_find(&t).is_some() || !m.parent_is_dir(&t) {
         return false;
@@ -572,6 +623,14 @@ unsafe extern "C" fn fs_rename(u: *mut c_void, from: *const c_char, to: *const c
 unsafe extern "C" fn fs_copy(u: *mut c_void, from: *const c_char, to: *const c_char) -> bool {
     let m = unsafe { m(u) };
     let (f, t) = (norm(unsafe { c_bytes(from) }), norm(unsafe { c_bytes(to) }));
+    match (m.route(&f), m.route(&t)) {
+        (None, None) => {}
+        // within one mounted file system: its own call; across file systems: not supported (yet)
+        (Some((a, fi)), Some((_, ti))) if m.mounts.iter().any(|(pre, _)| under(&f, pre) && under(&t, pre)) => {
+            return a.fs_copy(fi.as_ptr() as *const c_char, ti.as_ptr() as *const c_char);
+        }
+        _ => return false,
+    }
     let Some(i) = m.node_find(&f) else { return false };
     if m.node_find(&t).is_some() || !m.parent_is_dir(&t) || (m.node[i].dir && under(&t, &f)) {
         return false;
@@ -639,6 +698,21 @@ unsafe extern "C" fn cfg_set(u: *mut c_void, key: *const c_char, val: *const c_c
     unsafe { m(u) }.set_cfg(unsafe { c_bytes(key) }, unsafe { c_bytes(val) })
 }
 
+unsafe extern "C" fn fs_set_exec(u: *mut c_void, path: *const c_char, on: bool) -> bool {
+    let m = unsafe { m(u) };
+    let p = norm(unsafe { c_bytes(path) });
+    if let Some((be, inner)) = m.route(&p) {
+        return be.fs_set_exec(inner.as_ptr() as *const c_char, on);
+    }
+    match m.node_find(&p) {
+        Some(i) if !m.node[i].dir && m.node[i].attrs & FSA_READONLY == 0 => {
+            if on { m.node[i].attrs |= FSA_EXEC } else { m.node[i].attrs &= !FSA_EXEC }
+            true
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -661,6 +735,31 @@ mod tests {
         assert_eq!(&buf[..5], b"hello");
         assert_eq!(be.fs_read(c"/d/a.txt".as_ptr(), buf.as_mut_ptr() as *mut c_char, 16), -1);
         assert!(!be.fs_write(c"/nope/x".as_ptr(), b"x".as_ptr() as *const c_char, 1));
+    }
+
+    #[test]
+    fn mounted_file_system_answers_below_its_folder() {
+        let (mut outer, be) = setup();
+        let (mut inner, ibe) = setup();
+        inner.add_node("/bin", true, 0, 1, 0);
+        assert!(ibe.fs_write(c"/bin/tool".as_ptr(), b"\x7fELF".as_ptr() as *const c_char, 4));
+        assert!(outer.mount("/programs", "Programs", "compat", 1 << 30, 1 << 29, ibe));
+        let mut ents = [FsEntry::EMPTY; 8];
+        assert_eq!(be.fs_list(c"/".as_ptr(), ents.as_mut_ptr() as *mut c_void, 8), 1, "the mount folder shows in its parent");
+        assert_eq!(nul(&ents[0].name), b"programs");
+        assert_eq!(be.fs_list(c"/programs".as_ptr(), ents.as_mut_ptr() as *mut c_void, 8), 1);
+        assert_eq!(nul(&ents[0].name), b"bin");
+        let mut head = [0u8; 2];
+        assert_eq!(be.fs_read(c"/programs/bin/tool".as_ptr(), head.as_mut_ptr() as *mut c_char, 2), 2, "partial read of the head");
+        let mut st = FsEntry::EMPTY;
+        assert!(be.fs_stat(c"/programs/bin/tool".as_ptr(), &mut st) && st.attrs & FSA_EXEC == 0);
+        assert!(be.fs_set_exec(c"/programs/bin/tool".as_ptr(), true));
+        assert!(be.fs_stat(c"/programs/bin/tool".as_ptr(), &mut st) && st.attrs & FSA_EXEC != 0);
+        assert!(be.fs_copy(c"/programs/bin/tool".as_ptr(), c"/programs/bin/tool2".as_ptr()), "copy inside the mount");
+        assert!(!be.fs_copy(c"/programs/bin/tool".as_ptr(), c"/tool".as_ptr()), "not across file systems");
+        assert!(!be.fs_remove(c"/programs".as_ptr()), "the mount folder itself stays");
+        let mut v = [FsVolume::EMPTY; 4];
+        assert_eq!(be.fs_volumes(v.as_mut_ptr(), 4), 1);
     }
 
     #[test]

@@ -738,7 +738,27 @@ impl<F: LinFs> LinSystem<F> {
     /// Unlink a file. Open descriptors keep an unlinked file alive (Linux semantics programs rely on,
     /// e.g. shared memory that is created, opened, unlinked, then resized through the fd): such a file
     /// moves to a hidden path that its descriptors follow, and goes away with the last of them.
+    /// The live local socket bound to file-system path `abs` (`bind` puts the name there; `unlink` removes it).
+    fn bound_socket(&self, abs: &str) -> Option<usize> {
+        // Accepted connections carry the listener's address too (getsockname); only the bound socket owns the name.
+        self.socks.iter().position(|s| !s.closed && s.peer.is_none() && s.key.as_deref().and_then(|k| k.strip_prefix("unix:")) == Some(abs))
+    }
+
+    /// Socket address key for `bind`/`connect`: path-named local sockets are made absolute against the
+    /// caller's directory (Wine's server binds and connects to "socket" relative to its server folder).
+    fn sock_key_at(p: &mut Process, addr: u64, len: u64) -> Result<String, i64> {
+        let key = Self::sock_key(&mut p.mem, addr, len)?;
+        match key.strip_prefix("unix:") {
+            Some(path) if !path.is_empty() && !path.starts_with('\0') && !path.starts_with('/') => Ok(format!("unix:{}", normalize(&p.cwd, path))),
+            _ => Ok(key),
+        }
+    }
+
     fn unlink(&mut self, p: &mut Process, abs: &str) -> Result<(), i64> {
+        if let Some(i) = self.bound_socket(abs) {
+            self.socks[i].key = None;
+            return Ok(());
+        }
         let open: Vec<FileRef> = p
             .fds
             .values()
@@ -984,6 +1004,16 @@ impl<F: LinFs> LinSystem<F> {
         let Some(t) = self.threads.get_mut(&tid) else { return };
         t.fault = Some((vector, error, cr2));
         let pid = t.pid;
+        // A fault the thread cannot take (signal blocked, e.g. inside its own SIGSEGV handler, or ignored) kills
+        // the process, as Linux's force_sig_fault does: re-running the faulting instruction would loop forever.
+        let bit = 1u64 << (sig - 1);
+        let blocked = t.sigmask & bit != 0;
+        if let Some(p) = self.procs.get_mut(&pid) {
+            if blocked || p.acts[sig as usize].handler == 1 {
+                p.acts[sig as usize] = SigAct::default();
+                self.threads.get_mut(&tid).unwrap().sigmask &= !bit;
+            }
+        }
         self.send_signal(pid, Some(tid), sig);
     }
 
@@ -1325,6 +1355,9 @@ impl<F: LinFs> LinSystem<F> {
             "/dev/tty" | "/dev/console" => return Ok(dev(11)),
             "/run/user/1000/wayland-0" => return Ok(Stat { ino: 17, kind: Kind::Fifo, mode: 0o777, size: 0, nlink: 1, uid: 1000, gid: 1000, mtime: 0 }),
             _ => {}
+        }
+        if self.bound_socket(path).is_some() {
+            return Ok(Stat { ino: 19, kind: Kind::Socket, mode: 0o755, size: 0, nlink: 1, uid: 1000, gid: 1000, mtime: 0 });
         }
         if let Some(d) = self.gen_proc(p, path) {
             return Ok(Stat { ino: 7, kind: Kind::File, mode: 0o444, size: d.len() as u64, nlink: 1, uid: 0, gid: 0, mtime: 0 });
@@ -2583,7 +2616,27 @@ impl<F: LinFs> LinSystem<F> {
                 self.fs.truncate(&path, a[1])?;
                 ok(0)
             }
-            74 | 75 | 73 | 90 | 91 | 92 | 93 | 94 | 268 | 306 | 266 => ok(0), // fsync, flock, chmod/chown family
+            90 | 268 => {
+                // chmod(path, mode) / fchmodat(dirfd, path, mode, flags)
+                let (d, pp, m) = if nr == 90 { (AT_FDCWD, a[0], a[1]) } else { (a[0] as i32, a[1], a[2]) };
+                let path = p.mem.read_cstr(pp, 4096)?;
+                let abs = self.path_for(p, d, &path, true)?;
+                if self.bound_socket(&abs).is_some() {
+                    return ok(0);
+                }
+                self.fs.chmod(&abs, m as u32)?;
+                ok(0)
+            }
+            91 => {
+                // fchmod: files opened by path; pipes, sockets and devices accept it
+                let f = self.fd(p, a[0] as i32)?;
+                let path = match &f.borrow().kind { FKind::Reg(x) | FKind::Dir(x) => Some(x.clone()), _ => None };
+                if let Some(path) = path {
+                    self.fs.chmod(&path, a[1] as u32)?;
+                }
+                ok(0)
+            }
+            74 | 75 | 73 | 92 | 93 | 94 | 306 | 266 => ok(0), // fsync, flock, chown family
             319 => {
                 // Flags: CLOEXEC, ALLOW_SEALING, HUGETLB (with a size in bits 26..32), NOEXEC_SEAL, EXEC.
                 let f = a[1] as u32;
@@ -3143,7 +3196,12 @@ impl<F: LinFs> LinSystem<F> {
             }
             49 => {
                 let (i, _) = sid(self, p, a[0])?;
-                let key = Self::sock_key(&mut p.mem, a[1], a[2])?;
+                let key = Self::sock_key_at(p, a[1], a[2])?;
+                if let Some(path) = key.strip_prefix("unix:").filter(|k| k.starts_with('/')) {
+                    if self.fs.lstat(path).is_ok() {
+                        return err(98); // EADDRINUSE: the name exists
+                    }
+                }
                 if key.starts_with("inet:") {
                     let (ip, _) = Self::inet_key(&key)?;
                     if !ip.is_loopback() && self.stack_mut().is_none() {
@@ -3177,7 +3235,7 @@ impl<F: LinFs> LinSystem<F> {
                 if self.socks[i].peer.is_some() {
                     return err(106); // EISCONN
                 }
-                let key = Self::sock_key(&mut p.mem, a[1], a[2])?;
+                let key = Self::sock_key_at(p, a[1], a[2])?;
                 if key.starts_with("inet:") {
                     let (ip, port) = Self::inet_key(&key)?;
                     if !ip.is_loopback() {

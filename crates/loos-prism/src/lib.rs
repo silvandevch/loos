@@ -40,6 +40,8 @@ pub mod getopt;
 pub mod signal;
 pub mod loader;
 pub mod macho;
+pub mod pkg;
+pub mod dmg;
 
 /// x86-64 SysV argument access over a trapped thread's registers.
 struct X86Call<'a> {
@@ -146,9 +148,10 @@ pub struct Prism {
     pub prefer_arm: bool,
 }
 
-/// Is `path` (or the file at it) something Prism runs: a Mach-O file or an `.app` bundle?
+/// Is `path` (or the file at it) something Prism runs: a Mach-O file, an `.app` bundle, an installer package
+/// or a disk image (the app is installed / copied to /Applications, then runs)?
 pub fn recognizes(fs: &mut dyn LinFs, path: &str) -> bool {
-    if bundle::open(fs, path).is_some() {
+    if bundle::open(fs, path).is_some() || pkg::is_package(fs, path) || dmg::is_disk_image(fs, path) {
         return true;
     }
     let Ok(real) = loos_lin::fs::resolve(fs, "/", path, true) else { return false };
@@ -180,6 +183,22 @@ impl Prism {
     /// Start a macOS program (Mach-O file or `.app` bundle). Intel code runs natively; arm64-only
     /// programs run on the interpreter.
     pub fn spawn<F: LinFs>(&mut self, sys: &mut LinSystem<F>, path: &str, argv: &[String], envp: &[String]) -> Result<Pid, i64> {
+        // Installer packages and disk images: install / copy the app into /Applications, then start it.
+        let installer = if pkg::is_package(&mut sys.fs, path) {
+            Some(pkg::install(&mut sys.fs, path, &mut sys.diag).and_then(|a| a.ok_or(2)))
+        } else if dmg::is_disk_image(&mut sys.fs, path) {
+            Some(dmg::open(&mut sys.fs, path, &mut sys.diag))
+        } else {
+            None
+        };
+        if let Some(app) = installer {
+            let app = app?;
+            let mut av = argv.to_vec();
+            if let Some(a0) = av.first_mut() {
+                *a0 = app.clone();
+            }
+            return self.spawn(sys, &app, &av, envp);
+        }
         // Electron apps run their JavaScript on the Linux build of Electron (see `electron`).
         if let Some(b) = bundle::open(&mut sys.fs, path) {
             if let Some(v) = electron::version(&mut sys.fs, &b) {

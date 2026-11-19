@@ -6,7 +6,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::arch::asm;
-use loos_lin::fs::MemFs;
+use loos_lin::fs::{LinFs, MemFs};
 use loos_lin::mem::{UserMem, PROT_EXEC, PROT_WRITE};
 use loos_lin::sys::{Delivery, LinSystem, Pid, Sys, TState};
 use loos_win32k::adjust_window_rect;
@@ -754,9 +754,9 @@ impl Lin {
             // SAFETY: FS base MSR; run_user enters ring 3 with a fully initialised frame and returns on trap.
             let vector = unsafe {
                 wrmsr(MSR_FS_BASE, r.fs_base);
-                if prism {
-                    wrmsr(MSR_KERNEL_GS_BASE, r.gs_base); // Darwin's TSD base: becomes GS on the swapgs into ring 3
-                }
+                // arch_prctl(ARCH_SET_GS) / Darwin's TSD base (Wine keeps the Windows TEB there): becomes GS on the
+                // swapgs into ring 3.
+                wrmsr(MSR_KERNEL_GS_BASE, r.gs_base);
                 run_user(&mut frame)
             };
             let g = &frame.gpr;
@@ -870,7 +870,6 @@ pub unsafe extern "C" fn loos_lin_boot(
 ) -> i32 {
     // SAFETY: initrd/len describe the boot module; cmd is NUL terminated.
     let (tar, cmd) = unsafe {
-        user_init();
         let mut n = 0;
         while *cmd.add(n) != 0 && *cmd.add(n) != b' ' {
             n += 1;
@@ -878,15 +877,7 @@ pub unsafe extern "C" fn loos_lin_boot(
         // The boot module is never freed: the root filesystem borrows file contents from it.
         (if initrd.is_null() { &[][..] } else { core::slice::from_raw_parts::<'static, u8>(initrd, len) }, String::from_utf8_lossy(core::slice::from_raw_parts(cmd, n)).into_owned())
     };
-    let mut fs = MemFs::new();
-    for d in ["/bin", "/usr/bin", "/lib", "/lib64", "/etc", "/tmp", "/dev", "/proc", "/home", "/run", "/run/user", "/run/user/1000"] {
-        fs.add_dir(d);
-    }
-    let files = fs.load_tar_static(tar);
-    say("lin: rootfs ");
-    // SAFETY: serial output.
-    dec(files as u64);
-    say(" entries\n");
+    let fs = rootfs(tar);
     // The kernel command line ends at a space, so arguments spell space/comma as %20 / %2C.
     let mut argv: Vec<String> = cmd.split(',').map(|a| a.replace("%20", " ").replace("%2C", ",").replace("%25", "%")).collect();
     let fs_args = argv.first().filter(|a| a.starts_with('@')).map(|a| a[1..].to_string());
@@ -900,6 +891,40 @@ pub unsafe extern "C" fn loos_lin_boot(
                 return -1;
             }
         }
+    }
+    session(fs, argv, back, width, height).0
+}
+
+/// The compat runtime's root file system from the boot module (`initrd`): the Linux root, Wine's prefix in
+/// /home/.wine and macOS bundles in /Applications. Contents stay borrowed from the module until written.
+pub(crate) fn rootfs(tar: &'static [u8]) -> MemFs {
+    let mut fs = MemFs::new();
+    for d in ["/bin", "/usr/bin", "/lib", "/lib64", "/etc", "/tmp", "/dev", "/proc", "/home", "/run", "/run/user", "/run/user/1000"] {
+        fs.add_dir(d);
+    }
+    let files = fs.load_tar_static(tar);
+    // One home (/home) for Linux, Wine (its prefix is /home/.wine) and macOS programs; macOS ones expect the
+    // standard ~/Library folders to exist (NSUserDefaults, caches, Application Support).
+    for d in ["/home/Library/Preferences", "/home/Library/Application Support", "/home/Library/Caches", "/home/Documents", "/home/Downloads", "/home/Desktop"] {
+        if fs.lstat(d).is_err() {
+            fs.add_dir(d);
+        }
+    }
+    say("lin: rootfs ");
+    dec(files as u64);
+    say(" entries\n");
+    fs
+}
+
+/// Run one program (and everything it starts) in the compat runtime on `fs` until it exits; `argv` is
+/// `[strace[:nrs]] [VAR=value...] program args...`. Mach-O programs and bundles go to Prism, the rest to the
+/// Linux layer (Wine is a Linux program). Returns the wait status (negative when it could not start) and the
+/// file system, so what the program wrote stays for the next one.
+pub(crate) fn session(fs: MemFs, mut argv: Vec<String>, back: *mut u32, width: i32, height: i32) -> (i32, MemFs) {
+    // SAFETY: (re)initialises the user-mode entry state; idempotent.
+    unsafe { user_init() };
+    if argv.is_empty() {
+        return (-1, fs);
     }
     // `strace` traces every syscall, `strace:46,47` only those numbers.
     let trace_arg = argv.first().filter(|a| *a == "strace" || a.starts_with("strace:")).cloned();
@@ -942,13 +967,16 @@ pub unsafe extern "C" fn loos_lin_boot(
         String::from("GTK_A11Y=none"),
         String::from("LANG=C.UTF-8"),
     ];
-    // Leading `VAR=value` entries of loos.lin= are extra environment: loos.lin=FOO=1,/usr/bin/app,arg
+    // Leading `VAR=value` entries are extra environment: FOO=1,/usr/bin/app,arg
     while argv.first().is_some_and(|a| a.contains('=') && !a.starts_with('/')) {
         let var = argv.remove(0);
         let name = &var[..=var.find('=').unwrap_or(0)];
         // An entry replaces the default of the same name, so getenv and environ agree.
         env.retain(|e| !e.starts_with(name));
         env.push(var);
+    }
+    if argv.is_empty() {
+        return (-1, core::mem::take(&mut sys.fs));
     }
     // Mach-O files and .app bundles go to LoOS Prism; everything else is a Linux program.
     let mut prism = loos_prism::Prism::new();
@@ -967,10 +995,9 @@ pub unsafe extern "C" fn loos_lin_boot(
         Ok(p) => p,
         Err(e) => {
             say("lin: cannot execute (errno ");
-            // SAFETY: serial output.
             dec(e as u64);
             say(")\n");
-            return -1;
+            return (-1, core::mem::take(&mut sys.fs));
         }
     };
     let mut lin = Lin { sys, prism, pml4: BTreeMap::new(), last: 0, desk: desk.clone(), wayland_windows: BTreeMap::new(), back, screen: (screen_w, screen_h), dirty: false, last_present_us: 0, input: !back.is_null(), cursor: (screen_w / 2, screen_h / 2), buttons: 0, mods: 0, caps: false, show_console: true, started_us: unsafe { time_us() }, beat_us: unsafe { time_us() }, syscalls: 0, hot: BTreeMap::new(), frames_shown: 0, presents: 0, input_stats: [0; 4] };
@@ -983,7 +1010,6 @@ pub unsafe extern "C" fn loos_lin_boot(
         say("lin: unimplemented syscalls:");
         for (nr, n) in &lin.sys.missing {
             say(" ");
-            // SAFETY: serial output.
             dec(*nr);
             say("x");
             dec(*n as u64);
@@ -1003,12 +1029,11 @@ pub unsafe extern "C" fn loos_lin_boot(
     desk.borrow_mut().compose(frame);
     let green = frame.iter().filter(|&&p| p == 0xff00_c800).count();
     say("lin: gui composed green pixels ");
-    // SAFETY: serial output.
     dec(green as u64);
     say("\n");
     // SAFETY: NUL-terminated literal.
     unsafe { serial_puts(b"lin: program finished, status \0".as_ptr()) };
     dec(st as u32 as u64);
     say("\n");
-    st
+    (st, core::mem::take(&mut lin.sys.fs))
 }

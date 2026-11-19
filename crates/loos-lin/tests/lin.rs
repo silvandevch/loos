@@ -1103,3 +1103,52 @@ fn epoll_registration_dies_with_its_file_not_its_fd_number() {
     assert_eq!(sc(&mut sys, pid, 232, &[ep, mem + 0x200, 8, 0]), 1);
     assert_eq!(sys.process_mut(pid).unwrap().mem.read_u64(mem + 0x204).unwrap(), 7);
 }
+
+fn sockaddr_un(path: &str) -> Vec<u8> {
+    let mut b = vec![1u8, 0];
+    b.extend_from_slice(path.as_bytes());
+    b.push(0);
+    b
+}
+
+#[test]
+fn path_bound_local_socket_shows_in_the_file_system_until_unlinked() {
+    // Wine's server binds "socket" relative to its server folder; clients stat() it until it appears, then connect.
+    let mut sys = new_sys();
+    sys.fs.add_dir("/tmp/srv");
+    let srv = spawn_nop(&mut sys);
+    let cli = spawn_nop(&mut sys);
+    let dir = put(&mut sys, srv, "/tmp/srv");
+    assert_eq!(sc(&mut sys, srv, 80, &[dir]), 0, "chdir");
+    let rel = put_bytes(&mut sys, srv, &sockaddr_un("socket"));
+    let ls = sc(&mut sys, srv, 41, &[1, 1, 0]) as u64;
+    assert_eq!(sc(&mut sys, srv, 49, &[ls, rel, 9]), 0);
+    assert_eq!(sc(&mut sys, srv, 50, &[ls, 8]), 0);
+    let path = put(&mut sys, cli, "/tmp/srv/socket");
+    let st = put(&mut sys, cli, &"\0".repeat(144));
+    assert_eq!(sc(&mut sys, cli, 6, &[path, st]), 0, "lstat sees the bound name");
+    let mode = sys.process_mut(cli).unwrap().mem.read_u32(st + 24).unwrap();
+    assert_eq!(mode & 0o170000, 0o140000, "S_IFSOCK");
+    let abs = put_bytes(&mut sys, cli, &sockaddr_un("/tmp/srv/socket"));
+    let c = sc(&mut sys, cli, 41, &[1, 1, 0]) as u64;
+    assert_eq!(sc(&mut sys, cli, 42, &[c, abs, 18]), 0, "absolute path reaches the relative bind");
+    // a second bind on the name fails; unlink removes the name and new connects are refused
+    let ls2 = sc(&mut sys, srv, 41, &[1, 1, 0]) as u64;
+    assert_eq!(sc(&mut sys, srv, 49, &[ls2, rel, 9]), -98);
+    let name = put(&mut sys, srv, "socket");
+    assert_eq!(sc(&mut sys, srv, 87, &[name]), 0, "unlink");
+    assert_eq!(sc(&mut sys, cli, 6, &[path, st]), -ENOENT);
+    let c2 = sc(&mut sys, cli, 41, &[1, 1, 0]) as u64;
+    assert_eq!(sc(&mut sys, cli, 42, &[c2, abs, 18]), -111);
+}
+
+#[test]
+fn fault_while_the_signal_is_blocked_kills_instead_of_looping() {
+    let mut sys = new_sys();
+    let pid = spawn_nop(&mut sys);
+    let set = put(&mut sys, pid, &"\0".repeat(8));
+    sys.process_mut(pid).unwrap().mem.write_u64(set, 1 << 10).unwrap(); // SIGSEGV
+    assert_eq!(sc(&mut sys, pid, 14, &[0, set, 0, 8]), 0, "block SIGSEGV");
+    sys.fault(pid, 14, 4, 0x30);
+    assert!(matches!(sys.deliver_signal(pid), Delivery::Killed(_)), "default action ends the process");
+}

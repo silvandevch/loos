@@ -21,6 +21,8 @@ pub enum Kind {
     Char,
     /// Pipe.
     Fifo,
+    /// Local socket bound to a path (lives in the socket table, not in the backend).
+    Socket,
 }
 
 /// `stat` result.
@@ -53,6 +55,7 @@ impl Stat {
             Kind::Symlink => 0o120000,
             Kind::Char => 0o020000,
             Kind::Fifo => 0o010000,
+            Kind::Socket => 0o140000,
         };
         t | (self.mode & 0o7777)
     }
@@ -94,6 +97,10 @@ pub trait LinFs {
     fn symlink(&mut self, target: &str, path: &str) -> Result<(), i64>;
     /// Directory listing (without `.` / `..`).
     fn list(&mut self, path: &str) -> Result<Vec<DirEnt>, i64>;
+    /// `chmod`: set the permission bits (`mode & 0o7777`). Backends without Unix modes accept and ignore it.
+    fn chmod(&mut self, path: &str, mode: u32) -> Result<(), i64> {
+        self.lstat(path).map(|_| ())
+    }
     /// `link`: the backends store files by path, so a hard link is a snapshot copy (enough for the
     /// create-then-link-into-place pattern of sem_open/lockfiles; later writes are not shared).
     fn link(&mut self, from: &str, to: &str) -> Result<(), i64> {
@@ -329,6 +336,11 @@ impl MemFs {
 pub const USER_ID: u32 = 1000;
 
 impl LinFs for MemFs {
+    fn chmod(&mut self, path: &str, mode: u32) -> Result<(), i64> {
+        let e = self.ents.get_mut(path).ok_or(ENOENT)?;
+        e.mode = mode & 0o7777;
+        Ok(())
+    }
     fn lstat(&mut self, path: &str) -> Result<Stat, i64> {
         let e = self.ents.get(path).ok_or(ENOENT)?;
         let (kind, size) = match &e.node {

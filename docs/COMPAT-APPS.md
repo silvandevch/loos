@@ -87,3 +87,26 @@ adds files to the guest volume; `GUI_OPEN`/`GUI_SAVE` answer the file dialogs. C
 | TLS / HTTPS (schannel, winhttp), DirectX/DXGI, shaders, WoW64 (32-bit PE), preemptive threads, registry, clipboard, real dialog UI | **not implemented** | - |
 
 Test programs in `tests/win/*.c` are bring-up harnesses, not compatibility targets; `apps/loos-notepad/notepad.exe` is the real app.
+
+## Windows programs on Wine (the main path for real apps and games)
+
+`loos-winrt` re-implements Win32 by hand (~11k lines, ~27% of the imports real programs need). That cannot reach
+"most apps and games", so third-party Windows programs run the way Proton runs them on Linux: **Wine on the LoOS
+Linux layer** (`loos-lin`), which already runs Firefox, VS Code and Discord. Wine supplies the Win32/NT API
+(user32, gdi32, ole, the registry, services, WoW64 for 32-bit programs); DXVK and vkd3d turn Direct3D 8-12 into
+Vulkan, drawn by Mesa's software Vulkan (lavapipe) into Wine's Wayland driver, which shows up as a LoOS window.
+
+| Piece | Where | Notes |
+|---|---|---|
+| Runtime stage | `tools/wine-runtime.sh OUTDIR` | Host Wine (WoW64 build), DXVK, vkd3d, lavapipe; debug info stripped (1.6 GB → ~0.75 GB); cached per Wine version. `WINE_I386=0` drops 32-bit DLLs |
+| Prefix | built by the same script | `C:` drive + registry made with `wineboot` on the host for user `user` (no Mono/Gecko); only `c:`/`z:` links ship, nothing from the build host's home |
+| Test | `boot/lin_app_test.sh win-notepad` / `win-winecfg` | Boots LoOS in QEMU, starts the program, types, compares screenshots |
+
+Linux-layer fixes Wine needed (each has a test in `crates/loos-lin/tests/lin.rs`):
+
+- `bind()` of a path-named Unix socket makes the name visible (`stat` → `S_IFSOCK`), relative names resolve against
+  the caller's directory, `unlink()` removes the name. Wine's client waits for wineserver's `socket` file.
+- `arch_prctl(ARCH_SET_GS)` reaches the CPU for every Linux process (it only did for Prism): Wine keeps the Windows
+  TEB in `%gs`.
+- A fault while its signal is blocked or ignored kills the process (Linux `force_sig_fault`) instead of re-running
+  the faulting instruction forever.

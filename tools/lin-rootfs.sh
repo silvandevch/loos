@@ -34,7 +34,7 @@ for b in "$@"; do
 done
 add /lib64/ld-linux-x86-64.so.2
 for l in bin sbin lib; do [ -e "$stage/$l" ] || ln -s "usr/$l" "$stage/$l"; done   # merged-/usr layout
-[ -e "$stage/usr/sbin" ] || ln -s bin "$stage/usr/sbin"
+mkdir -p "$stage/usr/bin"; [ -e "$stage/usr/sbin" ] || ln -s bin "$stage/usr/sbin"
 mkdir -p "$stage/usr/share/loos"
 if [ -e "$stage/usr/bin/bash" ] || [ -e "$stage/bin/bash" ]; then   # bwrap stand-in (no namespaces yet: runs unsandboxed)
     install -m 755 "$here/bwrap-shim.sh" "$stage/usr/bin/bwrap"; add /usr/bin/env

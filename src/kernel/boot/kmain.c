@@ -367,7 +367,10 @@ void kmain(const struct loos_bootinfo *bi)
             }
         } else if (cfg_len) shellhost_set_config(cfg_text);
         if (go_desktop) {
+            for (uint32_t i = 0; i < bi->module_count; i++)          /* the compat runtime (initrd): Programs volume in Files */
+                if (!strncmp(bi->modules[i].name, "initrd", 6)) shellhost_set_compat((const uint8_t *)(uintptr_t)bi->modules[i].phys, bi->modules[i].size);
             rc = shellhost_run(bi, &vid, test_mode, scale);
+            { const char *op = cmdline_get(bi, "loos.open"); if (op && *op && rc >= 0) { char path[256]; cmdline_word(op, path, sizeof path); shellhost_open(&vid, path); } }
             if (rc == 1) {
                 if (saved) video_fade(&vid, saved, 500);
                 else video_present(&vid, 0, 0, vid.w, vid.h);

@@ -2,8 +2,9 @@
 # Builds the compatibility-layer file systems the boot media carries (shared by ./loos qemu and ./loos install-iso):
 #   compat-modules.sh OUTDIR   -> prints "winroot=OUTDIR/winroot.tar" and "initrd=OUTDIR/initrd.tar" (one per line)
 # winroot: Windows/System32 PE images for the Windows layer (loos-winrt).
-# initrd:  the Linux layer's root (/bin, /etc) plus macOS programs and .app bundles for Prism, which runs Mach-O
-#          inside the same Linux process model. Prism samples are skipped with a warning when the Mach-O toolchain is missing.
+# initrd:  the compat runtime's root (Programs volume in Files): Linux root (/bin, /etc), macOS programs and .app
+#          bundles for Prism, Windows programs, and with LOOS_WINE=1 Wine itself. Prism samples are skipped with a
+#          warning when the Mach-O toolchain is missing.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd); root=$here/..
 out=${1:?output dir}; mkdir -p "$out"
@@ -27,27 +28,28 @@ PY
 cc=(clang --target=x86_64-linux-gnu -static -nostdlib -O2 -ffreestanding -fno-stack-protector -fno-pic -mno-red-zone)
 "${cc[@]}" "$root/tests/lin/lbox.c" -o "$out/lbox"
 "${cc[@]}" -I"$root/src/lin" "$root/tests/lin/gui.c" "$root/tests/lin/looswin_client.c" -o "$out/gui"
-prism=$out/prism
-if ! "$root/tests/prism/build.sh" "$prism" >"$out/prism-build.log" 2>&1; then
-    echo "compat-modules: macOS samples skipped (Mach-O toolchain missing, see $out/prism-build.log)" >&2; prism=""
+# The initrd is the compat runtime's root: the Programs volume in Files, where a double-click starts Linux,
+# Windows (Wine) and macOS (Prism) programs. Built by lin-rootfs.sh (shared libraries, links, /etc).
+# Toolchain output goes to a local temporary folder: linkers wrote broken files on the exFAT data drive.
+work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
+items=("$out/lbox=/bin/lbox" "$out/gui=/bin/gui")
+printf 'LoOS says hello from the initrd\n' > "$work/motd"; items+=("$work/motd=/etc/motd")
+if "$root/tests/prism/build.sh" "$work/prism" >"$out/prism-build.log" 2>&1; then
+    for a in x86_64 arm64; do
+        for p in hello objc cf; do items+=("$work/prism/${p}_$a=/bin/mac_${p}_$a"); done
+        items+=("$work/prism/Found_$a.app=/Applications/Found_$a.app")
+    done
+else
+    echo "compat-modules: macOS samples skipped (Mach-O toolchain missing, see $out/prism-build.log)" >&2
 fi
-python3 - "$out" "$linrt" "$prism" <<'PY'
-import io, os, sys, tarfile
-out, dst, prism = sys.argv[1:4]
-with tarfile.open(dst, "w", format=tarfile.USTAR_FORMAT) as t:
-    def mkdir(name):
-        i = tarfile.TarInfo(name); i.type = tarfile.DIRTYPE; i.mode = 0o755; t.addfile(i)
-    for d in ("bin", "etc", "home", "tmp", "Applications"):
-        mkdir(d)
-    for n in ("lbox", "gui"):
-        t.add(f"{out}/{n}", arcname=f"bin/{n}")
-    m = b"LoOS says hello from the initrd\n"
-    i = tarfile.TarInfo("etc/motd"); i.size = len(m); i.mode = 0o644; t.addfile(i, io.BytesIO(m))
-    if prism:
-        for a in ("x86_64", "arm64"):
-            for p in ("hello", "objc", "cf"):
-                t.add(f"{prism}/{p}_{a}", arcname=f"bin/mac_{p}_{a}")
-            t.add(f"{prism}/Found_{a}.app", arcname=f"Applications/Found_{a}.app")   # recursive: MacOS, Info.plist, Resources
-PY
+# Windows programs (double-click them in Files > Programs > home > Windows Programs). They run on Wine, which
+# is ~0.8 GB staged: LOOS_WINE=1 ships it (and needs that much more guest memory); without it they cannot start.
+for src in apps/loos-notepad/notepad.exe apps/loos-cmd/cmd.exe apps/calc/LoCalc.exe apps/loos-taskmgr/taskmgr.exe tests/win/hello_gui.exe; do
+    [ -e "$root/$src" ] && items+=("$root/$src=/home/Windows Programs/$(basename "$src")")
+done
+if [ "${LOOS_WINE:-0}" = 1 ]; then
+    while IFS= read -r w; do items+=("$w"); done < <("$root/tools/wine-runtime.sh" "$root/out/wine")
+fi
+"$root/tools/lin-rootfs.sh" "$linrt" "${items[@]}" >/dev/null
 echo "winroot=$winrt"
 echo "initrd=$linrt"

@@ -148,6 +148,9 @@ uint64_t vm_virt_to_phys(const struct loos_bootinfo *bi, const void *p);
 
 /* user.c + usermode.S + crates/kffi/src/lin.rs: ring 3 and the Linux subsystem */
 void user_init(void);
+void shellhost_set_compat(const uint8_t *initrd, size_t len);
+struct video;
+void shellhost_open(struct video *v, const char *path);         /* loos.open=: open a file like a double-click */   /* compat runtime for programs started from Files */
 int loos_lin_boot(const uint8_t *initrd, size_t len, const char *cmd, uint32_t *back, int32_t w, int32_t h); /* runs Linux GUI apps from the tar initrd */
 void kgdt_load(void);
 #endif

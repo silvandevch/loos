@@ -10,11 +10,12 @@ pub type PermSet = unsafe extern "C" fn(*mut c_void, *const c_char, i32, bool) -
 pub type PermStateGet = unsafe extern "C" fn(*mut c_void, *const c_char, i32) -> i32;
 pub type PermReset = unsafe extern "C" fn(*mut c_void, *const c_char, i32) -> bool;
 
-/// C `shell_backend`: `user` followed by 24 function pointers.
+/// Shell backend: `user` followed by 25 function pointers.
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct ShellBackend {
     pub user: *mut c_void,
-    pub funcs: [*mut c_void; 24],
+    pub funcs: [*mut c_void; 25],
 }
 
 pub const F_PERM_SET: usize = 8;
@@ -22,6 +23,10 @@ pub const F_PERM_STATE_GET: usize = 9;
 pub const F_PERM_RESET: usize = 10;
 pub const F_CFG_GET: usize = 22;
 pub const F_CFG_SET: usize = 23;
+/// `fs_set_exec(user, path, on) -> bool`: the Unix exec permission (FSA_EXEC).
+pub const F_FS_SET_EXEC: usize = 24;
+/// FsEntry.attrs: the file may run as a program (Unix `x` permission).
+pub const FSA_EXEC: u32 = 4;
 
 impl ShellBackend {
     fn func<T: Copy>(&self, i: usize) -> Option<T> {
@@ -178,6 +183,7 @@ type FsList = unsafe extern "C" fn(*mut c_void, *const c_char, *mut c_void, i32)
 type FsRead = unsafe extern "C" fn(*mut c_void, *const c_char, *mut c_char, usize) -> i64;
 type FsWrite = unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char, usize) -> bool;
 type FsPath = unsafe extern "C" fn(*mut c_void, *const c_char) -> bool;
+type FsSetExec = unsafe extern "C" fn(*mut c_void, *const c_char, bool) -> bool;
 type PsSnapshot = unsafe extern "C" fn(*mut c_void, *mut PsProc, i32) -> i32;
 
 impl ShellBackend {
@@ -209,6 +215,12 @@ impl ShellBackend {
     pub(crate) fn fs_remove(&self, path: *const c_char) -> bool {
         match self.func::<FsPath>(F_FS_REMOVE) {
             Some(f) => unsafe { f(self.user, path) },
+            None => false,
+        }
+    }
+    pub(crate) fn fs_set_exec(&self, path: *const c_char, on: bool) -> bool {
+        match self.func::<FsSetExec>(F_FS_SET_EXEC) {
+            Some(f) => unsafe { f(self.user, path, on) },
             None => false,
         }
     }

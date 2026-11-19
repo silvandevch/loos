@@ -105,14 +105,52 @@ static int system_volume(uint64_t *total, uint64_t *used)
 
 extern void loos_net_poll(uint64_t now_ms);
 
+/* The compat runtime (Linux layer, Wine, Prism) as part of the desktop: its root file system is the
+ * "Programs" volume in Files, and a double-clicked program there runs full screen until it exits. */
+static const uint8_t *g_compat; static size_t g_compat_len;
+void shellhost_set_compat(const uint8_t *initrd, size_t len) { g_compat = initrd; g_compat_len = len; }
+
+static int g_compat_mounted;
+static void mount_compat(void)
+{
+    if (g_compat_mounted) return;
+    g_compat_mounted = 1;
+    const shell_backend *be = loos_compat_init(g_compat, g_compat_len);
+    if (!be) { serial_puts("compat: no runtime module, programs cannot start from Files\n"); return; }
+    if (desktop_mount_compat(DESK, "/programs", "Programs (Windows, Linux, macOS)", be, (uint64_t)g_compat_len, 0))
+        serial_puts("compat: Programs volume mounted at /programs\n");
+}
+
+static void run_launch(struct video *v)
+{
+    static char cmd[4096];
+    int64_t n = desktop_take_launch(DESK, cmd, sizeof cmd);
+    if (n <= 0) return;
+    int st = loos_compat_run(cmd, v->back, v->w, v->h);
+    serial_puts("compat: program ended, status "); serial_dec((uint64_t)(uint32_t)st); serial_puts("\n");
+    ps2_init();                                              /* the session drove the i8042 itself */
+    desktop_launch_finished(DESK, st);
+    video_present(v, 0, 0, v->w, v->h);
+}
+
+/* loos.open=<path>: open one file as a double-click would, once the desktop is up (boot tests, kiosks) */
+void shellhost_open(struct video *v, const char *path)
+{
+    mount_compat();
+    serial_puts("desktop: opening "); serial_puts(path); serial_puts("\n");
+    desktop_open_path(DESK, path);
+    run_launch(v);
+}
+
 void shellhost_loop(struct video *v)
 {
+    if (!g_compat_mounted) mount_compat();
     ps2_init();
     serial_puts("desktop: running ("); serial_puts(ps2_has_mouse() ? "mouse+keyboard" : "keyboard only"); serial_puts(")\n");
     uint32_t last_clock = 0;
     int h = 0, m = 0, s = 0;
     rtc_time(&h, &m, &s);
-    for (;;) { host_frame(v, &last_clock, &h, &m); loos_net_poll(time_ms()); __asm__ volatile("pause"); }
+    for (;;) { host_frame(v, &last_clock, &h, &m); run_launch(v); loos_net_poll(time_ms()); __asm__ volatile("pause"); }
 }
 
 /* installer: returns 1 if the user asked to try LoOS live, 0 never (the installer ends by rebooting) */

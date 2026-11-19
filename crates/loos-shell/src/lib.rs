@@ -27,6 +27,7 @@ pub mod launcher;
 pub mod look;
 pub mod looks_ui;
 pub mod notify;
+pub mod openwith;
 pub mod perms;
 pub mod raster;
 pub mod session;

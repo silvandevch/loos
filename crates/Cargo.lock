@@ -145,6 +145,7 @@ name = "loos-prism"
 version = "0.1.0"
 dependencies = [
  "loos-lin",
+ "miniz_oxide",
 ]
 
 [[package]]

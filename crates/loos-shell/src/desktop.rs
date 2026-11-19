@@ -75,6 +75,11 @@ pub struct Desktop {
     /// `settings.changes` last seen by [`Desktop::sync_look`].
     pub seen_changes: i32,
     pub night: i32,
+    /// Where the compat runtime's file system is mounted ("/programs"); programs run from there.
+    pub compat_prefix: [u8; 32],
+    /// A program the kernel should start (`openwith::request_text`), taken by `desktop_take_launch`.
+    /// All-zero is `None` (Vec's pointer is non-null).
+    pub launch: Option<alloc::vec::Vec<u8>>,
 }
 
 fn clampi(v: i32, lo: i32, hi: i32) -> i32 {
@@ -154,6 +159,12 @@ unsafe extern "C" fn launch(it: *const ShellItem, user: *mut c_void) {
     d.open(slot);
 }
 
+/// Double-click in Files: programs go to their compatibility layer (the kernel starts them between frames).
+unsafe extern "C" fn on_open_file(path: *const c_char, user: *mut c_void) {
+    let d = unsafe { &mut *(user as *mut Desktop) };
+    d.open_file(unsafe { c_bytes(path) });
+}
+
 /// The Rust apps declare `UiCtx` as an opaque pointee of their own; it is the same `ui::UiCtx` the toolkit passes.
 fn app_frame(f: *const ()) -> FrameFn {
     // SAFETY: the four app frame functions have exactly the FrameFn ABI (pointer, ctx pointer, w, h); only the pointee's nominal type differs.
@@ -165,6 +176,51 @@ fn nul(a: &[u8]) -> &[u8] {
 }
 
 impl Desktop {
+    /// Open `path` (a LoOS path) the way its contents say: see [`crate::openwith`].
+    pub fn open_file(&mut self, path: &[u8]) {
+        use crate::openwith;
+        let mut cpath = [0u8; crate::filemgr::FM_PATH];
+        let n = path.len().min(cpath.len() - 1);
+        cpath[..n].copy_from_slice(&path[..n]);
+        let mut e = crate::backend::FsEntry::EMPTY;
+        if !self.be.fs_stat(cpath.as_ptr() as *const c_char, &mut e) {
+            return;
+        }
+        let op = crate::filemgr::opener_for(&self.files, &e, &cpath);
+        let name = &path[path.iter().rposition(|&c| c == b'/').map_or(0, |i| i + 1)..];
+        let say = |d: &mut Self, parts: &[&[u8]]| {
+            let mut m = alloc::vec::Vec::new();
+            for p in parts {
+                m.extend_from_slice(p);
+            }
+            m.truncate(95);
+            m.push(0);
+            crate::filemgr::set_status(&mut d.files, &m);
+            if let Some(log) = d.log {
+                // SAFETY: m is NUL-terminated.
+                unsafe { log(m.as_ptr() as *const c_char, d.aux) };
+            }
+        };
+        if !openwith::is_program(op) {
+            say(self, &[b"No app opens ", name, b" yet"]);
+            return;
+        }
+        let prefix = nul(&self.compat_prefix);
+        let inner = match path.strip_prefix(prefix) {
+            Some(rest) if !prefix.is_empty() && (rest.is_empty() || rest[0] == b'/') => rest,
+            _ => {
+                let mut where_: alloc::vec::Vec<u8> = b"Programs run from ".to_vec();
+                where_.extend_from_slice(if prefix.is_empty() { b"the Programs volume" } else { prefix });
+                say(self, &[&where_, b": copy ", name, b" there"]);
+                return;
+            }
+        };
+        let inner = core::str::from_utf8(if inner.is_empty() { b"/" } else { inner }).unwrap_or("/");
+        let cmd = openwith::command(op, inner);
+        self.launch = Some(openwith::request_text(&cmd).into_bytes());
+        say(self, &[b"Starting ", name, b" (", openwith::layer_name(op).as_bytes(), b")"]);
+    }
+
     /// A zeroed desktop on the heap (host tests; the kernel uses the `.bss` instance).
     pub fn boxed() -> Box<Desktop> {
         // SAFETY: Desktop's all-zero pattern is valid (see the type docs).
@@ -454,6 +510,8 @@ impl Desktop {
             crate::filemgr::fm_init(&mut self.files, &self.be, c"/home/user".as_ptr());
             crate::taskmon::tm_init(&mut self.tasks, &self.be);
         }
+        self.files.open_file = Some(on_open_file);
+        self.files.user = me;
         self.app[A_FILES] = &mut self.files as *mut _ as *mut c_void;
         self.app[A_SETTINGS] = &mut self.settings as *mut _ as *mut c_void;
         self.app[A_TASKS] = &mut self.tasks as *mut _ as *mut c_void;
@@ -741,6 +799,53 @@ pub extern "C" fn desktop_instance() -> *mut Desktop {
     unsafe { core::ptr::addr_of_mut!(INSTANCE) as *mut Desktop }
 }
 
+/// Mount the compat runtime's file system (Linux root with Wine's C: drive and macOS /Applications) at `prefix`
+/// in Files; double-clicked programs below it start in that runtime.
+#[no_mangle]
+pub unsafe extern "C" fn desktop_mount_compat(d: *mut Desktop, prefix: *const c_char, label: *const c_char, be: *const ShellBackend, total: u64, avail: u64) -> bool {
+    let (d, pre) = (unsafe { &mut *d }, unsafe { c_bytes(prefix) });
+    let (Some(be), Some(mem)) = (unsafe { be.as_ref() }, d.mem.as_mut()) else { return false };
+    let label = core::str::from_utf8(unsafe { c_bytes(label) }).unwrap_or("Programs");
+    if pre.len() >= d.compat_prefix.len() || !mem.mount(core::str::from_utf8(pre).unwrap_or("/programs"), label, "compat", total, avail, *be) {
+        return false;
+    }
+    d.compat_prefix = [0; 32];
+    d.compat_prefix[..pre.len()].copy_from_slice(pre);
+    crate::filemgr::refresh(&mut d.files);
+    true
+}
+/// Open `path` as a double-click in Files would (tests and `loos.open=`).
+#[no_mangle]
+pub unsafe extern "C" fn desktop_open_path(d: *mut Desktop, path: *const c_char) {
+    unsafe { &mut *d }.open_file(unsafe { c_bytes(path) });
+}
+/// The pending program start, if any: its command (one entry per line) is copied to `out` (NUL-terminated) and the
+/// request is cleared. Returns the text length, 0 when nothing waits, -1 when `out` is too small (request dropped).
+#[no_mangle]
+pub unsafe extern "C" fn desktop_take_launch(d: *mut Desktop, out: *mut c_char, cap: usize) -> i64 {
+    let d = unsafe { &mut *d };
+    let Some(text) = d.launch.take() else { return 0 };
+    if text.len() + 1 > cap {
+        return -1;
+    }
+    // SAFETY: out has cap bytes.
+    unsafe {
+        core::ptr::copy_nonoverlapping(text.as_ptr(), out as *mut u8, text.len());
+        *out.add(text.len()) = 0;
+    }
+    text.len() as i64
+}
+/// The started program has ended (`status` as `wait` reports it, negative when it could not start): tell the user
+/// and repaint everything (the program had the screen).
+#[no_mangle]
+pub unsafe extern "C" fn desktop_launch_finished(d: *mut Desktop, status: i32) {
+    let d = unsafe { &mut *d };
+    let msg: &[u8] = if status < 0 { b"The program could not start\0" } else if status == 0 { b"The program finished\0" } else { b"The program ended with an error\0" };
+    crate::filemgr::set_status(&mut d.files, msg);
+    crate::filemgr::refresh(&mut d.files);
+    d.render_all();
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn desktop_set_log(d: *mut Desktop, log: Option<LogFn>, aux: *mut c_void) {
     let d = unsafe { &mut *d };
@@ -937,6 +1042,33 @@ pub(crate) mod tests {
         assert_eq!(d.night, 0);
         let looks = (0..d.inv.n as usize).filter(|&i| nul(&d.inv.item[i].target).starts_with(b"look:")).count();
         assert_eq!(looks, crate::look::LOOKS.len());
+    }
+
+    #[test]
+    fn double_clicked_programs_in_the_compat_volume_become_launch_requests() {
+        let _g = crate::test_lock();
+        let (mut d, _b) = desk(1280, 720);
+        let mut inner = alloc::boxed::Box::new(MemBackend::new());
+        inner.add_node("/home", true, 0, 1, 0);
+        let ibe = alloc::boxed::Box::leak(alloc::boxed::Box::new(inner.vtable()));
+        assert!(ibe.fs_write(c"/home/game.exe".as_ptr(), b"MZ".as_ptr() as *const c_char, 2));
+        let dp = &mut *d as *mut Desktop;
+        assert!(unsafe { desktop_mount_compat(dp, c"/programs".as_ptr(), c"Programs".as_ptr(), ibe, 1 << 30, 1 << 29) });
+        let mut out = [0u8; 512];
+        assert_eq!(unsafe { desktop_take_launch(dp, out.as_mut_ptr() as *mut c_char, 512) }, 0, "nothing yet");
+        d.open_file(b"/programs/home/game.exe");
+        let n = unsafe { desktop_take_launch(dp, out.as_mut_ptr() as *mut c_char, 512) } as usize;
+        let text = core::str::from_utf8(&out[..n]).unwrap();
+        assert!(n > 0, "status: {}", core::str::from_utf8(crate::filemgr::bytes0(&d.files.status)).unwrap());
+        assert!(text.contains("/usr/bin/wine64\nstart\n/wait\n/unix\n/home/game.exe\n"), "{text}");
+        assert_eq!(unsafe { desktop_take_launch(dp, out.as_mut_ptr() as *mut c_char, 512) }, 0, "taken once");
+        // outside the compat volume nothing starts (the toy volume holds no runtime)
+        let be = d.be;
+        assert!(be.fs_write(c"/home/user/x.exe".as_ptr(), b"MZ".as_ptr() as *const c_char, 2));
+        d.open_file(b"/home/user/x.exe");
+        assert!(d.launch.is_none());
+        unsafe { desktop_launch_finished(dp, 0) };
+        core::mem::forget(inner);
     }
 
     #[test]

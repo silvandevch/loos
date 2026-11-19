@@ -77,4 +77,12 @@ void desktop_render_all(shell_desktop *d);
 uint32_t desktop_theme_desktop(const shell_desktop *d);      /* wallpaper base colour: tests count pixels that differ from it */
 int  desktop_window_count(const shell_desktop *d);
 uint32_t desktop_scale_pct(const shell_desktop *d);
+/* Programs from Files: the compat runtime's file system shows as a volume; a double-click queues a start. */
+typedef struct shell_backend shell_backend;
+bool desktop_mount_compat(shell_desktop *d, const char *prefix, const char *label, const shell_backend *be, uint64_t total, uint64_t avail);
+int64_t desktop_take_launch(shell_desktop *d, char *out, size_t cap);   /* command, one entry per line; 0 = none */
+void desktop_launch_finished(shell_desktop *d, int status);
+void desktop_open_path(shell_desktop *d, const char *path);            /* as a double-click in Files */
+const shell_backend *loos_compat_init(const uint8_t *initrd, size_t len); /* null without a runtime */
+int  loos_compat_run(const char *cmd, uint32_t *back, int32_t w, int32_t h); /* full screen until it exits; wait status */
 #endif

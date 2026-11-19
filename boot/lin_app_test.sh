@@ -20,6 +20,10 @@ electron="--no-sandbox --ozone-platform=wayland --disable-gpu --disable-gpu-comp
 # (Contents/Info.plist, MacOS, Resources and the Electron Framework's Info.plist) in out/mac-apps/;
 # Linux Electron installs on this host stand in as the runtimes in /usr/lib/prism/electron/<major>.
 mac=${MAC_APPS:-$root/out/mac-apps}; pe=/usr/lib/prism/electron
+# Windows programs run on Wine in the Linux layer (wine-runtime.sh stages it once per Wine version) with the
+# prepared prefix in /home/.wine, Wine's Wayland driver, and DXVK/vkd3d on Mesa's software Vulkan.
+case $app in win-*) wine=$("$root/tools/wine-runtime.sh" "$root/out/wine" | tr '\n' ' ') || exit 1 ;; *) wine= ;; esac
+wenv="WINEPREFIX=/home/.wine HOME=/home USER=user WINEDEBUG=${WINEDEBUG:-err+all,fixme-all} VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
 # name | rootfs paths (besides $common) | environment | command line | keys to type (QEMU names; default l o o s)
 table() { cat <<EOF
 firefox|/usr/lib64/firefox /usr/lib64/libgtk-3.so.0 /usr/lib64/gdk-pixbuf-2.0|MOZ_DISABLE_CONTENT_SANDBOX=1 MOZ_CRASHREPORTER_DISABLE=1 HOME=/tmp|/usr/lib64/firefox/firefox --no-remote about:blank|ctrl-l l o o s
@@ -30,6 +34,8 @@ discord|$nss $discord|ELECTRON_DISABLE_SANDBOX=1|$discord/Discord $electron --us
 mac-discord|$nss $discord=$pe/44 ln:$pe/44/electron=Discord $discord/updater.node=$pe/apps/com.hnc.Discord/updater.node $mac/Discord.app=/Applications/Discord.app||/Applications/Discord.app|tab tab
 mac-claude|$nss $discord=$pe/44 ln:$pe/44/electron=Discord $mac/Claude.app=/Applications/Claude.app||/Applications/Claude.app
 mac-vscode|$nss /usr/share/code=$pe/42 ln:$pe/42/electron=code $mac/VSCode.app=/Applications/VSCode.app||/Applications/VSCode.app --disable-extensions
+win-notepad|$wine|$wenv|/usr/bin/wine64 notepad|l o o s
+win-winecfg|$wine|$wenv|/usr/bin/wine64 winecfg|tab tab
 EOF
 }
 if [ -z "$app" ] || [ "$app" = list ]; then table | cut -d'|' -f1; exit 0; fi
@@ -56,7 +62,7 @@ drive() {
 }
 drive & driver=$!
 LIN_BOOT=${LIN_BOOT:-uefi} LIN_DISK_IF=${LIN_DISK_IF:-virtio} LOOS_BOOT_OUT=$out LOOS_KVM=${LOOS_KVM:-auto} \
-QEMU_DISPLAY=${QEMU_DISPLAY:-none} QEMU_MEM=${QEMU_MEM:-6G} QEMU_EXTRA="-monitor unix:$mon,server,nowait" TIMEOUT=${TIMEOUT:-150} \
+QEMU_DISPLAY=gtk QEMU_MEM=${QEMU_MEM:-6G} QEMU_EXTRA="-monitor unix:$mon,server,nowait" TIMEOUT=${TIMEOUT:-150} \
 ROOTFS_BINS="$args $files" "$here/lin_dyn_test.sh" "@$args" > "$out/build.log" 2>&1
 kill $driver 2>/dev/null; wait   # QEMU is gone: stop waiting for a window that never came
 grep -a "^lin: wayland window\|^lin: .*running," "$log" | tail -2

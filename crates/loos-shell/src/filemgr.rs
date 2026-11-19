@@ -1,7 +1,8 @@
 //! File manager (C `filemgr.c`): local volumes through the Fs backend, multi-select, copy/cut/paste.
 #![allow(missing_docs)]
 
-use crate::backend::{FsEntry, FsVolume, ShellBackend};
+use crate::backend::{FsEntry, FsVolume, ShellBackend, FSA_EXEC};
+use crate::openwith::{self, Opener};
 use crate::compositor::{KEY_BACKSPACE, KEY_DELETE, KEY_ESC, KEY_F1, MOD_CTRL, MOD_SHIFT};
 use crate::draw::{mix, Rect};
 use crate::ffi;
@@ -19,6 +20,8 @@ pub const FM_MODE_BROWSE: i32 = 0;
 pub const FM_MODE_RENAME: i32 = 1;
 pub const FM_MODE_NEWDIR: i32 = 2;
 pub const FM_MODE_CONFIRM_DELETE: i32 = 3;
+/// A program without the exec permission was double-clicked: ask before making it runnable.
+pub const FM_MODE_CONFIRM_EXEC: i32 = 4;
 
 const FSA_HIDDEN: u32 = 1;
 
@@ -58,9 +61,11 @@ pub struct ShellFilemgr {
     pub nview: i32,
     pub open_file: Option<OpenFn>,
     pub user: *mut c_void,
+    /// The program waiting for the "make executable?" answer.
+    pub pending: [u8; FM_PATH],
 }
 
-fn bytes0(a: &[u8]) -> &[u8] {
+pub fn bytes0(a: &[u8]) -> &[u8] {
     let n = a.iter().position(|&b| b == 0).unwrap_or(a.len());
     &a[..n]
 }
@@ -209,7 +214,7 @@ pub fn refresh(f: &mut ShellFilemgr) {
     }
 }
 
-fn set_status(f: &mut ShellFilemgr, m: &[u8]) {
+pub fn set_status(f: &mut ShellFilemgr, m: &[u8]) {
     put(&mut f.status, m);
 }
 
@@ -315,6 +320,7 @@ pub fn init(f: &mut ShellFilemgr, be: *const ShellBackend, start: &[u8]) {
     f.nview = 0;
     f.open_file = None;
     f.user = core::ptr::null_mut();
+    f.pending = [0; FM_PATH];
     if !navigate(f, if start.is_empty() { b"/" } else { start }, true) {
         navigate(f, b"/", true);
     }
@@ -527,16 +533,53 @@ unsafe extern "C" fn row_vol(u: *mut UiCtx, row: Rect, i: i32, sel: bool, user: 
     ui::label(u, row.x + 8, row.y + 18, bytes0(&line[..n]), t.text_dim);
 }
 
+/// What double-clicking the entry at `p` does, from its first bytes.
+pub fn opener_for(f: &ShellFilemgr, e: &FsEntry, p: &[u8; FM_PATH]) -> Opener {
+    let mut head = [0u8; 64];
+    let n = if e.is_dir || f.be.is_null() {
+        0
+    } else {
+        // SAFETY: be is the live backend; head has 64 bytes.
+        unsafe { (*f.be).fs_read(p.as_ptr() as *const c_char, head.as_mut_ptr() as *mut c_char, head.len()) }.max(0) as usize
+    };
+    openwith::classify(bytes0(&e.name), e.is_dir, &head[..n])
+}
+
+fn hand_off(f: &mut ShellFilemgr, p: &[u8]) {
+    if let Some(cb) = f.open_file {
+        // SAFETY: host callback with a live user pointer; p is NUL-terminated.
+        unsafe { cb(p.as_ptr() as *const c_char, f.user) };
+    }
+}
+
 fn open_cursor(f: &mut ShellFilemgr) {
     if f.cursor >= f.nview { return; }
     let e = f.ent[f.view[f.cursor as usize] as usize];
     let p = cstr_join(&f.cwd, &e.name);
-    if e.is_dir {
+    let op = opener_for(f, &e, &p);
+    if op == Opener::Folder {
         navigate(f, bytes0(&p), true);
-    } else if let Some(cb) = f.open_file {
-        // SAFETY: host callback with a live user pointer.
-        unsafe { cb(p.as_ptr() as *const c_char, f.user) };
+    } else if openwith::needs_exec_permission(op) && e.attrs & FSA_EXEC == 0 {
+        f.pending = p;
+        f.mode = FM_MODE_CONFIRM_EXEC;
+    } else {
+        hand_off(f, &p);
     }
+}
+
+/// "Make executable and run": set the permission, then open it as usual.
+pub fn confirm_exec(f: &mut ShellFilemgr) -> bool {
+    let p = f.pending;
+    f.mode = FM_MODE_BROWSE;
+    f.pending[0] = 0;
+    // SAFETY: be is the live backend; p is NUL-terminated.
+    if f.be.is_null() || !unsafe { (*f.be).fs_set_exec(p.as_ptr() as *const c_char, true) } {
+        set_status(f, b"Could not make it executable (read-only?)");
+        return false;
+    }
+    refresh(f);
+    hand_off(f, &p);
+    true
 }
 
 pub fn frame(f: &mut ShellFilemgr, u: &mut UiCtx, w: i32, h: i32) {
@@ -686,12 +729,27 @@ pub fn frame(f: &mut ShellFilemgr, u: &mut UiCtx, w: i32, h: i32) {
         u.pressed = p_pressed;
         u.released = p_released;
         u.wheel = p_wheel;
-        let m = Rect::new(w / 2 - 230, h / 2 - 50, 460, 100);
+        let m = if f.mode == FM_MODE_CONFIRM_EXEC { Rect::new(w / 2 - 280, h / 2 - 90, 560, 180) } else { Rect::new(w / 2 - 230, h / 2 - 50, 460, 100) };
         unsafe {
             ffi::fb_fill_round(u.fb, u.clip, Rect::new(m.x - 2, m.y - 2, m.w + 4, m.h + 4), 10, t.border);
             ffi::fb_fill_round(u.fb, u.clip, m, 8, t.surface_hi);
         }
-        if f.mode == FM_MODE_CONFIRM_DELETE {
+        if f.mode == FM_MODE_CONFIRM_EXEC {
+            let name = { let p = bytes0(&f.pending); &p[p.iter().rposition(|&c| c == b'/').map_or(0, |i| i + 1)..] };
+            let mut msg = [0u8; 120];
+            let mut n = 0;
+            for &c in b"\"".iter().chain(name.iter().take(60)).chain(b"\" is not allowed to run as a program.".iter()) { msg[n] = c; n += 1; }
+            ui::label(u, m.x + 16, m.y + 16, bytes0(&msg[..n]), t.text);
+            ui::label(u, m.x + 16, m.y + 44, b"Warning: once it is executable, it can run. A program can read,", t.danger);
+            ui::label(u, m.x + 16, m.y + 64, b"change and delete your files. Only allow programs you trust.", t.danger);
+            ui::label(u, m.x + 16, m.y + 92, b"Make it executable and run it now?", t.text);
+            if ui::button_accent(u, Rect::new(m.x + 16, m.y + 128, 230, 34), b"Make executable and run") {
+                confirm_exec(f);
+            } else if ui::button(u, Rect::new(m.x + 256, m.y + 128, 120, 34), b"Cancel") || ui::take_key(u, KEY_ESC, 0) {
+                f.mode = FM_MODE_BROWSE;
+                f.pending[0] = 0;
+            }
+        } else if f.mode == FM_MODE_CONFIRM_DELETE {
             let mut msg = [0u8; 80];
             let mut n = 0;
             for &c in b"Delete " { msg[n] = c; n += 1; }
@@ -824,7 +882,7 @@ mod tests {
 
     #[test]
     fn layout_matches_c() {
-        assert_eq!(size_of::<ShellFilemgr>(), 34544);
+        assert_eq!(size_of::<ShellFilemgr>(), 34704);
         assert_eq!(offset_of!(ShellFilemgr, cwd), 8);
         assert_eq!(offset_of!(ShellFilemgr, ent), 168);
         assert_eq!(offset_of!(ShellFilemgr, n), 24744);
@@ -877,6 +935,46 @@ mod tests {
         f.sort_desc = true;
         sort_view(f);
         assert_eq!(f.view[0], 1, "directories stay first");
+    }
+
+    static OPENED: std::sync::Mutex<std::vec::Vec<std::vec::Vec<u8>>> = std::sync::Mutex::new(std::vec::Vec::new());
+    unsafe extern "C" fn record(p: *const c_char, _: *mut c_void) {
+        OPENED.lock().unwrap().push(unsafe { core::ffi::CStr::from_ptr(p) }.to_bytes().to_vec());
+    }
+
+    #[test]
+    fn double_click_runs_programs_and_asks_before_making_one_executable() {
+        let mut m = Box::new(crate::backend_mem::MemBackend::new());
+        m.add_node("/home", true, 0, 1, 0);
+        let be = Box::leak(Box::new(m.vtable()));
+        for (name, data) in [("tool", &b"\x7fELF\x02"[..]), ("game.exe", b"MZ\x90\0"), ("notes.txt", b"hi")] {
+            let p = std::format!("/home/{name}\0");
+            assert!(be.fs_write(p.as_ptr() as *const c_char, data.as_ptr() as *const c_char, data.len()));
+        }
+        m.add_node("/home/Found.app", true, 0, 1, 0);
+        let f = mgr();
+        init(f, be, b"/home");
+        f.open_file = Some(record);
+        let pick = |f: &mut ShellFilemgr, name: &[u8]| {
+            f.cursor = (0..f.nview).find(|&i| bytes0(&f.ent[f.view[i as usize] as usize].name) == name).unwrap();
+            open_cursor(f);
+        };
+        OPENED.lock().unwrap().clear();
+        pick(f, b"game.exe");
+        assert_eq!(OPENED.lock().unwrap().pop().as_deref(), Some(&b"/home/game.exe"[..]), "Windows programs open straight away");
+        pick(f, b"Found.app");
+        assert_eq!(OPENED.lock().unwrap().pop().as_deref(), Some(&b"/home/Found.app"[..]), "bundles open instead of being browsed");
+        assert_eq!(bytes0(&f.cwd), b"/home");
+        pick(f, b"tool");
+        assert_eq!(f.mode, FM_MODE_CONFIRM_EXEC, "a Linux program without x asks first");
+        assert!(OPENED.lock().unwrap().is_empty());
+        assert!(confirm_exec(f));
+        assert_eq!(OPENED.lock().unwrap().pop().as_deref(), Some(&b"/home/tool"[..]));
+        pick(f, b"tool");
+        assert_eq!(f.mode, FM_MODE_BROWSE, "once executable it just runs");
+        assert_eq!(OPENED.lock().unwrap().pop().as_deref(), Some(&b"/home/tool"[..]));
+        pick(f, b"notes.txt");
+        assert_eq!(OPENED.lock().unwrap().pop().as_deref(), Some(&b"/home/notes.txt"[..]), "documents go to the host too");
     }
 
     #[test]

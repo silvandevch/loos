@@ -871,7 +871,7 @@ mod tests {
 
     #[test]
     fn defaults_are_local_only() {
-        let mut be = ShellBackend { user: core::ptr::null_mut(), funcs: [core::ptr::null_mut(); 24] };
+        let mut be = ShellBackend { user: core::ptr::null_mut(), funcs: [core::ptr::null_mut(); 25] };
         be.funcs[crate::backend::F_CFG_GET] = no_cfg as *mut c_void;
         let s = Box::leak(Box::new(unsafe { core::mem::zeroed::<ShellSettings>() }));
         init(s, &be, core::ptr::null_mut(), core::ptr::null_mut());

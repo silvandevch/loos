@@ -9,6 +9,7 @@ extern crate alloc;
 pub mod heap;
 
 #[cfg(target_os = "none")]
+mod compat;
 mod lin;
 mod sys;
 #[cfg(target_os = "none")]
