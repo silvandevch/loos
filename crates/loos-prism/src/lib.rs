@@ -122,9 +122,10 @@ impl Abi for X86Call<'_> {
 struct Proc {
     st: State,
     /// Interpreter state for arm64 programs.
-    arm: Option<Box<arm64::Cpu>>,
-    /// Result conversion owed to a LoOS syscall that blocked.
-    pending: Option<Post>,
+    /// One per thread (key 0: the first thread before its id is known).
+    arm: BTreeMap<Pid, Box<arm64::Cpu>>,
+    /// Result conversion owed to a LoOS syscall that blocked, per thread.
+    pending: BTreeMap<Pid, Post>,
     /// A process-level change the last forwarded syscall made, for [`Prism::settle`].
     event: Option<Event>,
 }
@@ -133,7 +134,8 @@ struct Proc {
 #[derive(Clone, Copy)]
 enum Event {
     /// `fork`: the child (a copy of this process) finishes the call with this conversion.
-    Forked(Pid, Post),
+    /// Child pid, the forking thread, the child's result conversion.
+    Forked(Pid, Pid, Post),
     /// `execve` of a Linux program: the process is no longer Prism's.
     Exec,
     /// `execve` of a Mach-O: Prism loads it ([`LinSystem::foreign_exec`]).
@@ -177,7 +179,7 @@ impl Prism {
 
     /// Is `pid` an arm64 (interpreted) process?
     pub fn is_arm(&self, pid: Pid) -> bool {
-        self.procs.get(&pid).is_some_and(|p| p.arm.is_some())
+        self.procs.get(&pid).is_some_and(|p| p.st.arm)
     }
 
     /// Start a macOS program (Mach-O file or `.app` bundle). Intel code runs natively; arm64-only
@@ -282,22 +284,26 @@ impl Prism {
         st.arm = arm;
         st.epoch_ns = sys.epoch_base_s.saturating_mul(1_000_000_000);
         // Execution starts in the `__prism_start` stub, which runs initializers, then main.
-        let regs = Regs { rip: SHIM_BASE, rsp: prog.sp, rflags: 0x202, ..Regs::default() };
-        let arm = arm.then(|| {
+        let regs = Regs { rip: SHIM_BASE, rsp: prog.sp, rflags: 0x202, gs_base: SHIM_DATA + libsys::TSD_MAIN, ..Regs::default() };
+        let mut arm = BTreeMap::new();
+        if prog.cpu == macho::CPU_ARM64 {
             let mut c = Box::new(arm64::Cpu::new(SHIM_BASE, prog.sp));
-            c.tpidrro = SHIM_DATA + 0x800; // Darwin TSD area
-            c
-        });
-        Ok((mem, regs, exe, Proc { st, arm, pending: None, event: None }))
+            c.tpidrro = SHIM_DATA + libsys::TSD_MAIN; // Darwin TSD area
+            arm.insert(0, c);
+        }
+        Ok((mem, regs, exe, Proc { st, arm, pending: BTreeMap::new(), event: None }))
     }
 
     /// Apply the process-level effect (fork, exec) the last call of `pid` had, if any.
     fn settle<F: LinFs>(&mut self, sys: &mut LinSystem<F>, pid: Pid, r: Sys) -> Sys {
         let Some(ev) = self.procs.get_mut(&pid).and_then(|p| p.event.take()) else { return r };
         match ev {
-            Event::Forked(child, post) => {
+            Event::Forked(child, by, post) => {
                 let mut c = self.procs[&pid].clone();
-                c.pending = Some(post);
+                c.pending = BTreeMap::from([(child, post)]);
+                // The child is a copy of the forking thread only.
+                let cpu = cpu(&mut c, by).cloned();
+                c.arm = cpu.into_iter().map(|k| (child, k)).collect();
                 self.procs.insert(child, c);
                 r
             }
@@ -312,6 +318,9 @@ impl Prism {
     /// Forget processes that no longer exist.
     pub fn reap<F: LinFs>(&mut self, sys: &LinSystem<F>) {
         self.procs.retain(|pid, _| sys.process(*pid).is_some());
+        for p in self.procs.values_mut() {
+            p.arm.retain(|t, _| *t == 0 || sys.thread(*t).is_some());
+        }
     }
 
     /// Handle a syscall trapped from a native (x86-64) Prism thread. `None`: not a Prism process.
@@ -329,9 +338,10 @@ impl Prism {
             }
             let stack = regs.rsp + 8;
             let mem = &mut sys.process_mut(pid)?.mem;
+            let regs_tsd = regs.gs_base;
             let mut call = X86Call { r: &mut regs, xmm, fret: None, gi: 0, fi: 0, stack };
             let i = (nr - PRISM_NR) as usize;
-            let act = proc.st.call(i, &mut call, mem, now);
+            let act = proc.st.call(i, &mut call, mem, now, regs_tsd);
             let fret = call.fret;
             let t = sys.thread_mut(tid)?;
             t.regs = regs;
@@ -342,6 +352,10 @@ impl Prism {
             return Some(self.settle(sys, pid, r));
         }
         let plan = match nr >> 24 {
+            2 if nr & 0xff_ffff == darwin::BSDTHREAD_CREATE => match new_thread(sys, tid, a) {
+                Ok(t) => darwin::Plan::Value(t),
+                Err(e) => darwin::Plan::Error(e),
+            },
             2 => darwin::bsd(nr & 0xff_ffff, a),
             1 => darwin::mach(nr & 0xff_ffff, a),
             3 if nr & 0xff_ffff == 3 => {
@@ -359,9 +373,9 @@ impl Prism {
     pub fn resume<F: LinFs>(&mut self, sys: &mut LinSystem<F>, tid: Pid) {
         let Some(pid) = sys.thread(tid).map(|t| t.pid) else { return };
         let Some(proc) = self.procs.get_mut(&pid) else { return };
-        if let Some(post) = proc.pending.take() {
+        if let Some(post) = proc.pending.remove(&tid) {
             let v = sys.thread(tid).map(|t| t.regs.rax as i64).unwrap_or(0);
-            let arm = proc.arm.is_some();
+            let arm = proc.st.arm;
             apply_post(proc, sys, tid, post, v, arm);
             self.settle(sys, pid, Sys::Ret(0));
         }
@@ -384,24 +398,25 @@ impl Prism {
         let proc = self.procs.get_mut(&pid)?;
         let mut left = budget;
         while left > 0 {
-            let mut cpu = proc.arm.take()?;
+            let mut cpu = take_cpu(proc, tid)?;
             let before = cpu.icount;
             let stop = cpu.run(&mut sys.process_mut(pid)?.mem, left);
             left = left.saturating_sub((cpu.icount - before).max(1));
             let r = match stop {
                 arm64::Stop::Budget => {
-                    proc.arm = Some(cpu);
+                    proc.arm.insert(tid, cpu);
                     None
                 }
                 arm64::Stop::Shim(i) => {
                     let now = sys.now_ns;
                     let mem = &mut sys.process_mut(pid)?.mem;
+                    let tsd = cpu.tpidrro;
                     let mut call = arm64::ArmCall::new(&mut cpu);
-                    let act = proc.st.call(i, &mut call, mem, now);
+                    let act = proc.st.call(i, &mut call, mem, now, tsd);
                     if !call.jumped {
                         cpu.pc = cpu.x[30];
                     }
-                    proc.arm = Some(cpu);
+                    proc.arm.insert(tid, cpu);
                     // abort() and missing functions do not return: stop before running past them
                     let fatal = matches!(act, Act::Abort(_) | Act::Missing);
                     let r = finish(proc, sys, tid, pid, i, act, true);
@@ -414,11 +429,16 @@ impl Prism {
                     let n = cpu.x[16] as i64;
                     let a = [cpu.x[0], cpu.x[1], cpu.x[2], cpu.x[3], cpu.x[4], cpu.x[5]];
                     cpu.pc += 4;
-                    proc.arm = Some(cpu);
+                    proc.arm.insert(tid, cpu);
                     let plan = if n < 0 {
                         darwin::mach((-n) as u64, a)
                     } else if n == 0x8000_0000 {
                         darwin::Plan::Value(0) // platform calls (thread_set_tsd_base) are handled via TPIDRRO_EL0
+                    } else if n as u64 == darwin::BSDTHREAD_CREATE {
+                        match new_arm_thread(proc, sys, tid, a) {
+                            Ok(t) => darwin::Plan::Value(t),
+                            Err(e) => darwin::Plan::Error(e),
+                        }
                     } else {
                         darwin::bsd(n as u64, a)
                     };
@@ -426,19 +446,19 @@ impl Prism {
                 }
                 arm64::Stop::Fault(addr) => {
                     sys.diag += &format!("prism: arm64 fault at {addr:#x} (pc {:#x}, pid {pid})\n", cpu.pc);
-                    proc.arm = Some(cpu);
+                    proc.arm.insert(tid, cpu);
                     sys.fault(tid, 14, 0, addr);
                     return Some(Sys::Ret(0));
                 }
                 arm64::Stop::Undefined(ins) => {
                     sys.diag += &format!("prism: arm64 instruction {ins:#010x} at {:#x} is not supported (lr {:#x}, pid {pid})\n", cpu.pc, cpu.x[30]);
-                    proc.arm = Some(cpu);
+                    proc.arm.insert(tid, cpu);
                     sys.send_signal(pid, Some(tid), 4);
                     return Some(Sys::Ret(0));
                 }
                 arm64::Stop::Brk => {
                     sys.diag += &format!("prism: arm64 brk at {:#x}\n", cpu.pc);
-                    proc.arm = Some(cpu);
+                    proc.arm.insert(tid, cpu);
                     sys.send_signal(pid, Some(tid), 5);
                     return Some(Sys::Ret(0));
                 }
@@ -458,9 +478,59 @@ impl Prism {
     }
 }
 
+/// The interpreter state of thread `tid` (the first thread's is filed under 0 until it runs).
+fn cpu(proc: &mut Proc, tid: Pid) -> Option<&mut Box<arm64::Cpu>> {
+    if !proc.arm.contains_key(&tid) {
+        let c = proc.arm.remove(&0)?;
+        proc.arm.insert(tid, c);
+    }
+    proc.arm.get_mut(&tid)
+}
+
+/// Take thread `tid`'s interpreter state to run it. Its exclusive monitor is cleared: another
+/// thread may have run since its last load-exclusive, so a pending store-exclusive must retry.
+fn take_cpu(proc: &mut Proc, tid: Pid) -> Option<Box<arm64::Cpu>> {
+    cpu(proc, tid)?;
+    let mut c = proc.arm.remove(&tid)?;
+    c.clear_exclusive();
+    Some(c)
+}
+
+/// `bsdthread_create` for an interpreted process: a LoOS thread with its own arm64 CPU (see
+/// [`new_thread`] for the arguments).
+fn new_arm_thread<F: LinFs>(proc: &mut Proc, sys: &mut LinSystem<F>, tid: Pid, a: [u64; 6]) -> Result<u64, i64> {
+    let (entry, arg, stack, tsd) = (a[0], a[1], a[2] & !15, a[3]);
+    let fpcr = proc.arm.get(&tid).map_or(0, |c| c.fpcr);
+    let new = clone_thread(sys, tid, stack, tsd)?;
+    let mut c = Box::new(arm64::Cpu::new(entry, stack));
+    c.x[0] = arg;
+    c.x[1] = tsd;
+    c.tpidrro = tsd;
+    c.fpcr = fpcr;
+    proc.arm.insert(new, c);
+    Ok(new as u64)
+}
+
+/// A LoOS thread in the caller's process (CLONE_VM|FS|FILES|SIGHAND|THREAD|SYSVSEM, plus
+/// PARENT_SETTID / CHILD_CLEARTID on the pthread's tid word just below its TSD).
+fn clone_thread<F: LinFs>(sys: &mut LinSystem<F>, tid: Pid, stack: u64, tsd: u64) -> Result<Pid, i64> {
+    let tid_word = tsd - 8;
+    let flags = 0x100 | 0x200 | 0x400 | 0x800 | 0x1_0000 | 0x4_0000 | 0x10_0000 | 0x20_0000;
+    let saved = sys.thread(tid).map(|t| t.regs).ok_or(3i64)?;
+    let r = sys.syscall(tid, 56, [flags, stack - 8, tid_word, tid_word, 0, 0]);
+    if let Some(t) = sys.thread_mut(tid) {
+        t.regs = saved;
+    }
+    match r {
+        Sys::Ret(v) if v > 0 => Ok(v as Pid),
+        Sys::Ret(v) => Err(-v),
+        _ => Err(11),
+    }
+}
+
 fn set_result<F: LinFs>(proc: &mut Proc, sys: &mut LinSystem<F>, tid: Pid, v: u64, carry: Option<bool>, arm: bool) {
     if arm {
-        if let Some(c) = proc.arm.as_mut() {
+        if let Some(c) = cpu(proc, tid) {
             c.x[0] = v;
             if let Some(cf) = carry {
                 c.c = cf;
@@ -476,9 +546,10 @@ fn set_result<F: LinFs>(proc: &mut Proc, sys: &mut LinSystem<F>, tid: Pid, v: u6
 
 fn apply_post<F: LinFs>(proc: &mut Proc, sys: &mut LinSystem<F>, tid: Pid, post: Post, v: i64, arm: bool) {
     let pid = sys.thread(tid).map(|t| t.pid).unwrap_or(0);
+    let tsd = if arm { cpu(proc, tid).map_or(0, |c| c.tpidrro) } else { sys.thread(tid).map_or(0, |t| t.regs.gs_base) };
     let set_errno = |sys: &mut LinSystem<F>, e: i64| {
         if let Some(p) = sys.process_mut(pid) {
-            let _ = p.mem.write_u32(SHIM_DATA + libsys::D_ERRNO, darwin::linux_to_darwin_errno(e) as u32);
+            let _ = p.mem.write_u32(libsys::errno_addr(tsd), darwin::linux_to_darwin_errno(e) as u32);
         }
     };
     match post {
@@ -520,7 +591,7 @@ fn apply_post<F: LinFs>(proc: &mut Proc, sys: &mut LinSystem<F>, tid: Pid, post:
             let (r, w) = (fds & 0xffff_ffff, fds >> 32);
             set_result(proc, sys, tid, r, Some(false), arm);
             if arm {
-                if let Some(c) = proc.arm.as_mut() {
+                if let Some(c) = cpu(proc, tid) {
                     c.x[1] = w;
                 }
             } else if let Some(t) = sys.thread_mut(tid) {
@@ -536,11 +607,11 @@ fn forward<F: LinFs>(proc: &mut Proc, sys: &mut LinSystem<F>, tid: Pid, nr: u64,
     let forks = nr == 57 || (nr == 56 && args[0] & 0x100 == 0);
     match r {
         Sys::Ret(v) if forks && v > 0 => {
-            proc.event = Some(Event::Forked(v as Pid, post));
+            proc.event = Some(Event::Forked(v as Pid, tid, post));
         }
         Sys::Exec => proc.event = Some(Event::Exec),
         Sys::ExecForeign => {
-            proc.pending = Some(post);
+            proc.pending.insert(tid, post);
             proc.event = Some(Event::ExecForeign);
             return r;
         }
@@ -558,11 +629,25 @@ fn forward<F: LinFs>(proc: &mut Proc, sys: &mut LinSystem<F>, tid: Pid, nr: u64,
             Sys::Ret(v)
         }
         Sys::Blocked => {
-            proc.pending = Some(post);
+            proc.pending.insert(tid, post);
             r
         }
         other => other,
     }
+}
+
+/// `bsdthread_create(entry, arg, stack_top, tsd)` (Prism's own form, used by `libc/pthread.c`): a
+/// new thread of the caller's process that starts at `entry(arg, tsd)` on `stack_top` with its
+/// Darwin TSD (gs) at `tsd`. `tsd[-8..-4]` (the pthread's tid word) is set to the thread id and
+/// cleared with a futex wake when the thread ends (`pthread_join` waits on it).
+fn new_thread<F: LinFs>(sys: &mut LinSystem<F>, tid: Pid, a: [u64; 6]) -> Result<u64, i64> {
+    let (entry, arg, stack, tsd) = (a[0], a[1], a[2] & !15, a[3]);
+    let fs_base = sys.thread(tid).map_or(0, |t| t.regs.fs_base);
+    let new = clone_thread(sys, tid, stack, tsd)?;
+    let t = sys.thread_mut(new).ok_or(11i64)?;
+    // A new function frame: rsp + 8 is 16-byte aligned; the entry never returns.
+    t.regs = Regs { rip: entry, rsp: stack - 8, rdi: arg, rsi: tsd, rflags: 0x202, gs_base: tsd, fs_base, ..Regs::default() };
+    Ok(new as u64)
 }
 
 fn finish<F: LinFs>(proc: &mut Proc, sys: &mut LinSystem<F>, tid: Pid, pid: Pid, i: usize, act: Act, arm: bool) -> Sys {

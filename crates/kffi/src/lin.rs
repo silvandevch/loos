@@ -97,6 +97,13 @@ fn console_log(bytes: &[u8]) {
     for &b in bytes {
         match b {
             b'\n' => {
+                // Detail lines (indented diagnostics: thread and memory dumps, syscall traces) stay on the
+                // serial log; drawing them all slows the program down.
+                let l = log.lines.back_mut().unwrap();
+                if l.starts_with(b"lin:   ") || l.starts_with(b" ") {
+                    l.clear();
+                    continue;
+                }
                 log.lines.push_back(Vec::new());
                 if log.lines.len() > LOG_LINES {
                     log.lines.pop_front();
@@ -241,6 +248,22 @@ pub(crate) fn build_pml4(mem: &UserMem) -> u64 {
     }
 }
 
+/// The leaf entry for `va` in `pml4` (0 when unmapped).
+fn leaf_of(pml4: u64, va: u64) -> u64 {
+    // SAFETY: tables come from kalloc (identity mapped); indices are masked to 0..512.
+    unsafe {
+        let mut t = pml4 as *const u64;
+        for shift in [39u32, 30, 21] {
+            let e = *t.add(((va >> shift) & 511) as usize);
+            if e & P == 0 {
+                return 0;
+            }
+            t = (e & 0x000f_ffff_ffff_f000) as *const u64;
+        }
+        *t.add(((va >> 12) & 511) as usize)
+    }
+}
+
 /// Set (or with `prot == 0`, clear) the leaf entry for `va` in `pml4`. False when out of memory.
 pub(crate) fn map_page(pml4: *mut u64, va: u64, pa: u64, prot: u32) -> bool {
     // SAFETY: tables come from kalloc (identity mapped); indices are masked to 0..512.
@@ -302,6 +325,9 @@ impl loos_lin::sys::LinNet for KLinNet {
     fn pump(&mut self, now_ms: u64) {
         crate::sys::loos_net_poll(now_ms);
     }
+    fn dns_server(&self) -> Option<[u8; 4]> {
+        crate::sys::dns_server()
+    }
 }
 
 struct Lin {
@@ -333,6 +359,10 @@ struct Lin {
     syscalls: u64,
     /// Syscalls in the current heartbeat window, by (thread, number).
     hot: BTreeMap<(Pid, u64), u32>,
+    /// TSC cycles per phase since the last heartbeat: loop, user, syscall, fault, present; then fault count.
+    prof: [u64; 6],
+    /// TSC cycles spent handling each syscall number since the last heartbeat.
+    sys_cycles: BTreeMap<u64, u64>,
     /// Wayland frames shown so far.
     frames_shown: u64,
     presents: u64,
@@ -571,6 +601,24 @@ impl Lin {
         hot.sort_by(|a, b| b.1.cmp(&a.1));
         let top: Vec<String> = hot.iter().take(5).map(|((t, nr), n)| alloc::format!("{}x {}#{} [{}]", n, loos_lin::syscalls_generated::syscall_name(*nr), nr, t)).collect();
         say(&alloc::format!("lin:   busiest: {}\n", top.join(", ")));
+        // Live processes by program: a growing count shows what keeps getting started.
+        let mut names: BTreeMap<String, Vec<Pid>> = BTreeMap::new();
+        for p in self.sys.live_processes() {
+            let n = p.argv.iter().rev().find(|a| a.contains(".exe")).or(p.argv.first()).map(|a| a.rsplit(['/', '\\']).next().unwrap_or(a)).unwrap_or("?");
+            names.entry(n.into()).or_default().push(p.pid);
+        }
+        let names: Vec<String> = names.iter().map(|(n, ps)| alloc::format!("{n}{ps:?}")).collect();
+        say(&alloc::format!("lin:   live: {}\n", names.join(" ")));
+        // Where syscall time goes (share of all syscall time), costliest first.
+        let mut cost: Vec<(u64, u64)> = core::mem::take(&mut self.sys_cycles).into_iter().collect();
+        cost.sort_by(|a, b| b.1.cmp(&a.1));
+        let total = cost.iter().map(|c| c.1).sum::<u64>().max(1);
+        let top: Vec<String> = cost.iter().take(6).map(|(nr, c)| alloc::format!("{}#{} {}%", loos_lin::syscalls_generated::syscall_name(*nr), nr, c * 100 / total)).collect();
+        say(&alloc::format!("lin:   syscall time: {}\n", top.join(", ")));
+        let p = core::mem::take(&mut self.prof);
+        let all = p[..5].iter().sum::<u64>().max(1);
+        let pct = |i: usize| p[i] * 100 / all;
+        say(&alloc::format!("lin:   time: loop {}%, user {}%, syscall {}%, fault {}% ({} faults), present {}%\n", pct(0), pct(1), pct(2), pct(3), p[5], pct(4)));
         // Every process's share, so a quiet process (a renderer waiting on something) is visible too.
         let mut per: BTreeMap<Pid, u32> = BTreeMap::new();
         for ((t, _), n) in &hot {
@@ -579,7 +627,7 @@ impl Lin {
             }
         }
         let procs: Vec<String> = per.iter().map(|(pid, n)| {
-            let kind = self.sys.process(*pid).and_then(|p| p.argv.iter().find_map(|a| a.strip_prefix("--type=")).map(String::from)).unwrap_or_else(|| "main".into());
+            let kind = self.sys.process(*pid).and_then(|p| p.argv.iter().find_map(|a| a.strip_prefix("--type=")).map(String::from).or_else(|| p.argv.iter().rev().find(|a| a.contains(".exe")).or(p.argv.first()).map(|a| a.rsplit(['/', '\\']).next().unwrap_or(a).into()))).unwrap_or_else(|| "?".into());
             alloc::format!("{pid}:{kind}={n}")
         }).collect();
         say(&alloc::format!("lin:   per process: {}\n", procs.join(" ")));
@@ -631,7 +679,8 @@ impl Lin {
     fn show(&mut self) {
         // SAFETY: monotonic clock.
         let now = unsafe { time_us() };
-        if self.show_console && console_changed() {
+        // A console-only change redraws at most 4 times a second (window changes still get ~60).
+        if self.show_console && console_changed() && now.saturating_sub(self.last_present_us) >= 250_000 {
             self.dirty = true;
         }
         if !self.dirty || self.back.is_null() || now.saturating_sub(self.last_present_us) < 16_000 {
@@ -662,21 +711,29 @@ impl Lin {
         let mut clock = rdtsc();
         let mut status = None;
         let mut idle_spins = 0u32;
-        let mut frame: UFrame = UFrame { gpr: [0; 16], vector: 0, error: 0, rip: 0, cs: 0x23, rflags: 2, rsp: 0, ss: 0x1b, cr3: 0, fx: [0; 512] };
+        let mut last_io_us = 0u64;
+        let mut frame: UFrame = UFrame { gpr: [0; 16], vector: 0, error: 0, rip: 0, cs: loos_lin::sys::USER_CS as u64, rflags: 2, rsp: 0, ss: loos_lin::sys::USER_SS as u64, cr3: 0, fx: [0; 512] };
         // Default x87/SSE state: FCW=0x37f, MXCSR=0x1f80.
         frame.fx[0] = 0x7f;
         frame.fx[1] = 0x03;
         frame.fx[24..28].copy_from_slice(&0x1f80u32.to_le_bytes());
         while status.is_none() {
+            let t_loop = rdtsc();
             // SAFETY: monotonic microsecond clock.
             let now = unsafe { time_us() };
             let t = rdtsc();
             self.sys.advance(((t.wrapping_sub(clock) as u128 * mult as u128) >> 32) as u64);
             clock = t;
-            if self.sys.net_attached() {
-                self.sys.poll_net(now / 1000);
+            // The NIC and PS/2 are hardware reads (VM exits), and poll_net re-checks every thread blocked in
+            // poll(): once a millisecond is plenty. Doing it per syscall made a hundred idle poll() waiters
+            // spin and cost most of the run time.
+            if now.wrapping_sub(last_io_us) >= 1000 {
+                last_io_us = now;
+                if self.sys.net_attached() {
+                    self.sys.poll_net(now / 1000);
+                }
+                self.poll_input();
             }
-            self.poll_input();
             if now.saturating_sub(self.beat_us) >= 10_000_000 {
                 self.beat_us = now;
                 self.heartbeat(now);
@@ -757,8 +814,13 @@ impl Lin {
                 // arch_prctl(ARCH_SET_GS) / Darwin's TSD base (Wine keeps the Windows TEB there): becomes GS on the
                 // swapgs into ring 3.
                 wrmsr(MSR_KERNEL_GS_BASE, r.gs_base);
-                run_user(&mut frame)
+                let t_in = rdtsc();
+                self.prof[0] += t_in.wrapping_sub(t_loop);
+                let v = run_user(&mut frame);
+                self.prof[1] += rdtsc().wrapping_sub(t_in);
+                v
             };
+            let t_out = rdtsc();
             let g = &frame.gpr;
             {
                 let t = self.sys.thread_mut(tid).unwrap();
@@ -784,12 +846,20 @@ impl Lin {
                 if prism && matches!(r, Sys::ProcessExit(_)) {
                     self.prism.reap(&self.sys);
                 }
-                self.present_wayland();
+                let t_sys = rdtsc();
+                self.prof[2] += t_sys.wrapping_sub(t_out);
+                *self.sys_cycles.entry(nr).or_default() += t_sys.wrapping_sub(t_out);
+                // New Wayland frames only arrive through socket I/O (the heartbeat and idle paths present too).
+                if !LinSystem::<MemFs>::io_neutral(nr) {
+                    self.present_wayland();
+                }
+                self.prof[4] += rdtsc().wrapping_sub(t_sys);
             } else {
+                self.prof[5] += 1;
                 let cr2 = read_cr2();
                 let write = frame.error & 2 != 0;
                 let fixed = vector == 14
-                    && match self.sys.process_mut(pid).and_then(|p| p.mem.handle_fault(cr2, write)) {
+                    && match self.sys.process_mut(pid).and_then(|p| p.mem.handle_fault_kind(cr2, write, frame.error & 0x10 != 0)) {
                         Some((va, pa, prot)) => match self.pml4.get(&pid) {
                             Some(&(_, cr3)) => map_page(cr3 as *mut u64, va, pa, prot),
                             None => true,
@@ -816,6 +886,22 @@ impl Lin {
                         // SAFETY: serial output.
                         hex(off);
                     }
+                    // The faulting instruction's bytes (decode with e.g. `xxd -r -p | objdump -D -b binary -mi386:x86-64`).
+                    if let Some(p) = self.sys.process_mut(pid) {
+                        if let Ok(code) = p.mem.read_vec(frame.rip, 16) {
+                            say(" code ");
+                            say(&code.iter().map(|b| alloc::format!("{b:02x}")).collect::<String>());
+                        }
+                    }
+                    say(" rsp ");
+                    hex(frame.rsp);
+                    if let Some(p) = self.sys.process_mut(pid) {
+                        let top: Vec<String> = (0..4).filter_map(|i| p.mem.read_u64(frame.rsp + 8 * i).ok()).map(|w| alloc::format!("{w:#x}")).collect();
+                        say(&alloc::format!(" [rsp] {}", top.join(" ")));
+                        // DEBUG-FF
+                        let probe: Vec<String> = [0x14006da18u64, 0x14006d000, 0x14006d008, 0x14006c000, 0x14006e000].iter().map(|&a| alloc::format!("{a:#x}={:#x}", p.mem.read_u64(a).unwrap_or(0xdead))).collect();
+                        say(&alloc::format!(" probe {} reg {:?}", probe.join(" "), p.mem.locate(0x14006da18)));
+                    }
                     say("\n");
                     // The code addresses on the stack, nearest first: a rough backtrace.
                     if let Some(p) = self.sys.process_mut(pid) {
@@ -840,12 +926,28 @@ impl Lin {
                             }
                         }
                     }
+                    // Page-table entries that disagree with the process's memory (a stale page would show here).
+                    if let (Some(p), Some(&(_, cr3))) = (self.sys.process(pid), self.pml4.get(&pid)) {
+                        let mut bad = Vec::new();
+                        p.mem.for_each_page(|va, pa, _| {
+                            let e = leaf_of(cr3, va);
+                            if e & P != 0 && e & 0x000f_ffff_ffff_f000 != pa && bad.len() < 8 {
+                                bad.push(alloc::format!("{va:#x}"));
+                            }
+                        });
+                        say(&alloc::format!("lin:   stale ptes: {}\n", bad.join(" ")));
+                    }
                     let recent = self.sys.recent_syscalls(tid);
                     say(&recent);
                     self.sys.fault(tid, vector, frame.error, cr2);
                 }
             }
+            if vector != 0x100 {
+                self.prof[3] += rdtsc().wrapping_sub(t_out);
+            }
+            let t_fl = rdtsc();
             self.flush_console();
+            self.prof[4] += rdtsc().wrapping_sub(t_fl);
             if status.is_none() && self.sys.process(main).is_none() {
                 status = Some(0);
             }
@@ -927,15 +1029,19 @@ pub(crate) fn session(fs: MemFs, mut argv: Vec<String>, back: *mut u32, width: i
         return (-1, fs);
     }
     // `strace` traces every syscall, `strace:46,47` only those numbers.
-    let trace_arg = argv.first().filter(|a| *a == "strace" || a.starts_with("strace:")).cloned();
+    let trace_arg = argv.first().filter(|a| *a == "strace" || a.starts_with("strace:") || a.starts_with("strace@")).cloned();
     let trace = trace_arg.is_some();
     if trace {
         argv.remove(0);
     }
+    // `strace[:nrs][@text]`: `@text` limits tracing to the first process whose argv contains `text`.
+    let trace_proc = trace_arg.as_ref().and_then(|a| a.split_once('@').map(|(_, t)| String::from(t)));
+    let trace_arg = trace_arg.map(|a| String::from(a.split('@').next().unwrap()));
     let trace_only = trace_arg.and_then(|a| a.strip_prefix("strace:").map(|l| l.split(|c: char| !c.is_ascii_digit()).filter_map(|n| n.parse::<u64>().ok()).collect::<Vec<u64>>()));
     let mut sys = LinSystem::new(fs);
     sys.trace = trace;
     sys.trace_only = trace_only;
+    sys.trace_proc = trace_proc;
     if !back.is_null() {
         sys.wayland_screen = (width.max(1) as u32, height.max(1) as u32);
         // A maximized window's client area: the screen minus the frame the window manager adds.
@@ -1000,7 +1106,7 @@ pub(crate) fn session(fs: MemFs, mut argv: Vec<String>, back: *mut u32, width: i
             return (-1, core::mem::take(&mut sys.fs));
         }
     };
-    let mut lin = Lin { sys, prism, pml4: BTreeMap::new(), last: 0, desk: desk.clone(), wayland_windows: BTreeMap::new(), back, screen: (screen_w, screen_h), dirty: false, last_present_us: 0, input: !back.is_null(), cursor: (screen_w / 2, screen_h / 2), buttons: 0, mods: 0, caps: false, show_console: true, started_us: unsafe { time_us() }, beat_us: unsafe { time_us() }, syscalls: 0, hot: BTreeMap::new(), frames_shown: 0, presents: 0, input_stats: [0; 4] };
+    let mut lin = Lin { sys, prism, pml4: BTreeMap::new(), last: 0, desk: desk.clone(), wayland_windows: BTreeMap::new(), back, screen: (screen_w, screen_h), dirty: false, last_present_us: 0, input: !back.is_null(), cursor: (screen_w / 2, screen_h / 2), buttons: 0, mods: 0, caps: false, show_console: true, started_us: unsafe { time_us() }, beat_us: unsafe { time_us() }, syscalls: 0, hot: BTreeMap::new(), prof: [0; 6], sys_cycles: BTreeMap::new(), frames_shown: 0, presents: 0, input_stats: [0; 4] };
     if lin.input {
         // SAFETY: polled i8042 setup, as the desktop does.
         unsafe { ps2_init() };

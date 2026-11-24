@@ -6,10 +6,16 @@
 set -euo pipefail
 out=$1; shift
 here=$(cd "$(dirname "$0")" && pwd)
+# Rebuilding a multi-GB rootfs takes minutes: skip it when the arguments, every source file (path, size, mtime)
+# and this script are what the existing tar was built from.
+key=$( { printf '%s\n' "$@"; for b in "$@"; do case $b in ln:*) ;; *) find -L "${b%%=/*}" -printf '%p %s %T@\n' 2>/dev/null || true ;; esac; done
+         cat "$0" "$here/xkb-keymap.py" "$here/bwrap-shim.sh" 2>/dev/null; } | md5sum | cut -d' ' -f1)
+if [ -s "$out" ] && [ "$(cat "$out.key" 2>/dev/null)" = "$key" ]; then echo "$out: unchanged (cached)"; exit 0; fi
+rm -f "$out.key"
 stage=$(mktemp -d); trap 'rm -rf "$stage"' EXIT
 add() {                         # copy a file (and its symlink target) keeping its path
     local f=$1; mkdir -p "$stage$(dirname "$f")"
-    [ -e "$stage$f" ] || cp -L "$f" "$stage$f"
+    [ -e "$stage$f" ] || cp -pL "$f" "$stage$f"   # -p: programs key caches on mtimes (Wine fonts)
 }
 deps() { ldd "$1" 2>/dev/null | { grep -o '/[^ ]*' | sort -u | while read -r l; do [ -e "$l" ] && add "$l"; done || true; } || true; }
 # A directory argument is copied whole (minus tests, caches and site-packages); shared objects inside pull in their libraries.
@@ -20,7 +26,7 @@ for b in "$@"; do
     fi
     if [[ $b == *=/* ]]; then
         src=${b%%=/*}; dst=/${b#*=/}; mkdir -p "$stage$(dirname "$dst")"
-        if [ -d "$src" ]; then mkdir -p "$stage$dst"; tar -C "$src" -cf - . | tar -C "$stage$dst" -xf -; else cp -L "$src" "$stage$dst"; fi
+        if [ -d "$src" ]; then mkdir -p "$stage$dst"; tar -C "$src" -cf - . | tar -C "$stage$dst" -xf -; else cp -pL "$src" "$stage$dst"; fi
         find "$src" -type f \( -name '*.so*' -o -perm -u+x \) | while read -r s; do if head -c4 "$s" | grep -q ELF; then deps "$s"; fi; done
         continue
     fi
@@ -49,4 +55,5 @@ printf '127.0.0.1 localhost\n' > "$stage/etc/hosts"
 printf 'hosts: files dns\npasswd: files\ngroup: files\n' > "$stage/etc/nsswitch.conf"
 for ca in /etc/pki/tls/certs/ca-bundle.crt /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/ssl/certs/ca-certificates.crt; do [ -e "$ca" ] && { mkdir -p "$stage$(dirname "$ca")"; cp -L "$ca" "$stage$ca"; }; done
 tar --format=ustar --owner=0 --group=0 --numeric-owner -C "$stage" -cf "$out" .
+echo "$key" > "$out.key"
 echo "$out: $(tar -tf "$out" | wc -l) entries, $(du -h "$out" | cut -f1)"

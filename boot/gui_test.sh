@@ -20,7 +20,7 @@ with tarfile.open(sys.argv[2], "w", format=tarfile.USTAR_FORMAT) as t:
 PY
 img=$("$here/bios/build.sh" "$out" --module winroot="$tarf" --cmdline "console=ttyS0 loos.test=1 loos.gui=$name loos.net=1 loos.gui.keys=$keys loos.gui.open=${GUI_OPEN:-} loos.gui.save=${GUI_SAVE:-}") || exit 1
 log=$out/gui.log; sd=$(mktemp -d); sock=$sd/qmp.sock
-qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-off} "$root/scripts/qemu-accel.sh" args)} -display none -vga std -smp 1 -m ${QEMU_MEM:-512M} \
+qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-auto} "$root/scripts/qemu-accel.sh" args)} -display ${QEMU_DISPLAY:-gtk} -vga std -smp 1 -m ${QEMU_MEM:-512M} \
     -serial "file:$log" -drive "file=$img,format=raw,if=ide" -monitor "unix:$sock,server,nowait" -no-reboot &
 q=$!
 # GUI_WAIT seconds for the program to settle (default 240). On a timeout the guest's instruction pointer is sampled

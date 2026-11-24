@@ -243,3 +243,41 @@ fn buffers_are_released_once_copied_on_commit() {
     s.receive(&req(31, 0, vec![])).unwrap(); // surface destroyed
     assert_eq!(released(&mut s, 21), 0, "never released twice");
 }
+
+/// wp_viewporter is required by Wine's Wayland driver (it refuses to start without it): a viewport's
+/// destination size scales the buffer, its source rectangle crops it, and destroying it restores the buffer.
+#[test]
+fn viewport_scales_and_crops_the_committed_buffer() {
+    let mut s = connected();
+    bind(&mut s, "wl_shm", 1, 10);
+    bind(&mut s, "wl_compositor", 5, 30);
+    bind(&mut s, "xdg_wm_base", 5, 40);
+    bind(&mut s, "wp_viewporter", 1, 50);
+    let mut pb = PageBuf::default();
+    pb.write_at(0, &[1, 0, 0, 0xff, 2, 0, 0, 0xff]); // 2x1: 0xff000001, 0xff000002
+    let buf = Rc::new(RefCell::new(pb));
+    s.receive_with_fds(&req(10, 0, u32s(&[20, 8])), &[SharedFd { buf }]).unwrap();
+    s.receive(&req(20, 0, u32s(&[21, 0, 2, 1, 8, 0]))).unwrap();
+    s.receive(&req(30, 0, u32s(&[31]))).unwrap();
+    s.receive(&req(40, 2, u32s(&[41, 31]))).unwrap();
+    s.receive(&req(41, 1, u32s(&[42]))).unwrap();
+    s.receive(&req(50, 1, u32s(&[51, 31]))).unwrap(); // get_viewport
+    s.receive(&req(51, 2, u32s(&[4, 2]))).unwrap(); // destination 4x2
+    s.receive(&req(31, 1, u32s(&[21, 0, 0]))).unwrap();
+    s.receive(&req(31, 6, vec![])).unwrap();
+    let f = s.take_frames();
+    assert_eq!((f[0].width, f[0].height), (4, 2));
+    assert_eq!(f[0].pixels, vec![0xff000001, 0xff000001, 0xff000002, 0xff000002, 0xff000001, 0xff000001, 0xff000002, 0xff000002]);
+    // Source: the right pixel only (wl_fixed), destination unset.
+    s.receive(&req(51, 2, u32s(&[u32::MAX, u32::MAX]))).unwrap();
+    s.receive(&req(51, 1, u32s(&[256, 0, 256, 256]))).unwrap();
+    s.receive(&req(31, 1, u32s(&[21, 0, 0]))).unwrap();
+    s.receive(&req(31, 6, vec![])).unwrap();
+    let f = s.take_frames();
+    assert_eq!((f[0].width, f[0].height, f[0].pixels.clone()), (1, 1, vec![0xff000002]));
+    // Destroyed: the buffer as it is.
+    s.receive(&req(51, 0, vec![])).unwrap();
+    s.receive(&req(31, 1, u32s(&[21, 0, 0]))).unwrap();
+    s.receive(&req(31, 6, vec![])).unwrap();
+    assert_eq!(s.take_frames()[0].width, 2);
+}

@@ -47,14 +47,24 @@ img=$out/uefi.img
 # 192 MiB, or room for the modules plus 64 MiB (a Linux rootfs with Firefox is ~450 MiB).
 mods=0; for m in "${modules[@]}"; do mods=$(( mods + $(stat -c %s "${m#*=}") )); done
 mib=$(( mods / 1048576 + 64 )); [ $mib -lt 192 ] && mib=192
-rm -f "$img"; truncate -s ${mib}M "$img"
+M="mtools -c"; off=$((2048*512))
+# Copying a GB-sized module into the FAT image takes minutes: when the modules are the ones already in the image,
+# only the loader, kernel and BOOT.CFG are rewritten.
+stamp=$(for m in "${modules[@]}"; do echo "$m $(stat -c '%s %Y' "${m#*=}")"; done)
+if [ -s "$img" ] && [ "$(cat "$img.mods" 2>/dev/null)" = "$stamp" ]; then
+    mcopy -o -i "$img@@$off" "$out/BOOTX64.EFI" ::EFI/BOOT/BOOTX64.EFI
+    mcopy -o -i "$img@@$off" "$out/kernel.elf" ::LOOS/KERNEL.ELF
+    mcopy -o -i "$img@@$off" "$cfg" ::LOOS/BOOT.CFG
+    echo "$img"; exit 0
+fi
+rm -f "$img" "$img.mods"; truncate -s ${mib}M "$img"
 sgdisk -o -n 1:2048:0 -t 1:ef00 -c 1:LOOS-ESP "$img" >/dev/null
 psize=$(sgdisk -i 1 "$img" | awk '/^Partition size:/ {print $3}')
 mkfs.fat -F 32 --offset 2048 -S 512 "$img" $(( psize / 2 )) >/dev/null 2>&1
-M="mtools -c"; off=$((2048*512))
 mmd -i "$img@@$off" ::EFI ::EFI/BOOT ::LOOS
 mcopy -i "$img@@$off" "$out/BOOTX64.EFI" ::EFI/BOOT/BOOTX64.EFI
 mcopy -i "$img@@$off" "$out/kernel.elf" ::LOOS/KERNEL.ELF
 mcopy -i "$img@@$off" "$cfg" ::LOOS/BOOT.CFG
 for m in "${modules[@]}"; do n=${m%%=*}; p=${m#*=}; mcopy -i "$img@@$off" "$p" "::LOOS/$(echo "$n" | tr a-z A-Z).BIN"; done
+echo "$stamp" > "$img.mods"
 echo "$img"

@@ -304,6 +304,11 @@ impl NetState {
     }
 }
 
+/// The DNS server of the current configuration (`None` while DHCP has not finished or without a NIC).
+pub(crate) fn dns_server() -> Option<[u8; 4]> {
+    NET.get().as_ref().map(|n| n.cfg.dns.to_be_bytes()).filter(|d| *d != [0; 4])
+}
+
 /// The kernel's TCP/IP stack, if a NIC is attached (used by the Linux layer's sockets).
 pub(crate) fn net_stack() -> Option<&'static mut Stack> {
     NET.get().as_mut().map(|n| &mut n.stack)

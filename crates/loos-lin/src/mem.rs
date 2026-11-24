@@ -191,6 +191,10 @@ pub struct Region {
     pub shared: Option<(SharedBuf, usize, usize)>,
     /// Shared only for a `vfork` child's lifetime; private again afterwards ([`UserMem::end_vfork`]).
     pub vfork: bool,
+    /// A `MAP_PRIVATE` mapping of a file's page cache (`shared` is the file, `data` the pages this process
+    /// wrote): as on Linux, a page reads the file's current page until the process writes it, and the first
+    /// write copies it into `data`. Pages beyond the file live only in `data`.
+    pub cow: bool,
 }
 
 impl Region {
@@ -205,8 +209,42 @@ impl Region {
     pub fn end(&self) -> u64 {
         self.start + self.size()
     }
+    /// For a copy-on-write region: the file page backing page `i`, when the file reaches that far.
+    fn cow_base(&self, i: usize) -> Option<usize> {
+        let (b, o, _) = self.shared.as_ref()?;
+        let j = o / 4096 + i;
+        (self.cow && j < b.borrow().len() / 4096 && self.data.page_addr(i).is_none()).then_some(j)
+    }
+    /// Bytes of page `i` as the process sees them.
+    fn page_bytes(&self, i: usize) -> [u8; 4096] {
+        match &self.shared {
+            Some((b, o, _)) if !self.cow || self.cow_base(i).is_some() => *b.borrow().page(o / 4096 + i),
+            _ => *self.data.page(i),
+        }
+    }
+    /// Writable page `i` (copying a copy-on-write page from the file first); true when its address changed.
+    fn page_for_write(&mut self, i: usize) -> (&mut [u8; 4096], bool) {
+        if self.cow {
+            if let Some(j) = self.cow_base(i) {
+                let bytes = *self.shared.as_ref().unwrap().0.borrow().page(j);
+                let (pg, _) = self.data.page_mut(i);
+                *pg = bytes;
+                return (pg, true);
+            }
+            return self.data.page_mut(i);
+        }
+        unreachable!("page_for_write is for copy-on-write regions")
+    }
     /// Calls `f(page index, physical address, exclusively owned)` for resident pages in `[lo, hi)`.
     fn each_present(&self, lo: usize, hi: usize, mut f: impl FnMut(usize, u64, bool)) {
+        if self.cow {
+            self.data.present(lo, hi).for_each(|(i, a, own)| f(i, a, own));
+            if let Some((b, o, _)) = &self.shared {
+                let o = *o / 4096;
+                b.borrow().present(o + lo, o + hi).filter(|(i, _, _)| self.data.page_addr(i - o).is_none()).for_each(|(i, a, _)| f(i - o, a, false));
+            }
+            return;
+        }
         match &self.shared {
             Some((b, o, _)) => {
                 let o = *o / 4096;
@@ -260,7 +298,7 @@ impl UserMem {
     /// Pages backed by memory (private pages; shared buffers counted once per mapping).
     pub fn resident_pages(&self) -> usize {
         self.regions.values().map(|r| match &r.shared {
-            Some((b, o, n)) => b.borrow().present(o / 4096, (o + n) / 4096).count(),
+            Some((b, o, n)) => b.borrow().present(o / 4096, (o + n) / 4096).count() + if r.cow { r.data.resident() } else { 0 },
             None => r.data.resident(),
         }).sum()
     }
@@ -282,11 +320,11 @@ impl UserMem {
                 Some((buf, off, n)) => {
                     let t = (buf.clone(), *off + cut, *n - cut);
                     *n = cut;
-                    (PageBuf::default(), Some(t))
+                    (if r.cow { r.data.split_off(cut) } else { PageBuf::default() }, Some(t))
                 }
                 None => (r.data.split_off(cut), None),
             };
-            let nr = Region { start: addr, prot: r.prot, data: tail, name: r.name.clone(), shared, vfork: r.vfork };
+            let nr = Region { start: addr, prot: r.prot, data: tail, name: r.name.clone(), shared, vfork: r.vfork, cow: r.cow };
             self.regions.insert(addr, nr);
         }
     }
@@ -310,7 +348,7 @@ impl UserMem {
             }
         }
         // page tables: updated per page through `remap` (new pages are demand-zero; init pages are queued below)
-        self.regions.insert(start, Region { start, prot, data, name: name.to_string(), shared: None, vfork: false });
+        self.regions.insert(start, Region { start, prot, data, name: name.to_string(), shared: None, vfork: false, cow: false });
         self.total += len;
         self.queue_resident(start, start + len);
         Ok(())
@@ -339,7 +377,7 @@ impl UserMem {
         for (s, l) in all {
             self.make_shared(s, l);
             for (_, r) in self.regions.range_mut(s..s + l) {
-                r.vfork = true;
+                r.vfork = !r.cow;
             }
         }
         self.stack = None;
@@ -396,7 +434,7 @@ impl UserMem {
     pub fn discard(&mut self, start: u64, len: u64) {
         let end = start.saturating_add(ceil(len));
         let mut q = Vec::new();
-        for r in self.regions.values_mut().filter(|r| r.start < end && r.end() > start && r.shared.is_none()) {
+        for r in self.regions.values_mut().filter(|r| r.start < end && r.end() > start && (r.shared.is_none() || r.cow)) {
             let lo = ((start.max(r.start) - r.start) / PAGE) as usize;
             let hi = ((end.min(r.end()) - r.start) / PAGE) as usize;
             r.each_present(lo, hi, |i, _, _| q.push(r.start + i as u64 * PAGE));
@@ -415,6 +453,11 @@ impl UserMem {
         let r = self.find(va)?;
         let i = ((floor(va) - r.start) / PAGE) as usize;
         let (pa, own) = match &r.shared {
+            // Copy-on-write: the file's page read-only until this process writes it.
+            Some((b, _, _)) if r.cow => match r.cow_base(i) {
+                Some(j) => (b.borrow().page_addr(j)?.0, false),
+                None => r.data.page_addr(i)?,
+            },
             Some((b, o, _)) => b.borrow().page_addr(o / 4096 + i)?,
             None => r.data.page_addr(i)?,
         };
@@ -448,6 +491,18 @@ impl UserMem {
     /// Map [start, start+len) onto bytes `off..` of a buffer other address spaces (or a file's
     /// page cache) also map: writes are visible through every mapping. `start == None` picks a gap.
     pub fn map_shared_buf(&mut self, start: Option<u64>, len: u64, prot: u32, buf: SharedBuf, off: usize, name: &str) -> Result<u64, i64> {
+        self.map_buf(start, len, prot, buf, off, name, false)
+    }
+
+    /// A `MAP_PRIVATE` mapping of bytes `off..` of a file's page cache: each page shows the file's current
+    /// contents until this process writes it (copy-on-write, see [`Region::cow`]). Wine reads the session
+    /// objects wineserver keeps adding to a memfd through such a mapping.
+    pub fn map_private_view(&mut self, start: Option<u64>, len: u64, prot: u32, buf: SharedBuf, off: usize, name: &str) -> Result<u64, i64> {
+        self.map_buf(start, len, prot, buf, off, name, true)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn map_buf(&mut self, start: Option<u64>, len: u64, prot: u32, buf: SharedBuf, off: usize, name: &str, cow: bool) -> Result<u64, i64> {
         let len = ceil(len);
         let start = match start {
             Some(s) => s,
@@ -468,11 +523,16 @@ impl UserMem {
         self.unmap(start, len)?;
         {
             let mut b = buf.borrow_mut();
-            b.grow_to(off + len as usize);
+            if !cow {
+                b.grow_to(off + len as usize); // a private view never changes the file's length
+            }
             b.unshare();
         }
         self.version += 1;
-        self.regions.insert(start, Region { start, prot, data: PageBuf::default(), name: name.to_string(), shared: Some((buf, off, len as usize)), vfork: false });
+        self.regions.insert(start, Region { start, prot, data: PageBuf::default(), name: name.to_string(), shared: Some((buf, off, len as usize)), vfork: false, cow });
+        if cow {
+            self.regions.get_mut(&start).unwrap().data = PageBuf::zeroed(len);
+        }
         self.total += len;
         Ok(start)
     }
@@ -515,6 +575,17 @@ impl UserMem {
         }
         self.queue_resident(start, end);
         Ok(())
+    }
+
+    /// Whether [addr, addr+len) is still one `MAP_SHARED` mapping of the file `name` (not replaced since).
+    pub fn maps_file_shared(&self, addr: u64, len: u64, name: &str) -> bool {
+        let mut a = addr;
+        let end = addr.saturating_add(ceil(len));
+        while a < end {
+            let Some(r) = self.find(a).filter(|r| r.shared.is_some() && !r.cow && r.name == name) else { return false };
+            a = r.end();
+        }
+        true
     }
 
     /// For a shared mapping containing `addr`: its buffer, the buffer offset of `addr`, and the region name.
@@ -571,6 +642,7 @@ impl UserMem {
             let n = (4096 - s % 4096).min(buf.len() - off);
             let (i, po) = (s / 4096, s % 4096);
             match &r.shared {
+                Some(_) if r.cow => buf[off..off + n].copy_from_slice(&r.page_bytes(i)[po..po + n]),
                 Some((b, o, _)) => buf[off..off + n].copy_from_slice(&b.borrow().page(o / 4096 + i)[po..po + n]),
                 None => buf[off..off + n].copy_from_slice(&r.data.page(i)[po..po + n]),
             }
@@ -599,6 +671,11 @@ impl UserMem {
             let n = (4096 - s % 4096).min(data.len() - off);
             let (i, po) = (s / 4096, s % 4096);
             let moved = match &r.shared {
+                Some(_) if r.cow => {
+                    let (pg, m) = r.page_for_write(i);
+                    pg[po..po + n].copy_from_slice(&data[off..off + n]);
+                    m
+                }
                 Some((b, o, _)) => {
                     let mut b = b.borrow_mut();
                     let (pg, m) = b.page_mut(o / 4096 + i);
@@ -726,6 +803,18 @@ impl UserMem {
         let i = ((va - k) / PAGE) as usize;
         let r = self.regions.get_mut(&k).unwrap();
         match &r.shared {
+            Some((b, _, _)) if r.cow => {
+                if write {
+                    r.page_for_write(i);
+                } else if let Some(j) = r.cow_base(i) {
+                    let mut b = b.borrow_mut();
+                    if b.page_addr(j).is_none() {
+                        b.page_mut(j); // the file page itself, shared with every other mapping
+                    }
+                } else if r.data.page_addr(i).is_none() {
+                    r.data.page_mut(i); // beyond the file: private zero page
+                }
+            }
             Some((b, o, _)) => {
                 let mut b = b.borrow_mut();
                 if write || b.page_addr(o / 4096 + i).is_none() {

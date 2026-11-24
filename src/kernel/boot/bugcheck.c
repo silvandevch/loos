@@ -35,7 +35,9 @@ void trap_init(const struct loos_bootinfo *bi)
     for (int i = 0; i < 32; i++) {
         uint64_t h = ktrap_stubs[i];
         idt[i].lo = (uint16_t)h; idt[i].mid = (uint16_t)(h >> 16); idt[i].hi = (uint32_t)(h >> 32);
-        idt[i].sel = 0x08; idt[i].attr = 0x8E; idt[i].zero = 0;
+        /* int3 / into may be executed by user code (debug breaks, __fastfail checks): as on Linux their gates are
+         * DPL 3, so they arrive as #BP/#OF (SIGTRAP/SIGSEGV with the right trap number) instead of #GP. */
+        idt[i].sel = 0x08; idt[i].attr = (i == 3 || i == 4) ? 0xEE : 0x8E; idt[i].zero = 0;
         idt[i].ist = (i == 2 || i == 8 || i == 18) ? 1 : i == 14 ? 2 : 0;
     }
     struct { uint16_t lim; uint64_t base; } __attribute__((packed)) p = { sizeof idt - 1, (uint64_t)(uintptr_t)idt };

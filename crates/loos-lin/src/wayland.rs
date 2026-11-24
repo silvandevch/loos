@@ -54,6 +54,8 @@ enum Iface {
     DataDevice,
     DecorationManager,
     ToplevelDecoration,
+    Viewporter,
+    Viewport,
 }
 
 #[derive(Debug, Default)]
@@ -74,6 +76,10 @@ struct Surface {
     children: Vec<u32>,
     /// `wl_surface.enter` was sent: the surface is shown on the (single) output.
     entered: bool,
+    /// `wp_viewport` (applied at commit): source rectangle in buffer pixels (x, y, w, h) and destination size.
+    /// Wine's Wayland driver sizes every window through a viewport.
+    view_src: Option<(u32, u32, u32, u32)>,
+    view_dst: Option<(u32, u32)>,
 }
 
 #[derive(Debug)]
@@ -146,7 +152,7 @@ pub struct Global {
     pub version: u32,
 }
 
-const GLOBALS: [(&str, u32, Iface); 9] = [
+const GLOBALS: [(&str, u32, Iface); 10] = [
     ("wl_compositor", 5, Iface::Compositor),
     ("wl_subcompositor", 1, Iface::Subcompositor),
     ("wl_shm", 1, Iface::Shm),
@@ -155,6 +161,7 @@ const GLOBALS: [(&str, u32, Iface); 9] = [
     ("xdg_wm_base", 5, Iface::XdgWmBase),
     ("wl_data_device_manager", 3, Iface::DataDeviceManager),
     ("zxdg_decoration_manager_v1", 1, Iface::DecorationManager),
+    ("wp_viewporter", 1, Iface::Viewporter),
     ("wl_display", 0, Iface::Display), // sentinel, never advertised
 ];
 
@@ -449,7 +456,7 @@ impl Server {
             (Compositor, 1) => {
                 self.new_id(p, 0, Region, object)?;
             }
-            (Region, 0) | (Buffer, 0) | (XdgPositioner, 0) | (DataSource, 1) | (ToplevelDecoration, 0) | (Subcompositor, 0) | (DecorationManager, 0) | (XdgWmBase, 0) => self.destroy(object),
+            (Region, 0) | (Buffer, 0) | (XdgPositioner, 0) | (DataSource, 1) | (ToplevelDecoration, 0) | (Subcompositor, 0) | (DecorationManager, 0) | (XdgWmBase, 0) | (Viewporter, 0) => self.destroy(object),
             (Pointer, 1) | (Keyboard, 0) | (Touch, 0) | (Seat, 3) | (Output, 0) | (DataDevice, 2) | (Shm, 1) | (DataDeviceManager, 2) => self.destroy(object),
             (Region, 1) | (Region, 2) => {}
             (Subcompositor, 1) => {
@@ -629,6 +636,42 @@ impl Server {
                 self.event(d, 0, &words(&[1])); // client-side: toolkits draw their own titlebar
             }
             (ToplevelDecoration, 1) | (ToplevelDecoration, 2) => {}
+            (Viewporter, 1) => {
+                // get_viewport(id, surface)
+                let id = self.new_id(p, 0, Viewport, object)?;
+                let surface = get_u32(p.get(4..).ok_or(Error::Malformed)?)?;
+                if !self.objects.get(&surface).is_some_and(|o| o.surf.is_some()) {
+                    return Err(Error::InvalidState);
+                }
+                self.objects.get_mut(&id).unwrap().surface = Some(surface);
+            }
+            (Viewport, 0) => {
+                // destroy: the surface goes back to its buffer's size
+                if let Some(sid) = self.objects.get(&object).and_then(|o| o.surface) {
+                    if let Some(sf) = self.objects.get_mut(&sid).and_then(|o| o.surf.as_mut()) {
+                        sf.view_src = None;
+                        sf.view_dst = None;
+                    }
+                }
+                self.destroy(object);
+            }
+            (Viewport, 1) | (Viewport, 2) => {
+                // set_source(x, y, w, h: wl_fixed, all -1 = unset) / set_destination(w, h: int, -1 = unset)
+                let n = if op == 1 { 4 } else { 2 };
+                let v: Vec<i32> = (0..n).map(|i| get_u32(p.get(i * 4..).ok_or(Error::Malformed)?).map(|x| x as i32)).collect::<Result<_, _>>()?;
+                let Some(sid) = self.objects.get(&object).and_then(|o| o.surface) else { return Err(Error::InvalidState) };
+                let sf = self.surf(sid);
+                if v.iter().all(|&x| x == -1 || (op == 1 && x == -256)) {
+                    if op == 1 { sf.view_src = None } else { sf.view_dst = None }
+                } else if v.iter().any(|&x| x < 0) || v[n - 2] == 0 || v[n - 1] == 0 {
+                    return Err(Error::InvalidState); // bad_value
+                } else if op == 1 {
+                    let px = |f: i32| (f / 256) as u32; // wl_fixed (24.8) to whole pixels
+                    sf.view_src = Some((px(v[0]), px(v[1]), px(v[2]).max(1), px(v[3]).max(1)));
+                } else {
+                    sf.view_dst = Some((v[0] as u32, v[1] as u32));
+                }
+            }
             _ => return Err(Error::Unsupported),
         }
         Ok(())
@@ -714,8 +757,7 @@ impl Server {
                 let Some(buffer) = self.objects.get(&bid).and_then(|o| o.buffer.clone()) else { return Err(Error::InvalidState) };
                 let pixels = decode_pixels(&buffer);
                 let s = self.surf(id);
-                s.pixels = pixels;
-                s.size = (buffer.width, buffer.height);
+                (s.pixels, s.size) = apply_viewport(pixels, (buffer.width, buffer.height), s.view_src, s.view_dst);
                 // The pixels are copied, so the client gets the buffer back at once (as wlroots does for
                 // shm): toolkits that keep a single buffer per surface (Firefox) redraw only into a released one.
                 self.release_buffer(bid);
@@ -991,4 +1033,23 @@ fn get_string(b: &[u8]) -> Result<(&str, usize), Error> {
         return Err(Error::Malformed);
     }
     Ok((core::str::from_utf8(raw).map_err(|_| Error::Malformed)?, used))
+}
+
+/// The surface content a `wp_viewport` asks for: crop to `src` (buffer pixels), then scale to `dst`
+/// (nearest neighbour). Without a viewport the buffer is used as it is.
+fn apply_viewport(px: Vec<u32>, (w, h): (u32, u32), src: Option<(u32, u32, u32, u32)>, dst: Option<(u32, u32)>) -> (Vec<u32>, (u32, u32)) {
+    let (sx, sy, sw, sh) = src.map_or((0, 0, w, h), |(x, y, cw, ch)| (x.min(w), y.min(h), cw.min(w.saturating_sub(x)), ch.min(h.saturating_sub(y))));
+    let (dw, dh) = dst.unwrap_or((sw, sh));
+    if (sx, sy, sw, sh, dw, dh) == (0, 0, w, h, w, h) || sw == 0 || sh == 0 || dw == 0 || dh == 0 {
+        return (px, (w, h));
+    }
+    let (dw, dh) = (dw.min(16384), dh.min(16384));
+    let mut out = Vec::with_capacity((dw * dh) as usize);
+    for y in 0..dh {
+        let row = (sy + y * sh / dh) * w;
+        for x in 0..dw {
+            out.push(px.get((row + sx + x * sw / dw) as usize).copied().unwrap_or(0));
+        }
+    }
+    (out, (dw, dh))
 }

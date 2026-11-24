@@ -32,20 +32,30 @@ pub fn linux_to_darwin_errno(e: i64) -> i64 {
         75 => 84,
         84 => 92,
         88 => 38,
+        89 => 39,
         90 => 40,
+        91 => 41,
+        92 => 42,
+        93 => 43,
+        94 => 44,
+        96 => 46,
         95 => 45,
         97 => 47,
         98 => 48,
         99 => 49,
         100 => 50,
         101 => 51,
+        102 => 52,
         103 => 53,
         104 => 54,
         105 => 55,
         106 => 56,
         107 => 57,
+        108 => 58,
+        109 => 59,
         110 => 60,
         111 => 61,
+        112 => 64,
         113 => 65,
         114 => 37,
         115 => 36,
@@ -82,12 +92,29 @@ pub fn dirfd(fd: u64) -> u64 {
 /// Scratch offset where a translated `stat` is staged.
 pub const STAT_STAGE: u64 = crate::loader::SCRATCH + 0x8000;
 
+/// BSD system calls from this number up are Linux system calls passed through unchanged; only
+/// Prism's own C runtime uses them (Darwin's numbers end below 1000).
+pub const LINUX_PASSTHROUGH: u64 = 0x1_0000;
+
+/// `bsdthread_create`: Prism handles it before [`bsd`] (it needs the calling thread).
+pub const BSDTHREAD_CREATE: u64 = 360;
+
 /// Translate BSD syscall `n`.
 pub fn bsd(n: u64, a: [u64; 6]) -> Plan {
     let lin = |nr: u64, args: [u64; 6]| Plan::Linux(nr, args, Post::Darwin);
     let [a0, a1, a2, a3, a4, a5] = a;
     match n {
         1 => lin(231, [a0, 0, 0, 0, 0, 0]),
+        // Prism-private: Linux system call `n - LINUX_PASSTHROUGH` as is (libc/socket.c, kqueue.c).
+        LINUX_PASSTHROUGH.. => lin(n - LINUX_PASSTHROUGH, a),
+        // Threads on the arm64 interpreter: one CPU per process for now.
+        BSDTHREAD_CREATE => Plan::Error(95),
+        // bsdthread_terminate: end the calling thread only.
+        361 => lin(60, [0; 6]),
+        // __ulock_wait(op, addr, value, timeout_us) / __ulock_wake(op, addr, value) on futexes
+        // (32-bit compare; the timeout is not honoured: waiters are woken by their lock).
+        515 => lin(202, [a1, 128, a2 & 0xffff_ffff, 0, 0, 0]),
+        516 => lin(202, [a1, 129, if a0 & 0x100 != 0 { i32::MAX as u64 } else { 1 }, 0, 0, 0]),
         3 | 396 => lin(0, a),
         4 | 397 => lin(1, a),
         5 | 398 => lin(2, [a0, open_flags(a1), a2, 0, 0, 0]),

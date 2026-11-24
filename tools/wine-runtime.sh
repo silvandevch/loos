@@ -50,6 +50,18 @@ if [ ! -e "$stage/.done" ]; then
     rm -rf "$tmp"
     touch "$stage/.done"
 fi
+# Wine's fonts keep their modification times (cp -a): the prefix's font cache is keyed by them, and without a
+# match every process rescans all fonts. Re-copied each time so an older stage gets the times too.
+cp -a /usr/share/wine/fonts "$stage/usr/share/wine/"
+# Windows Runtime metadata: wine.inf registers it at every prefix update; without it setup retries forever.
+cp -a /usr/share/wine/winmd "$stage/usr/share/wine/"
+# The prefix records wine.inf's modification time; a different one makes every start redo the prefix setup.
+cp -a /usr/share/wine/wine.inf "$stage/usr/share/wine/"
+# Mesa's EGL (glvnd + the software rasterizer) is listed below: Wine's Wayland driver uses EGL for OpenGL.
+# LoOS has no X server: tell Wine to use its Wayland driver (it otherwise tries X11 first, and explorer's
+# desktop never comes up, so every GUI program keeps starting another explorer.exe).
+reg=$stage/home/.wine/user.reg
+grep -q '^\[Software\\\\Wine\\\\Drivers\]' "$reg" || printf '\n[Software\\\\Wine\\\\Drivers] 1700000000\n"Graphics"="wayland"\n' >> "$reg"
 cat <<EOF
 /usr/bin/wine64
 /usr/bin/wineserver
@@ -60,5 +72,12 @@ $stage/home/.wine=/home/.wine
 /usr/lib64/libvulkan.so.1
 /usr/lib64/libvulkan_lvp.so
 /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+/usr/lib64/libEGL.so.1
+/usr/lib64/libEGL_mesa.so.0
+/usr/share/glvnd/egl_vendor.d
+/usr/lib64/libgbm.so.1
+/usr/lib64/gbm
+/usr/lib64/dri/swrast_dri.so
+/usr/lib64/dri/kms_swrast_dri.so
 EOF
 cat "$stage/links.txt"

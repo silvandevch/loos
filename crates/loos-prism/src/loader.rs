@@ -103,6 +103,16 @@ fn dir_of(p: &str) -> &str {
 
 /// Prism's C runtime: a universal dylib built by `build.rs` from `libc/` (empty without clang).
 static RUNTIME: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libprism.dylib"));
+/// LLVM's libc++, embedded by `build.rs` when it was built (empty otherwise).
+static LIBCXX: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libc++.1.dylib"));
+
+/// A system library Prism carries as a real Mach-O image (the rest are its libSystem stubs).
+fn embedded_library(path: &str) -> Option<&'static [u8]> {
+    match path {
+        "/usr/lib/libc++.1.dylib" if !LIBCXX.is_empty() => Some(LIBCXX),
+        _ => None,
+    }
+}
 
 /// Libraries Prism implements itself instead of loading from disk.
 pub fn is_system_library(path: &str) -> bool {
@@ -177,7 +187,12 @@ impl Ctx<'_> {
         let dylibs = m.dylibs.clone();
         self.images.push(Image { path: path.to_string(), macho: m, slide, deps: Vec::new() });
         for (name, weak) in dylibs {
-            let dep = if is_system_library(&name) {
+            let dep = if let Some(data) = embedded_library(&name) {
+                Some(match self.by_path.get(&name) {
+                    Some(&i) => i,
+                    None => self.load_data(&name, data, false)?,
+                })
+            } else if is_system_library(&name) {
                 None
             } else {
                 let mut found = None;
@@ -251,6 +266,9 @@ impl Resolver<'_> {
             _ => return None,
         };
         match target {
+            // An embedded system library imports the rest of libSystem itself, and programs bind
+            // symbols to it that macOS's copy re-exports (libc++abi): those go to libSystem too.
+            Some(j) if is_system_library(&self.images[j].path) => self.in_image(j, name, 0).or_else(|| Some(self.stub(name))),
             Some(j) => self.in_image(j, name, 0),
             None => Some(self.stub(name)),
         }
@@ -449,14 +467,20 @@ pub struct Opened {
 /// An image that is already loaded is only looked up. On failure `images` is unchanged.
 pub fn dlopen(fs: &mut dyn LinFs, mem: &mut UserMem, cwd: &str, cpu: u32, images: &mut Vec<Image>, runtime: Option<usize>, stubs: &[String], name: &str, notes: &mut String) -> Result<Opened, i64> {
     let none = |handle| Opened { handle, inits: Vec::new(), tlv: Vec::new(), stubs: stubs.to_vec() };
-    if is_system_library(name) {
+    if is_system_library(name) && embedded_library(name).is_none() {
         return Ok(none(HANDLE_SYSTEM));
     }
     let first = images.len();
     let by_path = images.iter().enumerate().map(|(i, im)| (im.path.clone(), i)).collect();
     let mut cx = Ctx { fs, mem, cpu, images: core::mem::take(images), by_path, order: Vec::new(), notes };
     let mut loaded = Err(ENOENT);
-    for cand in cx.expand(name, 0) {
+    if let Some(data) = embedded_library(name) {
+        loaded = match cx.by_path.get(name) {
+            Some(&i) => Ok(i),
+            None => cx.load_data(name, data, false),
+        };
+    }
+    for cand in if loaded.is_ok() { Vec::new() } else { cx.expand(name, 0) } {
         if let Ok(real) = resolve(cx.fs, cwd, &cand, true) {
             loaded = cx.load(&real, false);
             break;

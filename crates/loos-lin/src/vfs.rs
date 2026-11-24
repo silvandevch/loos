@@ -82,6 +82,7 @@ fn stat_from(e: loos_fs::Entry) -> Stat {
         uid: e.uid,
         gid: e.gid,
         mtime: e.mtime.min(i64::MAX as u64) as i64,
+        rdev: 0,
     }
 }
 

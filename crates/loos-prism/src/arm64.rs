@@ -166,6 +166,11 @@ impl Cpu {
         Self { x: [0; 31], sp, pc, n: false, z: false, c: false, v: false, q: [0; 32], tpidr: 0, tpidrro: 0, fpcr: 0, fpsr: 0, excl: None, code_page: u64::MAX, code: [0; 4096], icount: 0 }
     }
 
+    /// Forget a load-exclusive reservation (the next store-exclusive fails and is retried).
+    pub fn clear_exclusive(&mut self) {
+        self.excl = None;
+    }
+
     /// Register `r` with 31 = zero register.
     fn xr(&self, r: u32) -> u64 {
         if r == 31 {

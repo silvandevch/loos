@@ -5,6 +5,7 @@
 use alloc::{boxed::Box, format, string::{String, ToString}, vec, vec::Vec};
 use crate::errno::*;
 const ENOTSOCK: i64 = 88;
+const EOPNOTSUPP: i64 = 95;
 const ENOTCONN: i64 = 107;
 const ECONNRESET: i64 = 104;
 const ECONNREFUSED: i64 = 111;
@@ -70,6 +71,10 @@ pub trait LinNet {
     fn stack(&mut self) -> Option<&mut Stack>;
     /// Moves frames between the adapter and the stack and runs timers.
     fn pump(&mut self, now_ms: u64);
+    /// The DNS server the network configuration names (DHCP), for `/etc/resolv.conf`.
+    fn dns_server(&self) -> Option<[u8; 4]> {
+        None
+    }
 }
 
 impl LinNet for Stack {
@@ -277,6 +282,9 @@ pub struct Process {
     pub umask: u32,
     /// File-backed MAP_SHARED mappings: (start, length, path, file offset) — written back on msync/munmap/exit.
     pub fmaps: Vec<(u64, u64, String, u64)>,
+    /// RLIMIT_NOFILE (soft, hard): the soft limit bounds descriptor numbers. Programs such as wineserver raise
+    /// the soft limit to the hard one and expect more than 1024 descriptors.
+    pub nofile: (u64, u64),
 }
 
 /// Outcome of a syscall.
@@ -370,6 +378,9 @@ pub struct LinSystem<F: LinFs> {
     pub trace: bool,
     /// When set, trace only these syscall numbers.
     pub trace_only: Option<Vec<u64>>,
+    /// When set, trace only the first process whose argv contains this text (`strace@explorer`); its pid once seen.
+    pub trace_proc: Option<String>,
+    trace_pid: Option<Pid>,
     /// Last I/O fingerprint pollers were checked against, and when they were last swept.
     io_seen: u64,
     poll_sweep_ns: u64,
@@ -431,6 +442,8 @@ impl<F: LinFs> LinSystem<F> {
             diag: String::new(),
             trace: false,
             trace_only: None,
+            trace_proc: None,
+            trace_pid: None,
             last_ready: BTreeMap::new(),
             io_seen: 0,
             poll_sweep_ns: 0,
@@ -482,7 +495,7 @@ impl<F: LinFs> LinSystem<F> {
     /// The shared page cache for `path`, created from the file's current bytes. Entries no mapping
     /// or compositor pool uses any more are dropped.
     fn cached_file(&mut self, path: &str) -> Result<SharedBuf, i64> {
-        self.page_cache.retain(|_, b| Rc::strong_count(b) > 1);
+        self.drop_unused_cache();
         if let Some(b) = self.page_cache.get(path) {
             return Ok(b.clone());
         }
@@ -495,6 +508,85 @@ impl<F: LinFs> LinSystem<F> {
         let b = Rc::new(RefCell::new(pb));
         self.page_cache.insert(path.into(), b.clone());
         Ok(b)
+    }
+
+    /// `process_vm_readv` / `process_vm_writev(pid, local_iov, liovcnt, remote_iov, riovcnt, flags)`: copy between
+    /// this process's memory and another's (all processes run as one user, so any may be accessed). Like Linux,
+    /// a fault in the remote range ends the copy early and the bytes copied so far are returned. Wine's server
+    /// reads and writes Windows processes' memory this way (ReadProcessMemory, VirtualAllocEx, ...).
+    fn process_vm(&mut self, p: &mut Process, write: bool, a: [u64; 6]) -> Result<Sys, i64> {
+        const IOV_MAX: u64 = 1024;
+        if a[5] != 0 {
+            return err(EINVAL);
+        }
+        if a[2] > IOV_MAX || a[4] > IOV_MAX {
+            return err(EINVAL);
+        }
+        let iovs = |mem: &mut UserMem, at: u64, n: u64| -> Result<Vec<(u64, u64)>, i64> {
+            (0..n).map(|i| Ok((mem.read_u64(at + i * 16)?, mem.read_u64(at + i * 16 + 8)?))).collect()
+        };
+        let local = iovs(&mut p.mem, a[1], a[2])?;
+        let remote = iovs(&mut p.mem, a[3], a[4])?;
+        let pid = a[0] as Pid;
+        let own = pid == p.pid;
+        if !own && self.procs.get(&pid).is_none_or(|q| q.exit.is_some()) {
+            return err(ESRCH);
+        }
+        if write {
+            // Gather the local bytes, then scatter them into the remote ranges.
+            let mut data = Vec::new();
+            for &(base, len) in &local {
+                data.extend(p.mem.read_vec(base, len as usize)?);
+            }
+            let mem = if own { &mut p.mem } else { &mut self.procs.get_mut(&pid).unwrap().mem };
+            let mut done = 0usize;
+            for &(base, len) in &remote {
+                let n = (len as usize).min(data.len() - done);
+                if n == 0 || mem.write(base, &data[done..done + n]).is_err() {
+                    break;
+                }
+                done += n;
+            }
+            return if done == 0 && !data.is_empty() { err(EFAULT) } else { Ok(Sys::Ret(done as i64)) };
+        }
+        let mut data = Vec::new();
+        {
+            let mem = if own { &mut p.mem } else { &mut self.procs.get_mut(&pid).unwrap().mem };
+            for &(base, len) in &remote {
+                match mem.read_vec(base, len as usize) {
+                    Ok(v) => data.extend(v),
+                    Err(_) => break,
+                }
+            }
+        }
+        let want: u64 = remote.iter().map(|r| r.1).sum();
+        if data.is_empty() && want != 0 {
+            return err(EFAULT);
+        }
+        let mut done = 0usize;
+        for &(base, len) in &local {
+            let n = (len as usize).min(data.len() - done);
+            if n == 0 {
+                break;
+            }
+            p.mem.write(base, &data[done..done + n])?;
+            done += n;
+        }
+        Ok(Sys::Ret(done as i64))
+    }
+
+    /// Drop page-cache entries no mapping uses any more, writing their bytes to the file first: a mapping
+    /// can end without munmap (replaced by another MAP_FIXED mapping, as Wine does when it reuses a view's
+    /// address), and the cache is the file's newest content.
+    fn drop_unused_cache(&mut self) {
+        let unused: Vec<String> = self.page_cache.iter().filter(|(_, b)| Rc::strong_count(b) == 1).map(|(p, _)| p.clone()).collect();
+        for path in unused {
+            let b = self.page_cache.remove(&path).unwrap();
+            let Ok(st) = self.fs.lstat(&path) else { continue }; // deleted meanwhile
+            let mut bytes = vec![0u8; (st.size as usize).min(b.borrow().len())];
+            b.borrow().read_at(0, &mut bytes);
+            let _ = self.fs.write(&path, 0, &bytes);
+        }
     }
 
     /// Activity counter of an open file: moves whenever its readiness may have changed
@@ -662,6 +754,32 @@ impl<F: LinFs> LinSystem<F> {
     /// Live processes (zombies excluded) and threads, for status reports.
     pub fn counts(&self) -> (usize, usize) {
         (self.procs.values().filter(|p| p.exit.is_none()).count(), self.threads.len())
+    }
+    /// Whether `tid` belongs to the process selected by [`Self::trace_proc`] (always, without one).
+    fn trace_this(&mut self, tid: Pid) -> bool {
+        let Some(want) = &self.trace_proc else { return true };
+        let Some(pid) = self.threads.get(&tid).map(|t| t.pid) else { return false };
+        // A traced process that exited (a daemon's first stage) hands tracing to the next match.
+        if self.trace_pid.is_some_and(|p| self.procs.get(&p).is_none_or(|p| p.exit.is_some())) {
+            self.trace_pid = None;
+        }
+        match self.trace_pid {
+            Some(p) => p == pid,
+            None => {
+                let hit = want.parse::<Pid>().map_or_else(
+                    |_| self.procs.get(&pid).is_some_and(|p| p.argv.iter().any(|a| a.contains(want.as_str()))),
+                    |n| n == pid,
+                );
+                if hit {
+                    self.trace_pid = Some(pid);
+                }
+                hit
+            }
+        }
+    }
+    /// Processes that have not exited.
+    pub fn live_processes(&self) -> impl Iterator<Item = &Process> {
+        self.procs.values().filter(|p| p.exit.is_none())
     }
     /// All thread ids.
     pub fn thread_ids(&self) -> Vec<Pid> {
@@ -922,7 +1040,7 @@ impl<F: LinFs> LinSystem<F> {
         acts[0] = SigAct::default();
         self.procs.insert(
             pid,
-            Process { pid, ppid: 0, mem, fds, cwd: "/".into(), exe, argv: argv.to_vec(), acts, threads: vec![pid], exit: None, umask: 0o022, fmaps: Vec::new() },
+            Process { pid, ppid: 0, mem, fds, cwd: "/".into(), exe, argv: argv.to_vec(), acts, threads: vec![pid], exit: None, umask: 0o022, fmaps: Vec::new(), nofile: rlimit(7) },
         );
         self.threads.insert(pid, Thread { tid: pid, pid, regs, state: TState::Runnable, sigmask: 0, pending: 0, altstack: (0, 0), clear_tid: 0, robust: 0, resume_deadline: None, fx: fx_default(), fault: None, name: String::new(), recent: Default::default() });
         Ok(pid)
@@ -932,6 +1050,9 @@ impl<F: LinFs> LinSystem<F> {
     pub fn advance(&mut self, ns: u64) {
         let before = self.now_ns;
         self.now_ns += ns;
+        if self.now_ns / 1_000_000_000 != before / 1_000_000_000 {
+            self.fs.set_now(self.epoch_base_s as i64 + (self.now_ns / 1_000_000_000) as i64);
+        }
         let now = self.now_ns;
         // timerfds that expired in this step: their readers and pollers re-check.
         // Safety net: sweep pollers every 10 ms even without a visible I/O change.
@@ -1095,7 +1216,9 @@ impl<F: LinFs> LinSystem<F> {
         // sigcontext tail: cs/gs/fs/ss, err, trapno, oldmask, cr2, fpstate pointer
         let fault = t.fault.take();
         let (vector, error, cr2) = fault.unwrap_or((0, 0, 0));
-        put(&mut buf, mc + 18 * 8, 0x002b_0000_0000_0033);
+        // The selectors the thread really runs with (LoOS's GDT: user code 0x23, user data 0x1b), not Linux's
+        // 0x33/0x2b: Wine compares them with its own %cs/%ss and treats a mismatch as 16-bit code.
+        put(&mut buf, mc + 18 * 8, (USER_SS as u64) << 48 | USER_CS as u64);
         put(&mut buf, mc + 19 * 8, error);
         put(&mut buf, mc + 20 * 8, vector);
         put(&mut buf, mc + 21 * 8, t.sigmask);
@@ -1208,7 +1331,7 @@ impl<F: LinFs> LinSystem<F> {
             }
             t.recent.push_back((nr, [a[0], a[1], a[2]], r));
         }
-        if self.trace && self.trace_only.as_ref().is_none_or(|only| only.contains(&nr)) {
+        if self.trace && self.trace_only.as_ref().is_none_or(|only| only.contains(&nr)) && self.trace_this(tid) {
             let name = crate::syscalls_generated::syscall_name(nr);
             // Path arguments are shown as text.
             let path_arg = match nr {
@@ -1222,10 +1345,18 @@ impl<F: LinFs> LinSystem<F> {
                 .and_then(|(addr, pid)| self.process_mut(pid)?.mem.read_cstr(addr, 512).ok())
                 .map(|p| format!(" \"{p}\""))
                 .unwrap_or_default();
-            let line = format!("[{tid}] {name}#{nr}({:#x}, {:#x}, {:#x}, {:#x}){shown} = {r:?}\n", a[0], a[1], a[2], a[3]);
+            // A successful execve replaced the memory the arguments lived in: show the new argv.
+            let shown = match (nr, r, pid.and_then(|p| self.procs.get(&p))) {
+                (59, Sys::Exec, Some(p)) => format!(" argv {:?}", p.argv),
+                _ => shown,
+            };
+            let line = format!("[{tid}] {name}#{nr}({:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x}){shown} = {r:?}\n", a[0], a[1], a[2], a[3], a[4], a[5]);
             self.console_out.extend(line.as_bytes());
         }
         self.drain();
+        if Self::io_neutral(nr) {
+            return r;
+        }
         // Re-check poll/epoll sleepers only when I/O state changed: re-running every sleeper's
         // scan after every syscall made each syscall cost dozens.
         let fp = self.io_fingerprint();
@@ -1249,6 +1380,17 @@ impl<F: LinFs> LinSystem<F> {
     }
 
     /// Cheap digest of everything poll/epoll readiness depends on (sockets, pipes, counters, timers).
+    /// Syscalls that never change pipe, socket, eventfd or timer state, so nobody waiting in poll/epoll can
+    /// become ready through them: memory mapping, signal masks and handlers, path lookups and stat, futexes,
+    /// clocks and ids. Skipping the I/O re-check after them matters because the check walks every pipe and
+    /// socket ever made (Wine makes thousands) and they are most of what Wine calls.
+    pub fn io_neutral(nr: u64) -> bool {
+        matches!(
+            nr,
+            4 | 5 | 6 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 21 | 24 | 25 | 28 | 39 | 79 | 89 | 96 | 102 | 104 | 107 | 108 | 110 | 158 | 186 | 202 | 218 | 228 | 229 | 262 | 267 | 269 | 273 | 302 | 318 | 332 | 334 | 439
+        )
+    }
+
     fn io_fingerprint(&self) -> u64 {
         let mut h: u64 = 0xcbf2_9ce4_8422_2325;
         let mut mix = |v: u64| h = (h ^ v).wrapping_mul(0x100_0000_01b3);
@@ -1324,6 +1466,15 @@ impl<F: LinFs> LinSystem<F> {
         resolve(&mut self.fs, &base, path, follow)
     }
 
+    /// Contents of a generated file at `path`. A real `/etc/resolv.conf` takes precedence over the
+    /// generated one (the user's or image's resolver configuration wins).
+    fn generated(&mut self, p: &Process, path: &str) -> Option<Vec<u8>> {
+        if path == "/etc/resolv.conf" && self.fs.lstat(path).is_ok() {
+            return None;
+        }
+        self.gen_proc(p, path)
+    }
+
     fn gen_proc(&self, p: &Process, path: &str) -> Option<Vec<u8>> {
         let t = match path {
             "/proc/self/maps" => p.mem.maps(),
@@ -1331,6 +1482,11 @@ impl<F: LinFs> LinSystem<F> {
             "/proc/self/comm" => format!("{}\n", p.exe.rsplit('/').next().unwrap_or("")),
             "/proc/self/status" => format!("Name:\t{}\nState:\tR (running)\nTgid:\t{}\nPid:\t{}\nPPid:\t{}\nUid:\t1000\t1000\t1000\t1000\nGid:\t1000\t1000\t1000\t1000\nThreads:\t{}\nVmSize:\t{} kB\n", p.exe.rsplit('/').next().unwrap_or(""), p.pid, p.pid, p.ppid, p.threads.len(), p.mem.mapped() / 1024),
             "/proc/cpuinfo" => "processor\t: 0\nvendor_id\t: LoOS\nmodel name\t: x86-64 (LoOS native)\ncpu MHz\t\t: 2000.000\nflags\t\t: fpu sse sse2 syscall nx lm\n\n".into(),
+            // The resolver configuration follows the network: its DNS server, when one is attached.
+            "/etc/resolv.conf" => {
+                let d = self.net.as_ref()?.dns_server()?;
+                format!("nameserver {}.{}.{}.{}\n", d[0], d[1], d[2], d[3])
+            }
             "/proc/meminfo" => "MemTotal:        4194304 kB\nMemFree:         2097152 kB\nMemAvailable:    2097152 kB\n".into(),
             "/proc/version" => "Linux version 6.1.0-loos (loos@loos) #1 SMP LoOS\n".into(),
             "/proc/self/stat" => {
@@ -1347,31 +1503,59 @@ impl<F: LinFs> LinSystem<F> {
     }
 
     fn stat_abs(&mut self, p: &Process, path: &str) -> Result<Stat, i64> {
-        let dev = |ino| Stat { ino, kind: Kind::Char, mode: 0o666, size: 0, nlink: 1, uid: 0, gid: 0, mtime: 0 };
+        if let Some(st) = Self::device_stat(path) {
+            return Ok(st);
+        }
         match path {
-            "/dev/null" => return Ok(dev(3)),
-            "/dev/zero" => return Ok(dev(5)),
-            "/dev/urandom" | "/dev/random" => return Ok(dev(9)),
-            "/dev/tty" | "/dev/console" => return Ok(dev(11)),
-            "/run/user/1000/wayland-0" => return Ok(Stat { ino: 17, kind: Kind::Fifo, mode: 0o777, size: 0, nlink: 1, uid: 1000, gid: 1000, mtime: 0 }),
+            "/run/user/1000/wayland-0" => return Ok(Stat { ino: 17, kind: Kind::Fifo, mode: 0o777, size: 0, nlink: 1, uid: 1000, gid: 1000, mtime: 0, rdev: 0 }),
             _ => {}
         }
         if self.bound_socket(path).is_some() {
-            return Ok(Stat { ino: 19, kind: Kind::Socket, mode: 0o755, size: 0, nlink: 1, uid: 1000, gid: 1000, mtime: 0 });
+            return Ok(Stat { ino: 19, kind: Kind::Socket, mode: 0o755, size: 0, nlink: 1, uid: 1000, gid: 1000, mtime: 0, rdev: 0 });
         }
-        if let Some(d) = self.gen_proc(p, path) {
-            return Ok(Stat { ino: 7, kind: Kind::File, mode: 0o444, size: d.len() as u64, nlink: 1, uid: 0, gid: 0, mtime: 0 });
+        if let Some(d) = self.generated(p, path) {
+            return Ok(Stat { ino: 7, kind: Kind::File, mode: 0o444, size: d.len() as u64, nlink: 1, uid: 0, gid: 0, mtime: 0, rdev: 0 });
         }
         if path == "/proc/self/exe" {
-            return Ok(Stat { ino: 8, kind: Kind::Symlink, mode: 0o777, size: p.exe.len() as u64, nlink: 1, uid: 0, gid: 0, mtime: 0 });
+            return Ok(Stat { ino: 8, kind: Kind::Symlink, mode: 0o777, size: p.exe.len() as u64, nlink: 1, uid: 0, gid: 0, mtime: 0, rdev: 0 });
         }
         if let Some(f) = Self::proc_fd(p, path) {
             return match &f?.borrow().kind {
                 FKind::Reg(target) | FKind::Dir(target) => self.fs.lstat(target),
-                _ => Ok(Stat { ino: 13, kind: Kind::Fifo, mode: 0o600, size: 0, nlink: 1, uid: 0, gid: 0, mtime: 0 }),
+                _ => Ok(Stat { ino: 13, kind: Kind::Fifo, mode: 0o600, size: 0, nlink: 1, uid: 0, gid: 0, mtime: 0, rdev: 0 }),
             };
         }
         self.fs.lstat(path)
+    }
+
+    /// Where an mmap goes: the exact address for MAP_FIXED / MAP_FIXED_NOREPLACE (validated), the hint when
+    /// that range is free, otherwise `None` (pick a gap).
+    fn mmap_at(p: &Process, addr: u64, len: u64, flags: u32) -> Result<Option<u64>, i64> {
+        let fits = addr != 0 && addr % PAGE == 0 && addr.checked_add(ceil(len)).is_some_and(|e| e <= USER_TOP);
+        if flags & 0x10 != 0 || flags & 0x10_0000 != 0 {
+            if !fits {
+                return Err(EINVAL);
+            }
+            if flags & 0x10_0000 != 0 && !p.mem.is_free(addr, addr + ceil(len)) {
+                return Err(EEXIST);
+            }
+            return Ok(Some(addr));
+        }
+        Ok((fits && p.mem.is_free(addr, addr + ceil(len))).then_some(addr))
+    }
+
+    /// Device nodes, with Linux's device numbers.
+    fn device_stat(path: &str) -> Option<Stat> {
+        let (ino, major, minor, mode) = match path {
+            "/dev/null" => (3, 1, 3, 0o666),
+            "/dev/zero" => (5, 1, 5, 0o666),
+            "/dev/random" => (8, 1, 8, 0o666),
+            "/dev/urandom" => (9, 1, 9, 0o666),
+            "/dev/tty" => (11, 5, 0, 0o666),
+            "/dev/console" => (12, 5, 1, 0o620),
+            _ => return None,
+        };
+        Some(Stat { ino, kind: Kind::Char, mode, size: 0, nlink: 1, uid: 0, gid: 0, mtime: 0, rdev: crate::fs::makedev(major, minor) })
     }
 
     fn write_stat(&self, mem: &mut UserMem, addr: u64, st: &Stat) -> Result<(), i64> {
@@ -1383,6 +1567,7 @@ impl<F: LinFs> LinSystem<F> {
         b[24..28].copy_from_slice(&st.st_mode().to_le_bytes());
         b[28..32].copy_from_slice(&st.uid.to_le_bytes());
         b[32..36].copy_from_slice(&st.gid.to_le_bytes());
+        w(&mut b, 40, st.rdev);
         w(&mut b, 48, st.size);
         w(&mut b, 56, 4096);
         w(&mut b, 64, st.size.div_ceil(512));
@@ -1406,6 +1591,10 @@ impl<F: LinFs> LinSystem<F> {
         for o in [64, 80, 96, 112] {
             b[o..o + 8].copy_from_slice(&st.mtime.to_le_bytes());
         }
+        // stx_rdev_major / stx_rdev_minor
+        let (major, minor) = ((st.rdev >> 8 & 0xfff) | (st.rdev >> 32 & !0xfff), (st.rdev & 0xff) | (st.rdev >> 12 & !0xff));
+        b[128..132].copy_from_slice(&(major as u32).to_le_bytes());
+        b[132..136].copy_from_slice(&(minor as u32).to_le_bytes());
         mem.write(addr, &b)
     }
 
@@ -1460,7 +1649,7 @@ impl<F: LinFs> LinSystem<F> {
             "/dev/zero" => Some(FKind::Zero),
             "/dev/urandom" | "/dev/random" => Some(FKind::Random),
             "/dev/tty" | "/dev/console" => Some(FKind::Tty),
-            _ => self.gen_proc(p, abs).map(FKind::Gen),
+            _ => self.generated(p, abs).map(FKind::Gen),
         };
         if let Some(k) = kind {
             return Ok(self.new_fd(k, flags));
@@ -1504,7 +1693,8 @@ impl<F: LinFs> LinSystem<F> {
     }
 
     fn alloc_fd(&self, p: &Process, min: i32) -> Result<i32, i64> {
-        (min..1024).find(|i| !p.fds.contains_key(i)).ok_or(EMFILE)
+        let lim = p.nofile.0.min(NOFILE_MAX) as i32;
+        (min..lim).find(|i| !p.fds.contains_key(i)).ok_or(EMFILE)
     }
 
     fn do_read(&mut self, p: &mut Process, tid: Pid, nr: u64, a: [u64; 6], f: &FileRef, buf: u64, count: u64, at: Option<u64>) -> Result<Sys, i64> {
@@ -1941,9 +2131,12 @@ impl<F: LinFs> LinSystem<F> {
                         let f = self.fd(p, a[0] as i32)?;
                         let k = match &f.borrow().kind {
                             FKind::Reg(x) | FKind::Dir(x) => Ok(x.clone()),
-                            FKind::Gen(d) => Err(Stat { ino: 7, kind: Kind::File, mode: 0o444, size: d.len() as u64, nlink: 1, uid: 0, gid: 0, mtime: 0 }),
-                            FKind::PipeR(_) | FKind::PipeW(_) | FKind::Sock(_) | FKind::EventFd(_) | FKind::Epoll(_) => Err(Stat { ino: 13, kind: Kind::Fifo, mode: 0o600, size: 0, nlink: 1, uid: 0, gid: 0, mtime: 0 }),
-                            _ => Err(Stat { ino: 11, kind: Kind::Char, mode: 0o620, size: 0, nlink: 1, uid: 0, gid: 0, mtime: 0 }),
+                            FKind::Gen(d) => Err(Stat { ino: 7, kind: Kind::File, mode: 0o444, size: d.len() as u64, nlink: 1, uid: 0, gid: 0, mtime: 0, rdev: 0 }),
+                            FKind::PipeR(_) | FKind::PipeW(_) | FKind::Sock(_) | FKind::EventFd(_) | FKind::Epoll(_) => Err(Stat { ino: 13, kind: Kind::Fifo, mode: 0o600, size: 0, nlink: 1, uid: 0, gid: 0, mtime: 0, rdev: 0 }),
+                            FKind::Null => Err(Self::device_stat("/dev/null").unwrap()),
+                            FKind::Zero => Err(Self::device_stat("/dev/zero").unwrap()),
+                            FKind::Random => Err(Self::device_stat("/dev/urandom").unwrap()),
+                            _ => Err(Self::device_stat("/dev/tty").unwrap()),
                         };
                         (match k {
                             Ok(path) => self.fs.lstat(&path)?,
@@ -2003,23 +2196,22 @@ impl<F: LinFs> LinSystem<F> {
                                 return err(EPERM); // F_SEAL_WRITE / F_SEAL_FUTURE_WRITE
                             }
                         }
-                        let fixed = flags & 0x10 != 0 || flags & 0x10_0000 != 0;
-                        let at = if fixed {
-                            if addr % PAGE != 0 || addr == 0 || addr.checked_add(ceil(len)).is_none_or(|e| e > USER_TOP) {
-                                return err(EINVAL);
-                            }
-                            if flags & 0x10_0000 != 0 && !p.mem.is_free(addr, addr + ceil(len)) {
-                                return err(EEXIST);
-                            }
-                            Some(addr)
-                        } else if addr != 0 && addr % PAGE == 0 && addr.checked_add(ceil(len)).is_some_and(|e| e <= USER_TOP) && p.mem.is_free(addr, addr + ceil(len)) {
-                            Some(addr)
-                        } else {
-                            None
-                        };
+                        let at = Self::mmap_at(p, addr, len, flags)?;
                         let buf = self.cached_file(&path)?;
                         let at = p.mem.map_shared_buf(at, len, prot, buf, off as usize, &path)?;
                         p.fmaps.push((at, len, path, off));
+                        return ok(at as i64);
+                    }
+                }
+                if flags & 0x20 == 0 && flags & 3 == 2 {
+                    // MAP_PRIVATE of a file in the page cache (mapped shared now or before): copy-on-write over
+                    // the live cache, so it has the newest bytes and later changes show in pages this process has
+                    // not written (as on Linux). Other files are copied at mmap time.
+                    let path = if let FKind::Reg(path) = &self.fd(p, fd)?.borrow().kind { Some(path.clone()) } else { None };
+                    if let Some(path) = path.filter(|pa| self.page_cache.contains_key(pa)) {
+                        let at = Self::mmap_at(p, addr, len, flags)?;
+                        let buf = self.cached_file(&path)?;
+                        let at = p.mem.map_private_view(at, len, prot, buf, off as usize, &path)?;
                         return ok(at as i64);
                     }
                 }
@@ -2419,7 +2611,7 @@ impl<F: LinFs> LinSystem<F> {
                     self.alloc_fd(p, 0)?
                 } else {
                     let n = a[1] as i32;
-                    if !(0..1024).contains(&n) {
+                    if n < 0 || n as u64 >= p.nofile.0.min(NOFILE_MAX) {
                         return err(EBADF);
                     }
                     if n == a[0] as i32 {
@@ -2637,6 +2829,16 @@ impl<F: LinFs> LinSystem<F> {
                 ok(0)
             }
             74 | 75 | 73 | 92 | 93 | 94 | 306 | 266 => ok(0), // fsync, flock, chown family
+            // setxattr .. fremovexattr: the file systems keep no extended attributes. Linux answers EOPNOTSUPP for
+            // such a file system (ENOSYS made Wine fail storing security descriptors: access denied).
+            188..=199 => err(EOPNOTSUPP),
+            100 => {
+                // times(buf): no CPU accounting (all four times 0); returns clock ticks (USER_HZ = 100) since boot
+                if a[0] != 0 {
+                    p.mem.write(a[0], &[0u8; 32])?;
+                }
+                ok((self.now_ns / 10_000_000) as i64)
+            }
             319 => {
                 // Flags: CLOEXEC, ALLOW_SEALING, HUGETLB (with a size in bits 26..32), NOEXEC_SEAL, EXEC.
                 let f = a[1] as u32;
@@ -2654,6 +2856,7 @@ impl<F: LinFs> LinSystem<F> {
                 p.fds.insert(fd, FdEnt { file: self.new_fd(FKind::Reg(path), 2), cloexec: a[1] & 1 != 0 });
                 ok(fd as i64)
             }
+            310 | 311 => self.process_vm(p, nr == 311, a),
             // identity
             39 | 186 => ok(if nr == 39 { p.pid } else { tid } as i64),
             110 => ok(p.ppid as i64),
@@ -2687,7 +2890,7 @@ impl<F: LinFs> LinSystem<F> {
             97 | 98 => {
                 // getrlimit / getrusage
                 if nr == 97 {
-                    let (cur, max) = rlimit(a[0] as u32);
+                    let (cur, max) = if a[0] == 7 { p.nofile } else { rlimit(a[0] as u32) };
                     p.mem.write_u64(a[1], cur)?;
                     p.mem.write_u64(a[1] + 8, max)?;
                 } else {
@@ -2695,12 +2898,24 @@ impl<F: LinFs> LinSystem<F> {
                 }
                 ok(0)
             }
-            302 => {
-                // prlimit64(pid, res, new, old)
-                if a[3] != 0 {
-                    let (cur, max) = rlimit(a[1] as u32);
-                    p.mem.write_u64(a[3], cur)?;
-                    p.mem.write_u64(a[3] + 8, max)?;
+            160 | 302 => {
+                // setrlimit(res, new) / prlimit64(pid, res, new, old): only RLIMIT_NOFILE is stored (on the calling
+                // process); other limits keep their fixed values and changes to them are accepted and ignored.
+                let (res, new, old) = if nr == 160 { (a[0], a[1], 0) } else { (a[1], a[2], a[3]) };
+                let cur = if res == 7 { p.nofile } else { rlimit(res as u32) };
+                if old != 0 {
+                    p.mem.write_u64(old, cur.0)?;
+                    p.mem.write_u64(old + 8, cur.1)?;
+                }
+                if new != 0 && res == 7 {
+                    let (soft, hard) = (p.mem.read_u64(new)?, p.mem.read_u64(new + 8)?);
+                    if soft > hard {
+                        return err(EINVAL);
+                    }
+                    if hard > p.nofile.1 {
+                        return err(EPERM); // raising the hard limit needs CAP_SYS_RESOURCE
+                    }
+                    p.nofile = (soft, hard);
                 }
                 ok(0)
             }
@@ -3204,7 +3419,8 @@ impl<F: LinFs> LinSystem<F> {
                 }
                 if key.starts_with("inet:") {
                     let (ip, _) = Self::inet_key(&key)?;
-                    if !ip.is_loopback() && self.stack_mut().is_none() {
+                    // INADDR_ANY / in6addr_any needs no network: loopback clients still reach it.
+                    if !ip.is_loopback() && !ip.is_unspecified() && self.stack_mut().is_none() {
                         return err(101);
                     }
                 }
@@ -3247,7 +3463,10 @@ impl<F: LinFs> LinSystem<F> {
                         return self.tcp_connect(tid, nr, a, i, ip, port, f.borrow().flags & 0o4000 != 0);
                     }
                 }
-                let Some(l) = self.socks.iter().position(|s| s.listening && !s.closed && s.key.as_deref() == Some(key.as_str())) else {
+                // A loopback client also reaches a listener on the unspecified address, same port.
+                let any = Self::inet_key(&key).ok().map(|(_, port)| format!("inet:0.0.0.0:{port}"));
+                let found = |k: &str| self.socks.iter().position(|s| s.listening && !s.closed && s.key.as_deref() == Some(k));
+                let Some(l) = found(&key).or_else(|| any.as_deref().and_then(found)) else {
                     return err(111); // ECONNREFUSED
                 };
                 if self.socks[l].backlog.len() >= 128 {
@@ -3399,6 +3618,10 @@ impl<F: LinFs> LinSystem<F> {
     /// Write file-backed `MAP_SHARED` pages overlapping [addr, addr+len) back to their files
     /// (never extends a file: bytes past its current size are dropped, as the kernel does).
     fn sync_maps(&mut self, p: &mut Process, addr: u64, len: u64) {
+        // A mapping replaced by another one (MAP_FIXED over it) is gone without munmap: forget it, or its
+        // address's new contents would be written into the file.
+        let mem = &p.mem;
+        p.fmaps.retain(|(start, l, path, _)| mem.maps_file_shared(*start, *l, path));
         let end = addr.saturating_add(len);
         let maps: Vec<(u64, u64, String, u64)> = p.fmaps.iter().filter(|m| m.0 < end && m.0 + m.1 > addr).cloned().collect();
         for (start, l, path, off) in maps {
@@ -3420,7 +3643,7 @@ impl<F: LinFs> LinSystem<F> {
         let status = (code & 0xff) << 8;
         if group || p.threads.len() == 1 {
             // exit_process re-inserts the zombie; take our own copy out of the way.
-            let mut dead = core::mem::replace(p, Process { pid: p.pid, ppid: p.ppid, mem: UserMem::new(), fds: BTreeMap::new(), cwd: String::new(), exe: String::new(), argv: vec![], acts: vec![], threads: vec![], exit: None, umask: 0, fmaps: Vec::new() });
+            let mut dead = core::mem::replace(p, Process { pid: p.pid, ppid: p.ppid, mem: UserMem::new(), fds: BTreeMap::new(), cwd: String::new(), exe: String::new(), argv: vec![], acts: vec![], threads: vec![], exit: None, umask: 0, fmaps: Vec::new(), nofile: rlimit(7) });
             let pid = dead.pid;
             dead.exit = None;
             self.procs.insert(pid, dead);
@@ -3709,6 +3932,14 @@ impl<F: LinFs> LinSystem<F> {
         Ok(())
     }
 }
+
+/// Highest descriptor count ever handed out, whatever RLIMIT_NOFILE says (Linux's fs.nr_open default).
+const NOFILE_MAX: u64 = 1 << 20;
+
+/// User-mode code and stack selectors of the LoOS GDT (shown in signal frames).
+pub const USER_CS: u16 = 0x23;
+/// See [`USER_CS`].
+pub const USER_SS: u16 = 0x1b;
 
 fn rlimit(res: u32) -> (u64, u64) {
     // A typical desktop Linux's defaults (`ulimit -a`); programs cast some of these to int.

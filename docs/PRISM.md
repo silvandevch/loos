@@ -119,19 +119,45 @@ signed pointers in chained fixups are written unsigned, `PAC*` leave a pointer u
 `AUT*`/`XPAC*` are no-ops, and `BRAA`/`BLRAA`/`RETAA`/`LDRAA` branch or load without
 checking. A program cannot tell the difference unless it inspects pointer bits itself.
 
-## Not done yet
+## Roadmap to full macOS application support
 
-- `posix_spawn`: process groups and sessions (`POSIX_SPAWN_SETPGROUP`, `SETSID`) are skipped,
-  because the Linux layer has none; `POSIX_SPAWN_CLOEXEC_DEFAULT` is ignored. Sockets, `kqueue`.
+| Stage | Scope | Status |
+|---|---|---|
+| 1 | libSystem coverage; pthreads, sockets, `kqueue` on epoll, `statfs`/`getmntinfo`, C++ exceptions, `getaddrinfo`/DNS (done); tool coverage | in progress |
+| 2 | `mach_msg` with port rights, launchd bootstrap registry, libdispatch on threads, XPC | planned |
+| 3 | NSCharacterSet, NSScanner, formatters, NSAttributedString, NSOperationQueue, NSThread, NSURLSession, JSON, binary plists | partial |
+| 4 | Swift runtime; loading frameworks from a user-supplied dyld shared cache | planned |
+| 5 | Window server shim on the win32k/compositor path; CoreGraphics, CoreText, QuartzCore; AppKit; SwiftUI | planned |
+| 6 | Metal (compute and basic render passes) | planned |
+| 7 | Electron apps via the Linux Electron runtime; arm64 JIT; `.dmg`/`.pkg` install flows | partial |
 
-- Threads: one thread per Prism process. pthread mutexes succeed immediately, and
-  `pthread_create` is not provided.
-- The Swift runtime, the rest of CoreFoundation, Foundation, AppKit and CoreGraphics. Programs that
-  link them load, but stop at the first unimplemented import.
-- GUI. The plan is AppKit windows as LoOS windows through the existing win32k/compositor path
-  that Linux Wayland windows use.
+Known gaps today:
+
+- `posix_spawn`: process groups and sessions are skipped; `POSIX_SPAWN_CLOEXEC_DEFAULT` is ignored.
+- Sockets (`libc/socket.c`): AF_UNIX, AF_INET (IPv4) and loopback TCP/UDP on the Linux layer, with
+  Darwin sockaddr, option and `MSG_*` translation, `inet_pton`/`ntop`. `kqueue`/`kevent`/`kevent64`
+  (`libc/kqueue.c`) run on epoll: EVFILT_READ, WRITE, TIMER and USER. Name resolution
+  (`libc/netdb.c`): `getaddrinfo`, `getnameinfo`, `gethostbyname`, `getservbyname`, from numeric
+  addresses, `localhost`, `/etc/hosts`, `/etc/services`, then DNS over UDP (CNAME chains, A, AAAA)
+  to the servers in `/etc/resolv.conf`; the Linux layer generates that file from the DHCP lease when
+  none exists. The network is up only when the boot command line has `loos.net`. Not yet: mDNS,
+  search domains, reverse DNS (PTR), EVFILT_VNODE/PROC/SIGNAL, control messages in `sendmsg`/`recvmsg`, SIGPIPE suppression.
+- C++ (`libc/cxxabi.c`, the libc++abi part): exceptions (throw, catch by type, base class or
+  pointer, rethrow, cleanups), `std::exception_ptr`, `__dynamic_cast`, function-local static
+  guards, `std::terminate` and its handler, `operator new`/`delete`, the fundamental type_infos and
+  `std::exception`/`bad_alloc`/`bad_cast`/`bad_typeid`. Apple's arm64 non-unique RTTI names are
+  honoured. Not yet: the rest of libc++ (`std::string`, streams, containers' out-of-line parts),
+  `__cxa_demangle`.
+- `statfs`, `fstatfs`, `getfsstat`, `getmntinfo` (`libc/statfs.c`): one APFS-style root volume.
+- Threads (x86_64 and arm64, one interpreter CPU per thread): real LoOS threads (`libc/pthread.c` over Prism's `bsdthread_create`), with
+  futex-backed mutexes, condition variables, rwlocks, `os_unfair_lock`, keys, and per-thread errno
+  and thread-locals. Timed waits sleep on the futex with
+  the remaining time; detached threads' stacks are unmapped by a later `pthread_create`. Not yet:
+  the shared scratch buffer used by some calls is not per-thread.
 - The ARM64 interpreter has no JIT. QEMU TCG and Dynarmic are C/C++ and do not fit the no_std
   kernel crate.
+- Out of scope: kernel and system extensions, Apple ID and iCloud, FairPlay DRM, App Store
+  receipt validation.
 
 ## Tests
 
@@ -154,4 +180,5 @@ checking. A program cannot tell the difference unless it inspects pointer bits i
   (CoreFoundation, toll-free bridging and literals), `tests/prism/found.m` as `Found.app`
   (exceptions, sets, dates, run loop and modes, URLs, property lists, the main bundle, files,
   process info, defaults, notifications, keyed archiving) and `tests/prism/spawn.c` (fork, exec, posix_spawn with a pipe, execvp) for
-  both architectures. All QEMU runs are headless (`QEMU_DISPLAY=gtk` shows a window).
+  both architectures. The boots run in parallel, `PRISM_JOBS` at a time (default 4), each in
+  its own QEMU window (`QEMU_DISPLAY=none` for none); the logs are checked afterwards in order.

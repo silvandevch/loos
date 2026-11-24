@@ -10,12 +10,21 @@ use crate::loader::{FIXED_STUBS, SCRATCH, SCRATCH_LEN, SHIM_BASE, SHIM_DATA, STU
 use loos_lin::mem::*;
 
 /// Bytes of the libSystem data page(s).
-pub const DATA_LEN: u64 = 0x8000;
+pub const DATA_LEN: u64 = 0xA000;
 const D_STDIN: u64 = 0x00;
 const D_STDOUT: u64 = 0x08;
 const D_STDERR: u64 = 0x10;
 /// errno (the address `___error()` returns).
 pub const D_ERRNO: u64 = 0x18;
+/// The main thread's Darwin TSD (gs / tpidrro_el0); its pthread structure is just below it.
+pub const TSD_MAIN: u64 = 0x8040; // 512 slots, after D_STATIC
+/// pthread structure size below the TSD (must match `libc/pthread.c`).
+pub const PTHREAD_HDR: u64 = 0x40;
+
+/// errno of the thread whose TSD is at `tsd` (TSD slot 1).
+pub fn errno_addr(tsd: u64) -> u64 {
+    if tsd == 0 { SHIM_DATA + D_ERRNO } else { tsd + 8 }
+}
 pub(crate) const D_ENVIRON: u64 = 0x20;
 const D_ARGC: u64 = 0x28;
 const D_ARGV: u64 = 0x30;
@@ -84,6 +93,7 @@ pub fn data_init() -> Vec<u8> {
     put(D_OPTIND, 1);
     put(D_OPTERR, 1);
     put(D_ERRSTR - 8, crate::posix::errors().count() as u64);
+    put(TSD_MAIN, SHIM_DATA + TSD_MAIN - PTHREAD_HDR); // slot 0: pthread_self
     crate::posix::init_data(&mut d);
     crate::misc::init_data(&mut d);
     d
@@ -276,10 +286,10 @@ impl State {
     }
 
     /// Run stub `i`.
-    pub fn call(&mut self, i: usize, abi: &mut dyn Abi, mem: &mut UserMem, now_ns: u64) -> Act {
+    pub fn call(&mut self, i: usize, abi: &mut dyn Abi, mem: &mut UserMem, now_ns: u64, tsd: u64) -> Act {
         let Some(f) = self.funcs.get(i).copied() else { return Act::Missing };
         match f {
-            Some(f) => f(&mut Call { abi, mem, st: self, now_ns }),
+            Some(f) => f(&mut Call { abi, mem, st: self, now_ns, tsd }),
             None => Act::Missing,
         }
     }
@@ -300,6 +310,8 @@ pub struct Call<'a> {
     pub st: &'a mut State,
     /// Monotonic clock (ns).
     pub now_ns: u64,
+    /// The calling thread's Darwin TSD.
+    pub tsd: u64,
 }
 
 impl Call<'_> {
@@ -314,7 +326,7 @@ impl Call<'_> {
         read_cbytes(self.mem, p, 1 << 20)
     }
     pub(crate) fn set_errno(&mut self, e: i64) {
-        let _ = self.mem.write_u32(SHIM_DATA + D_ERRNO, linux_to_darwin_errno(e) as u32);
+        let _ = self.mem.write_u32(errno_addr(self.tsd), linux_to_darwin_errno(e) as u32);
     }
     /// Write `bytes` to fd through the Linux layer (staged in the scratch buffer).
     pub(crate) fn out(&mut self, fd: u64, bytes: &[u8], post: Post) -> Act {
@@ -940,7 +952,7 @@ static FUNCS: &[(&str, Func)] = &[
     f!("___chk_fail_overflow", |_c| Act::Abort("buffer overflow detected".into())),
     f!("_atexit", |c| { let f = c.arg(); c.st.atexit.push((f, None)); c.ret(0) }),
     f!("___cxa_atexit", |c| { let (f, a) = (c.arg(), c.arg()); c.st.atexit.push((f, Some(a))); c.ret(0) }),
-    f!("___error", |c| c.ret(SHIM_DATA + D_ERRNO)),
+    f!("___error", |c| { let a = errno_addr(c.tsd); c.ret(a) }),
     // stdio (unbuffered: FILE objects name file descriptors)
     f!("_printf", |c| printf_common(c, Dest::Fd(1), None)),
     f!("_vprintf", |c| { let arm = is_arm_abi(c); printf_common(c, Dest::Fd(1), Some(arm)) }),
@@ -1198,12 +1210,11 @@ static FUNCS: &[(&str, Func)] = &[
     f!("_mach_thread_self", |c| c.ret(TASK_PORT + 4)),
     f!("_mach_host_self", |c| c.ret(TASK_PORT + 8)),
     f!("_mach_port_deallocate", |c| c.ret(0)),
-    // Thread-local variables (one thread per process for now: one block per template).
+    // Thread-local variables: one block per thread (keyed by its TSD) holding every template.
     f!("__tlv_bootstrap", |c| {
         let desc = c.arg();
         let key_off = c.mem.read_u64(desc + 16).unwrap_or(0);
-        let (start, init, size) = c.st.tlv.first().copied().unwrap_or((0, 0, 0));
-        let block = match c.st.tlv_blocks.get(&start) {
+        let block = match c.st.tlv_blocks.get(&c.tsd) {
             Some(&b) => b,
             None => {
                 let total: u64 = c.st.tlv.iter().map(|t| t.2).sum::<u64>().max(16);
@@ -1216,37 +1227,13 @@ static FUNCS: &[(&str, Func)] = &[
                     }
                     at += len;
                 }
-                c.st.tlv_blocks.insert(start, b);
+                c.st.tlv_blocks.insert(c.tsd, b);
                 b
             }
         };
-        let _ = (init, size);
         c.ret(block + key_off)
     }),
-    // Single-threaded processes: locks are uncontended and succeed immediately.
-    f!("_pthread_mutex_init", |c| c.ret(0)),
-    f!("_pthread_mutex_lock", |c| c.ret(0)),
-    f!("_pthread_mutex_trylock", |c| c.ret(0)),
-    f!("_pthread_mutex_unlock", |c| c.ret(0)),
-    f!("_pthread_mutex_destroy", |c| c.ret(0)),
-    f!("_pthread_once", |c| {
-        let (once, f) = (c.arg(), c.arg());
-        // pthread_once_t: {long sig; char opaque[8]}; mark done in the opaque word.
-        if c.mem.read_u64(once + 8).unwrap_or(0) == 1 {
-            return c.ret(0);
-        }
-        let _ = c.mem.write_u64(once + 8, 1);
-        let back = c.stub_addr("_pthread_once");
-        // Run the init routine; it returns into pthread_once, which now sees it done.
-        c.abi.set_arg(0, once);
-        c.abi.set_arg(1, f);
-        match c.abi.jump(c.mem, f, Some(back)) {
-            Ok(()) => Act::Done,
-            Err(_) => c.ret(0),
-        }
-    }),
-    f!("_pthread_self", |c| c.ret(SHIM_DATA + 0x80)),
-    f!("_pthread_main_np", |c| c.ret(1)),
+    // pthread itself is in libc/pthread.c (threads come from bsdthread_create).
 ];
 
 fn is_arm_abi(c: &Call) -> bool {

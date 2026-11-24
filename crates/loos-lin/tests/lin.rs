@@ -1152,3 +1152,230 @@ fn fault_while_the_signal_is_blocked_kills_instead_of_looping() {
     sys.fault(pid, 14, 4, 0x30);
     assert!(matches!(sys.deliver_signal(pid), Delivery::Killed(_)), "default action ends the process");
 }
+
+/// wineserver raises RLIMIT_NOFILE to the hard limit and then holds more than 1024 descriptors; a fixed cap of
+/// 1024 made it fail with EMFILE (Wine reported STATUS_TOO_MANY_OPENED_FILES) and crash.
+#[test]
+fn rlimit_nofile_is_raised_and_bounds_descriptors() {
+    let mut sys = LinSystem::new(loos_lin::fs::MemFs::new());
+    let t = spawn_nop(&mut sys);
+    let rl = put(&mut sys, t, &"\0".repeat(16));
+    assert_eq!(sc(&mut sys, t, 97, &[7, rl]), 0);
+    let mem = &mut sys.process_mut(t).unwrap().mem;
+    let (soft, hard) = (mem.read_u64(rl).unwrap(), mem.read_u64(rl + 8).unwrap());
+    assert_eq!((soft, hard), (1024, 524_288));
+    // At the default soft limit, descriptor 1024 is out of range.
+    let null = put(&mut sys, t, "/dev/null");
+    let fd = sc(&mut sys, t, 257, &[(-100i64) as u64, null, 0]);
+    assert!(fd >= 0);
+    assert_eq!(sc(&mut sys, t, 33, &[fd as u64, 1024]), -9); // dup2 -> EBADF
+    // Raise the soft limit to the hard one (prlimit64 on self), then descriptors above 1024 work.
+    let new = put(&mut sys, t, &"\0".repeat(16));
+    sys.process_mut(t).unwrap().mem.write_u64(new, hard).unwrap();
+    sys.process_mut(t).unwrap().mem.write_u64(new + 8, hard).unwrap();
+    assert_eq!(sc(&mut sys, t, 302, &[0, 7, new, 0]), 0);
+    assert_eq!(sc(&mut sys, t, 33, &[fd as u64, 5000]), 5000);
+    for _ in 0..1100 {
+        assert!(sc(&mut sys, t, 32, &[fd as u64]) >= 0, "dup beyond 1024 after raising the limit");
+    }
+    assert_eq!(sc(&mut sys, t, 97, &[7, rl]), 0);
+    assert_eq!(sys.process_mut(t).unwrap().mem.read_u64(rl).unwrap(), hard);
+    // The hard limit cannot be raised, and soft must not exceed hard.
+    sys.process_mut(t).unwrap().mem.write_u64(new + 8, hard + 1).unwrap();
+    assert_eq!(sc(&mut sys, t, 160, &[7, new]), -1); // EPERM
+    sys.process_mut(t).unwrap().mem.write_u64(new, 10).unwrap();
+    sys.process_mut(t).unwrap().mem.write_u64(new + 8, 5).unwrap();
+    assert_eq!(sc(&mut sys, t, 160, &[7, new]), -22); // EINVAL
+}
+
+/// Level-triggered fds that stay ready must not starve the others when a batch is full (Linux re-queues a
+/// reported fd at the tail): wineserver waits for 128 events at a time, and with more busy clients than that
+/// the newest client's request was never seen.
+#[test]
+fn epoll_full_batches_rotate_through_every_ready_fd() {
+    let mut sys = new_sys();
+    let pid = spawn_nop(&mut sys);
+    let mem = sc(&mut sys, pid, 9, &[0, 0x1000, 3, 0x22, u64::MAX, 0]) as u64;
+    let ep = sc(&mut sys, pid, 291, &[0]) as u64;
+    let ev = mem + 0x100;
+    for k in 0..5u64 {
+        assert_eq!(sc(&mut sys, pid, 22, &[mem]), 0); // pipe
+        let rd = sys.process_mut(pid).unwrap().mem.read_u32(mem).unwrap() as u64;
+        let wr = sys.process_mut(pid).unwrap().mem.read_u32(mem + 4).unwrap() as u64;
+        assert_eq!(sc(&mut sys, pid, 1, &[wr, mem, 1]), 1); // readable, and never drained
+        sys.process_mut(pid).unwrap().mem.write_u32(ev, 1).unwrap(); // EPOLLIN
+        sys.process_mut(pid).unwrap().mem.write_u64(ev + 4, k).unwrap();
+        assert_eq!(sc(&mut sys, pid, 233, &[ep, 1, rd, ev]), 0);
+    }
+    // Two events per call: three calls must between them report all five fds.
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..3 {
+        let n = sc(&mut sys, pid, 232, &[ep, mem + 0x200, 2, 0]);
+        assert_eq!(n, 2);
+        for i in 0..2u64 {
+            seen.insert(sys.process_mut(pid).unwrap().mem.read_u64(mem + 0x200 + i * 12 + 4).unwrap());
+        }
+    }
+    assert_eq!(seen.len(), 5, "every ready fd reported within three full batches: {seen:?}");
+}
+
+/// Files keep their archive modification times, and writes stamp the current time. With one fixed time for
+/// every file, Wine's font cache (keyed by mtime) never matched, so each new process rescanned every font and
+/// explorer.exe could not create the desktop before its parent gave up and started another.
+#[test]
+fn memfs_keeps_tar_mtimes_and_stamps_writes() {
+    use loos_lin::fs::{LinFs, MemFs};
+    let mut h = [0u8; 512];
+    h[..9].copy_from_slice(b"fonts/a.t");
+    h[100..107].copy_from_slice(b"0000644");
+    h[124..135].copy_from_slice(b"00000000003"); // size 3
+    h[136..147].copy_from_slice(b"14571142625"); // mtime 0o14571142625 = 1_700_970_901
+    h[156] = b'0';
+    let mut tar = h.to_vec();
+    tar.extend_from_slice(b"abc");
+    tar.resize(512 * 2, 0);
+    tar.resize(512 * 4, 0); // end-of-archive blocks
+    let mut fs = MemFs::new();
+    assert_eq!(fs.load_tar(&tar), 1);
+    assert_eq!(fs.lstat("/fonts/a.t").unwrap().mtime, 0o14571142625);
+    fs.set_now(1_800_000_000);
+    fs.write("/fonts/a.t", 0, b"x").unwrap();
+    assert_eq!(fs.lstat("/fonts/a.t").unwrap().mtime, 1_800_000_000);
+    fs.rename("/fonts/a.t", "/fonts/b.t").unwrap();
+    assert_eq!(fs.lstat("/fonts/b.t").unwrap().mtime, 1_800_000_000, "rename keeps the time");
+}
+
+/// Device nodes carry Linux's device numbers. Wine turns all its logging off when stderr is a character device
+/// with the same st_rdev as /dev/null; with every device at 0, the console looked like /dev/null.
+#[test]
+fn device_nodes_have_distinct_rdev() {
+    let mut sys = new_sys();
+    let t = spawn_nop(&mut sys);
+    let st = put(&mut sys, t, &"\0".repeat(144));
+    let null = put(&mut sys, t, "/dev/null");
+    assert_eq!(sc(&mut sys, t, 4, &[null, st]), 0); // stat
+    let rdev_null = sys.process_mut(t).unwrap().mem.read_u64(st + 40).unwrap();
+    assert_eq!(rdev_null, loos_lin::fs::makedev(1, 3));
+    assert_eq!(sc(&mut sys, t, 5, &[2, st]), 0); // fstat(stderr): the console
+    let mode = sys.process_mut(t).unwrap().mem.read_u32(st + 24).unwrap();
+    assert_eq!(mode & 0o170000, 0o020000, "console is a character device");
+    let rdev_err = sys.process_mut(t).unwrap().mem.read_u64(st + 40).unwrap();
+    assert_ne!(rdev_err, rdev_null, "stderr must not look like /dev/null");
+    // An open /dev/null reports the same device as its path.
+    let fd = sc(&mut sys, t, 257, &[(-100i64) as u64, null, 0]);
+    assert_eq!(sc(&mut sys, t, 5, &[fd as u64, st]), 0);
+    assert_eq!(sys.process_mut(t).unwrap().mem.read_u64(st + 40).unwrap(), rdev_null);
+}
+
+/// A read-only MAP_PRIVATE mapping of a file that is mapped shared elsewhere shows later writes to the file
+/// (Linux keeps unwritten private pages in the page cache), and becomes a private copy once made writable.
+/// Wine maps wineserver's session memfd this way; a snapshot taken at mmap time hid every window class and
+/// desktop object wineserver added later, so no Wine program could create the desktop.
+#[test]
+fn private_readonly_view_tracks_shared_writes_until_made_writable() {
+    let mut sys = new_sys();
+    let t = spawn_nop(&mut sys);
+    let name = put(&mut sys, t, "session");
+    let fd = sc(&mut sys, t, 319, &[name, 0]) as u64; // memfd_create
+    assert!(fd < 1000);
+    assert_eq!(sc(&mut sys, t, 77, &[fd, 0x2000]), 0); // ftruncate
+    let shared = sc(&mut sys, t, 9, &[0, 0x2000, 3, 1, fd, 0]) as u64; // PROT_RW, MAP_SHARED
+    let view = sc(&mut sys, t, 9, &[0, 0x2000, 1, 2, fd, 0]) as u64; // PROT_READ, MAP_PRIVATE
+    assert!(shared < 1 << 47 && view < 1 << 47 && shared != view);
+    // Written after the private view was mapped (the second page was never touched before).
+    sys.process_mut(t).unwrap().mem.write_u64(shared + 0x1008, 0x5e55_1011).unwrap();
+    assert_eq!(sys.process_mut(t).unwrap().mem.read_u64(view + 0x1008).unwrap(), 0x5e55_1011, "view sees later writes");
+    // Made writable: now a private copy.
+    assert_eq!(sc(&mut sys, t, 10, &[view, 0x2000, 3]), 0); // mprotect RW
+    sys.process_mut(t).unwrap().mem.write_u64(view + 0x1008, 7).unwrap();
+    assert_eq!(sys.process_mut(t).unwrap().mem.read_u64(shared + 0x1008).unwrap(), 0x5e55_1011, "private writes stay private");
+    sys.process_mut(t).unwrap().mem.write_u64(shared + 0x1008, 9).unwrap();
+    assert_eq!(sys.process_mut(t).unwrap().mem.read_u64(view + 0x1008).unwrap(), 7, "the copy no longer follows the file");
+    // Wine's pattern: map the view read-write MAP_PRIVATE|MAP_FIXED, then mprotect it read-only. Pages it never
+    // wrote keep following the file.
+    let wine = sc(&mut sys, t, 9, &[0, 0x2000, 3, 2, fd, 0]) as u64;
+    assert_eq!(sc(&mut sys, t, 10, &[wine, 0x2000, 1]), 0);
+    sys.process_mut(t).unwrap().mem.write_u64(shared + 0x10, 0xabc).unwrap();
+    assert_eq!(sys.process_mut(t).unwrap().mem.read_u64(wine + 0x10).unwrap(), 0xabc);
+    assert_eq!(sys.process_mut(t).unwrap().mem.read_u64(wine + 0x1008).unwrap(), 9);
+}
+
+/// Firefox builds a shared string table in a section (Wine: a memfd) through a writable shared view, unmaps
+/// it, and maps it again read-only and private: the data must be there (Firefox asserts on its magic).
+#[test]
+fn memfd_written_through_shared_view_reads_back_in_a_later_private_view() {
+    let mut sys = new_sys();
+    let t = spawn_nop(&mut sys);
+    let name = put(&mut sys, t, "section");
+    let fd = sc(&mut sys, t, 319, &[name, 0]) as u64;
+    assert_eq!(sc(&mut sys, t, 77, &[fd, 0x3000]), 0);
+    let w = sc(&mut sys, t, 9, &[0, 0x3000, 3, 1, fd, 0]) as u64;
+    sys.process_mut(t).unwrap().mem.write_u64(w, 0x9e1f_ab1e).unwrap();
+    sys.process_mut(t).unwrap().mem.write_u64(w + 0x2ff8, 0x7a11).unwrap();
+    assert_eq!(sc(&mut sys, t, 11, &[w, 0x3000]), 0); // munmap the writer
+    let r = sc(&mut sys, t, 9, &[0, 0x3000, 1, 2, fd, 0]) as u64; // PROT_READ, MAP_PRIVATE
+    assert_eq!(sys.process_mut(t).unwrap().mem.read_u64(r).unwrap(), 0x9e1f_ab1e);
+    assert_eq!(sys.process_mut(t).unwrap().mem.read_u64(r + 0x2ff8).unwrap(), 0x7a11);
+    // And with the writer still mapped while the reader maps (both live).
+    let w2 = sc(&mut sys, t, 9, &[0, 0x3000, 3, 1, fd, 0]) as u64;
+    sys.process_mut(t).unwrap().mem.write_u64(w2 + 8, 5).unwrap();
+    let r2 = sc(&mut sys, t, 9, &[0, 0x3000, 1, 2, fd, 0]) as u64;
+    assert_eq!(sys.process_mut(t).unwrap().mem.read_u64(r2 + 8).unwrap(), 5);
+}
+
+/// A shared file mapping replaced by MAP_FIXED (no munmap, as Wine reuses view addresses) keeps the file's
+/// data, and a later munmap/exit must not write the replacement's bytes into the file.
+#[test]
+fn replaced_shared_mapping_neither_loses_nor_corrupts_the_file() {
+    let mut sys = new_sys();
+    let t = spawn_nop(&mut sys);
+    let name = put(&mut sys, t, "section");
+    let fd = sc(&mut sys, t, 319, &[name, 0]) as u64;
+    assert_eq!(sc(&mut sys, t, 77, &[fd, 0x1000]), 0);
+    let w = sc(&mut sys, t, 9, &[0, 0x1000, 3, 1, fd, 0]) as u64;
+    sys.process_mut(t).unwrap().mem.write_u64(w, 0x5afe).unwrap();
+    // Replace the view with anonymous memory at the same address, then unmap that.
+    assert_eq!(sc(&mut sys, t, 9, &[w, 0x1000, 0, 0x32, u64::MAX, 0]) as u64, w);
+    assert_eq!(sc(&mut sys, t, 11, &[w, 0x1000]), 0);
+    // A fresh private view (copy path) and a read() both see the data.
+    let r = sc(&mut sys, t, 9, &[0, 0x1000, 1, 2, fd, 0]) as u64;
+    assert_eq!(sys.process_mut(t).unwrap().mem.read_u64(r).unwrap(), 0x5afe);
+    let buf = put(&mut sys, t, &"\0".repeat(16));
+    assert_eq!(sc(&mut sys, t, 17, &[fd, buf, 8, 0]), 8); // pread64
+    assert_eq!(sys.process_mut(t).unwrap().mem.read_u64(buf).unwrap(), 0x5afe);
+}
+
+/// A network with no adapter that names a DNS server (as DHCP would).
+struct DnsOnly;
+impl LinNet for DnsOnly {
+    fn stack(&mut self) -> Option<&mut loos_net::stack::Stack> {
+        None
+    }
+    fn pump(&mut self, _now_ms: u64) {}
+    fn dns_server(&self) -> Option<[u8; 4]> {
+        Some([10, 0, 2, 3])
+    }
+}
+
+fn read_file(sys: &mut LinSystem<loos_lin::fs::MemFs>, t: u32, path: &str) -> Option<String> {
+    let p = put(sys, t, path);
+    let fd = sc(sys, t, 257, &[(-100i64) as u64, p, 0, 0]);
+    if fd < 0 {
+        return None;
+    }
+    let buf = put(sys, t, &"\0".repeat(128));
+    let n = sc(sys, t, 0, &[fd as u64, buf, 128]);
+    sc(sys, t, 3, &[fd as u64]);
+    Some(String::from_utf8(sys.process_mut(t).unwrap().mem.read_vec(buf, n as usize).unwrap()).unwrap())
+}
+
+#[test]
+fn resolv_conf_follows_the_network_unless_a_real_one_exists() {
+    let mut sys = new_sys();
+    let t = spawn_nop(&mut sys);
+    assert_eq!(read_file(&mut sys, t, "/etc/resolv.conf"), None); // no network
+    sys.attach_net(DnsOnly);
+    assert_eq!(read_file(&mut sys, t, "/etc/resolv.conf").as_deref(), Some("nameserver 10.0.2.3\n"));
+    sys.fs.add_file("/etc/resolv.conf", b"nameserver 127.0.0.1\n", 0o644);
+    assert_eq!(read_file(&mut sys, t, "/etc/resolv.conf").as_deref(), Some("nameserver 127.0.0.1\n"));
+}

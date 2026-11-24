@@ -19,6 +19,38 @@ fn main() {
             std::fs::write(&dylib, []).unwrap();
         }
     }
+    embed_libcxx(&out);
+}
+
+/// LLVM's libc++ for macOS programs (`/usr/lib/libc++.1.dylib`), built by `libcxx/build.sh` into
+/// `out/prism-libcxx/` (or `$PRISM_LIBCXX`). It is a separate, slower build that needs the LLVM
+/// sources, so cargo only embeds a prebuilt copy; without one, C++ programs bind libc++ imports to
+/// Prism's libSystem as before (the C++ ABI works, the standard library does not).
+fn embed_libcxx(out: &Path) {
+    println!("cargo:rerun-if-env-changed=PRISM_LIBCXX");
+    let src = std::env::var_os("PRISM_LIBCXX").map(PathBuf::from).unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../out/prism-libcxx/libc++.1.dylib"));
+    println!("cargo:rerun-if-changed={}", src.display());
+    let bytes = match std::fs::read(&src) {
+        Ok(b) => fix_fat(b).unwrap_or_else(|e| panic!("{}: {e}", src.display())),
+        Err(_) => Vec::new(),
+    };
+    std::fs::write(out.join("libc++.1.dylib"), bytes).unwrap();
+}
+
+/// Regenerate the arm64 lazy stubs inside a universal dylib (see [`rewrite_arm64_stubs`]).
+fn fix_fat(mut d: Vec<u8>) -> Result<Vec<u8>, String> {
+    let be = |d: &[u8], o: usize| u32::from_be_bytes(d[o..o + 4].try_into().unwrap());
+    if d.len() < 8 || be(&d, 0) != 0xcafe_babe {
+        return Err("not a universal Mach-O file".into());
+    }
+    for i in 0..be(&d, 4) as usize {
+        let h = 8 + i * 20;
+        let (cpu, off, size) = (be(&d, h), be(&d, h + 8) as usize, be(&d, h + 12) as usize);
+        if cpu == 0x0100_000c {
+            rewrite_arm64_stubs(&mut d[off..off + size])?;
+        }
+    }
+    Ok(d)
 }
 
 fn ld64() -> Result<PathBuf, String> {

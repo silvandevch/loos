@@ -29,6 +29,26 @@ for a in x86_64 arm64; do
     clang -target $a-apple-macos11 -O1 -fno-stack-protector -c "$here/dl.c" -o "$out/dl_$a.o"
     "$ld" -arch $a -platform_version macos 11.0 11.0 -L"$here" -lSystem -lobjc "$out/dl_$a.o" -o "$out/dl_$a" -no_fixup_chains
 done
+for a in x86_64 arm64; do
+    clang++ -target $a-apple-macos11 -std=c++17 -O1 -fno-stack-protector -fexceptions -nostdinc++ -c "$here/cxx.cpp" -o "$out/cxx_$a.o"
+    "$ld" -arch $a -platform_version macos 11.0 11.0 -L"$here" -lSystem -lc++ "$out/cxx_$a.o" -o "$out/cxx_$a" -no_fixup_chains
+done
+for a in x86_64 arm64; do
+    clang -target $a-apple-macos11 -O1 -fno-stack-protector -c "$here/dns.c" -o "$out/dns_$a.o"
+    "$ld" -arch $a -platform_version macos 11.0 11.0 -L"$here" -lSystem "$out/dns_$a.o" -o "$out/dns_$a" -no_fixup_chains
+done
+for a in x86_64 arm64; do
+    clang -target $a-apple-macos11 -O1 -fno-stack-protector -c "$here/fs.c" -o "$out/fs_$a.o"
+    "$ld" -arch $a -platform_version macos 11.0 11.0 -L"$here" -lSystem "$out/fs_$a.o" -o "$out/fs_$a" -no_fixup_chains
+done
+for a in x86_64 arm64; do
+    clang -target $a-apple-macos11 -O1 -fno-stack-protector -c "$here/net.c" -o "$out/net_$a.o"
+    "$ld" -arch $a -platform_version macos 11.0 11.0 -L"$here" -lSystem "$out/net_$a.o" -o "$out/net_$a" -no_fixup_chains
+done
+for a in x86_64 arm64; do
+    clang -target $a-apple-macos11 -O1 -fno-stack-protector -c "$here/thread.c" -o "$out/thread_$a.o"
+    "$ld" -arch $a -platform_version macos 11.0 11.0 -L"$here" -lSystem "$out/thread_$a.o" -o "$out/thread_$a" -no_fixup_chains
+done
 clang -target x86_64-apple-macos11 -O1 -c "$here/sig.c" -o "$out/sig.o"
 "$ld" -arch x86_64 -platform_version macos 11.0 11.0 -L"$here" -lSystem "$out/sig.o" -o "$out/sig_x86_64"
 "$ld" -arch x86_64 -platform_version macos 13.0 13.0 -L"$here" -lSystem "$out/hello_x86_64.o" -o "$out/hello_chained" -fixup_chains

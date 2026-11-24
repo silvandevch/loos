@@ -43,12 +43,6 @@ LoOS/                         (this repo, on DATA)
   apps/                       your rebranded apps (see docs/COMPAT-APPS.md)
   certs/ missing/ logs/ backups/
   .agentbus/  .loosrc
-
-$SRC_ROOT/  (default /home/silvan/LoOS-build, fast NVMe)
-  srv03rtm/                   source tree   |  patchkit/  openxp tools
-
-$OUT_ROOT/  (default /run/media/silvan/DATA/loos/out, external DATA)
-  binaries.*/  loos.iso  loos.qcow2
 ```
 
 ## LoOS Switch (installer + migration GUI)
@@ -77,19 +71,6 @@ does not build the NT study tree. The LoOS kernel/loader are not implemented
 yet, so this builds all current LoOS targets rather than producing a bootable
 OS image.
 
-## Optional NT 5.2 study-tree tools
-
-The NT study tree can be prepared and built separately when needed:
-
-```
-./loos setup
-./loos prep
-bash scripts/09-build-all.sh
-./loos iso
-```
-
-These commands operate on the separate NT study tree. The Wine build uses a
-writable overlay under `OUT_ROOT` so generated files do not alter `NT_SRC`.
 
 ## The LoOS OS project
 
@@ -105,6 +86,7 @@ Documented in [`docs/`](docs/README.md). The short version:
 - [`docs/API.md`](docs/API.md) — the **LoOS API** (the native `loos.h` SDK).
 - [`docs/API-STYLE.md`](docs/API-STYLE.md) — API style + full-documentation standard.
 - [`docs/TOOLCHAINS.md`](docs/TOOLCHAINS.md) — gcc/g++/clang/rust targets + LoOS libc.
+- [`docs/PRISM.md`](docs/PRISM.md) — **macOS applications** (Mach-O, dyld, ObjC, Foundation).
 - [`docs/PYTHON.md`](docs/PYTHON.md) — **native Python** on LoOS.
 - [`docs/BROWSER.md`](docs/BROWSER.md) — **LoOS Browser** (local-first, live pages in QEMU) and the
   staged Firefox/Gecko port plan.
@@ -115,6 +97,39 @@ Documented in [`docs/`](docs/README.md). The short version:
 - [`docs/AGENTS.md`](docs/AGENTS.md) + [`prompts/`](prompts/README.md) — how the
   three agents (Astra / Claude / Sol) work and talk (`.agentbus/`).
 
+## macOS applications (Prism)
+
+LoOS runs macOS programs through Prism ([`docs/PRISM.md`](docs/PRISM.md)). Prism is a Mach-O
+loader with its own dyld, libSystem, Objective-C runtime, CoreFoundation and Foundation, and it
+runs on the Linux compatibility layer. Intel code runs natively. arm64 and arm64e code runs on an
+interpreter.
+
+Launch a program or an app bundle with the `loos.lin=` boot parameter:
+
+```text
+loos.lin=/Applications/Hello.app
+```
+
+Add `loos.net=1` to the command line to bring the network up (DHCP) before the program starts.
+
+LoOS ships no Apple binaries. To test with Apple's own tools or frameworks, copy them from your
+own Mac (`PRISM_MAC=user@host boot/prism_macos_test.sh`).
+
+The goal is for almost every macOS app to run as if LoOS were macOS. Progress by stage:
+
+| Stage | Scope | Status |
+|---|---|---|
+| 1 | libSystem coverage, pthreads, sockets, kqueue, C++ exceptions | in progress: pthreads, sockets, kqueue, statfs, C++ exceptions, DNS done; 75/683 `/bin`+`/usr/bin` tools |
+| 2 | Mach IPC, launchd bootstrap, libdispatch, XPC | planned |
+| 3 | Rest of Foundation and CoreFoundation, binary plists | partial |
+| 4 | Swift runtime, dyld shared cache | planned |
+| 5 | Window server, CoreGraphics, QuartzCore, AppKit (SwiftUI on top) | planned |
+| 6 | Metal | planned (best effort) |
+| 7 | Electron apps, arm64 JIT, `.dmg`/`.pkg` install | partial |
+
+Some apps will not run: anything that needs kernel or system extensions, Apple ID or iCloud,
+FairPlay DRM, or App Store receipt validation.
+
 ### Linux source and app builds
 
 ```bash
@@ -124,5 +139,9 @@ Documented in [`docs/`](docs/README.md). The short version:
 docker build -t loos-linux .        # reproducible Linux + MinGW build image
 ```
 
-There is no bootable LoOS image yet; the loader and kernel targets are future
-work. `./loos iso` is for the separate NT study tree.
+### Build an ISO file
+You can get an ISO via 
+```bash
+./loos install-iso                    # build iso
+```
+The ISO will be at out/boot/loos.iso relative to this README.md

@@ -21,8 +21,8 @@ case $mode in
     *) echo "usage: $0 [bios|uefi] [cmdline words]" >&2; exit 2 ;;
 esac
 accel=$("$here/../scripts/qemu-accel.sh" args)   # KVM when available (LOOS_KVM=off to force TCG)
-# Headless by default (no window); LOOS_DISPLAY=gtk or sdl opens one.
-case "${QEMU_DISPLAY:-gtk:-none}}" in
+# A QEMU window by default (gtk); QEMU_DISPLAY=sdl or none for others.
+case "${QEMU_DISPLAY:-gtk}" in
     gtk) display=(-display gtk,zoom-to-fit=on,grab-on-hover=on) ;;
     sdl) display=(-display sdl) ;;
     *) display=(-display none) ;;

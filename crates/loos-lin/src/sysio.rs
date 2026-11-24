@@ -311,6 +311,14 @@ impl<F: LinFs> LinSystem<F> {
                         self.epolls[ep][*idx].1 = 0;
                     }
                 }
+                // Linux re-queues a reported level-triggered fd at the tail of the ready list, so a full batch
+                // never starves the rest: scan from just past the last reported entry next time. (wineserver
+                // asks for 128 events; with more than 128 busy clients the newest never got an answer.)
+                if hits.len() >= max {
+                    let after = hits.last().unwrap().0 + 1;
+                    let n = self.epolls[ep].len();
+                    self.epolls[ep].rotate_left(after.min(n));
+                }
                 ok(hits.len() as i64)
             }
             // eventfd / eventfd2(initval, flags)

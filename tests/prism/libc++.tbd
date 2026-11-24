@@ -1,0 +1,20 @@
+--- !tapi-tbd
+tbd-version: 4
+targets: [ x86_64-macos, arm64-macos ]
+install-name: '/usr/lib/libc++.1.dylib'
+current-version: 1700
+exports:
+  - targets: [ x86_64-macos, arm64-macos ]
+    symbols: [ ___cxa_allocate_exception, ___cxa_free_exception, ___cxa_throw, ___cxa_begin_catch, ___cxa_end_catch,
+               ___cxa_rethrow, ___gxx_personality_v0, ___Unwind_Resume, ___dynamic_cast, ___cxa_guard_acquire,
+               ___cxa_guard_release, ___cxa_guard_abort, ___cxa_pure_virtual, ___cxa_call_unexpected,
+               __ZTIi, __ZTIl, __ZTId, __ZTIPv, __ZTIPKc, __ZTIPc,
+               __ZTISt9exception, __ZTVSt9exception, __ZNSt9exceptionD2Ev, __ZNSt9exceptionD1Ev, __ZNSt9exceptionD0Ev,
+               __ZNKSt9exception4whatEv, __ZNSt9exceptionC2Ev,
+               __ZTVN10__cxxabiv117__class_type_infoE, __ZTVN10__cxxabiv120__si_class_type_infoE,
+               __ZTVN10__cxxabiv121__vmi_class_type_infoE, __ZTVN10__cxxabiv119__pointer_type_infoE,
+               __Znwm, __ZdlPv, __ZdlPvm, __Znam, __ZdaPv,
+               __ZSt17current_exceptionv, __ZSt17rethrow_exceptionSt13exception_ptr, __ZNSt13exception_ptrD1Ev,
+               __ZNSt13exception_ptrC1ERKS_, __ZNSt13exception_ptraSERKS_, __ZSt13set_terminatePFvvE,
+               __ZSt19uncaught_exceptionsv, __ZSt9terminatev ]
+...

@@ -44,6 +44,14 @@ pub struct Stat {
     pub gid: u32,
     /// Modification time (seconds).
     pub mtime: i64,
+    /// Device number of a device node (`makedev(major, minor)`), 0 otherwise. Programs tell devices apart by
+    /// it: Wine compares stderr with /dev/null and turns all its logging off when they look the same.
+    pub rdev: u64,
+}
+
+/// `makedev(major, minor)` in the encoding glibc and the kernel use for `st_rdev`.
+pub const fn makedev(major: u64, minor: u64) -> u64 {
+    (minor & 0xff) | (major & 0xfff) << 8 | (minor & !0xff) << 12 | (major & !0xfff) << 32
 }
 
 impl Stat {
@@ -97,6 +105,9 @@ pub trait LinFs {
     fn symlink(&mut self, target: &str, path: &str) -> Result<(), i64>;
     /// Directory listing (without `.` / `..`).
     fn list(&mut self, path: &str) -> Result<Vec<DirEnt>, i64>;
+    /// The current wall-clock time (Unix seconds), stamped on files as they change. Backends that keep
+    /// their own times ignore it.
+    fn set_now(&mut self, _secs: i64) {}
     /// `chmod`: set the permission bits (`mode & 0o7777`). Backends without Unix modes accept and ignore it.
     fn chmod(&mut self, path: &str, mode: u32) -> Result<(), i64> {
         self.lstat(path).map(|_| ())
@@ -201,12 +212,19 @@ struct Ent {
     node: Node,
     mode: u32,
     ino: u64,
+    /// Modification time (Unix seconds): from the archive, then whenever the entry changes. Programs key
+    /// caches on it (Wine's font cache): a constant time made every process rebuild them.
+    mtime: i64,
 }
+
+/// Time of entries made before the clock is known.
+const EPOCH_DEFAULT: i64 = 1_700_000_000;
 
 /// In-memory filesystem.
 pub struct MemFs {
     ents: BTreeMap<String, Ent>,
     next_ino: u64,
+    now: i64,
 }
 
 impl Default for MemFs {
@@ -219,8 +237,8 @@ impl MemFs {
     /// New fs containing `/`.
     pub fn new() -> Self {
         let mut ents = BTreeMap::new();
-        ents.insert("/".to_string(), Ent { node: Node::Dir, mode: 0o755, ino: 1 });
-        Self { ents, next_ino: 2 }
+        ents.insert("/".to_string(), Ent { node: Node::Dir, mode: 0o755, ino: 1, mtime: EPOCH_DEFAULT });
+        Self { ents, next_ino: 2, now: EPOCH_DEFAULT }
     }
     fn parent(p: &str) -> String {
         match p.rfind('/') {
@@ -243,7 +261,8 @@ impl MemFs {
     fn insert(&mut self, p: &str, node: Node, mode: u32) {
         let ino = self.next_ino;
         self.next_ino += 1;
-        self.ents.insert(p.to_string(), Ent { node, mode, ino });
+        let mtime = self.now;
+        self.ents.insert(p.to_string(), Ent { node, mode, ino, mtime });
     }
     /// Add (or replace) a file, creating parent directories.
     pub fn add_file(&mut self, path: &str, data: &[u8], mode: u32) {
@@ -309,6 +328,7 @@ impl MemFs {
             let prefix = cstr(345, 500);
             let name = if prefix.is_empty() { cstr(0, 100) } else { format!("{prefix}/{}", cstr(0, 100)) };
             let path = normalize("/", &name);
+            let mtime = oct(136, 148).map_or(EPOCH_DEFAULT, |t| t as i64);
             let body = off + 512;
             let Some(end) = body.checked_add(size as usize).filter(|&e| e <= tar.len()) else { break };
             match h[156] {
@@ -325,6 +345,9 @@ impl MemFs {
                     n += 1;
                 }
                 _ => {}
+            }
+            if let Some(e) = self.ents.get_mut(&path) {
+                e.mtime = mtime;
             }
             off = body + (size as usize).div_ceil(512) * 512;
         }
@@ -350,7 +373,7 @@ impl LinFs for MemFs {
         };
         // The system belongs to root; the user's home and scratch areas to the desktop user.
         let id = if ["/home", "/tmp", "/run/user", "/dev/shm"].iter().any(|d| path == *d || path.strip_prefix(d).is_some_and(|r| r.starts_with('/'))) { USER_ID } else { 0 };
-        Ok(Stat { ino: e.ino, kind, mode: e.mode, size, nlink: 1, uid: id, gid: id, mtime: 1_700_000_000 })
+        Ok(Stat { ino: e.ino, kind, mode: e.mode, size, nlink: 1, uid: id, gid: id, mtime: e.mtime, rdev: 0 })
     }
     fn read(&mut self, path: &str, off: u64, buf: &mut [u8]) -> Result<usize, i64> {
         match &self.ents.get(path).ok_or(ENOENT)?.node {
@@ -364,8 +387,14 @@ impl LinFs for MemFs {
             Node::Link(_) => Err(EINVAL),
         }
     }
+    fn set_now(&mut self, secs: i64) {
+        self.now = secs;
+    }
     fn write(&mut self, path: &str, off: u64, data: &[u8]) -> Result<usize, i64> {
-        match &mut self.ents.get_mut(path).ok_or(ENOENT)?.node {
+        let now = self.now;
+        let e = self.ents.get_mut(path).ok_or(ENOENT)?;
+        e.mtime = now;
+        match &mut e.node {
             Node::File(d) => {
                 let end = (off as usize).checked_add(data.len()).filter(|&e| e <= 1 << 30).ok_or(EINVAL)?;
                 let d = d.to_mut();
@@ -392,7 +421,10 @@ impl LinFs for MemFs {
         Ok(())
     }
     fn truncate(&mut self, path: &str, len: u64) -> Result<(), i64> {
-        match &mut self.ents.get_mut(path).ok_or(ENOENT)?.node {
+        let now = self.now;
+        let e = self.ents.get_mut(path).ok_or(ENOENT)?;
+        e.mtime = now;
+        match &mut e.node {
             Node::File(d) => {
                 d.to_mut().resize(len.min(1 << 30) as usize, 0);
                 Ok(())

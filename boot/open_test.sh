@@ -13,7 +13,7 @@ out=${LOOS_BOOT_OUT:-$root/out/open-test}; mkdir -p "$out"
 "$root/tools/lin-rootfs.sh" "$out/rootfs.tar" "$@" >/dev/null || exit 1
 img=$("$here/uefi/build.sh" "$out" --module initrd="$out/rootfs.tar" --cmdline "console=ttyS0 loos.test=1 loos.open=/programs$target") || exit 1
 log=$out/serial.log; rm -f "$log"
-timeout ${TIMEOUT:-120} qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-auto} "$root/scripts/qemu-accel.sh" args)} -display none -vga std -smp 1 \
+timeout ${TIMEOUT:-120} qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-auto} "$root/scripts/qemu-accel.sh" args)} -display ${QEMU_DISPLAY:-gtk} -vga std -smp 1 \
     -m ${QEMU_MEM:-4G} -nic user,model=e1000 -serial "file:$log" -bios "${OVMF_CODE:-/usr/share/edk2/ovmf/OVMF_CODE.fd}" \
     -drive "file=$img,format=raw,if=virtio" -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot >/dev/null 2>&1
 grep -aE "^(compat|desktop: opening|Starting|No app|Programs run|prism:|lin: (cannot|program finished|\[1)|.*could not start)" "$log" | head -20

@@ -45,7 +45,7 @@ fail=0; pass=0
 while IFS='|' read -r cmd want; do
     img=$("$here/bios/build.sh" "$out" --module initrd="$tarf" --cmdline "console=ttyS0 loos.test=1 loos.lin=HOME=/home,$cmd") || exit 1
     log=$(mktemp)
-    timeout 120 qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-off} "$root/scripts/qemu-accel.sh" args)} -display none -vga std -smp 1 -m 256M \
+    timeout 120 qemu-system-x86_64 ${QEMU_ACCEL-$(LOOS_KVM=${LOOS_KVM:-auto} "$root/scripts/qemu-accel.sh" args)} -display ${QEMU_DISPLAY:-gtk} -vga std -smp 1 -m 256M \
         -serial "file:$log" -drive "file=$img,format=raw,if=ide" -device isa-debug-exit,iobase=0xf4,iosize=0x04 -no-reboot
     if { [ -z "$want" ] || grep -aqxF -- "$want" "$log"; } && grep -aqF "lin: program finished, status 0" "$log"; then
         echo "ok   ${cmd//,/ }"; pass=$((pass + 1))
