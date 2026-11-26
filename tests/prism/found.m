@@ -80,6 +80,39 @@ __attribute__((objc_root_class))
 - (BOOL)writeToFile:(NSString *)p atomically:(BOOL)a encoding:(NSUInteger)e error:(id *)err;
 - (BOOL)hasSuffix:(NSString *)s;
 @end
+typedef struct { NSUInteger location, length; } NSRange;
+@interface NSCharacterSet : NSObject
++ (id)whitespaceAndNewlineCharacterSet;
++ (id)decimalDigitCharacterSet;
++ (id)letterCharacterSet;
++ (id)punctuationCharacterSet;
++ (id)URLQueryAllowedCharacterSet;
++ (id)characterSetWithCharactersInString:(id)s;
+- (BOOL)characterIsMember:(unsigned short)c;
+- (id)invertedSet;
+@end
+@interface NSMutableCharacterSet : NSCharacterSet
+- (void)addCharactersInString:(id)s;
+- (void)formUnionWithCharacterSet:(id)o;
+@end
+@interface NSScanner : NSObject
++ (id)scannerWithString:(id)s;
+- (BOOL)scanInt:(int *)v;
+- (BOOL)scanDouble:(double *)v;
+- (BOOL)scanHexInt:(unsigned *)v;
+- (BOOL)scanString:(id)s intoString:(id *)o;
+- (BOOL)scanUpToString:(id)s intoString:(id *)o;
+- (BOOL)scanCharactersFromSet:(id)s intoString:(id *)o;
+- (BOOL)scanUpToCharactersFromSet:(id)s intoString:(id *)o;
+- (BOOL)isAtEnd;
+- (NSUInteger)scanLocation;
+@end
+@interface NSString (CharSets)
+- (id)stringByTrimmingCharactersInSet:(id)s;
+- (id)componentsSeparatedByCharactersInSet:(id)s;
+- (NSRange)rangeOfCharacterFromSet:(id)s;
+- (id)stringByAddingPercentEncodingWithAllowedCharacters:(id)s;
+@end
 @interface NSNumber : NSObject
 - (int)intValue;
 @end
@@ -530,6 +563,32 @@ int main(void) {
         printf("archive: %s %s same=%d %s %s %s %s %s %s refused=%d/%ld\n", [plistView[@"$archiver"] UTF8String], c(pts), pts[0] == pts[1],
                c(back[@"when"]), [[[back[@"tags"] allObjects] sortedArrayUsingSelector:@selector(compare:)] componentsJoinedByString:@"+"].UTF8String,
                object_getClassName(back[@"text"]), c(back[@"n"]), [[back[@"url"] absoluteString] UTF8String], aerr ? "err" : "ok", refused == nil, [derr code]);
+        /* NSCharacterSet, NSScanner. */
+        {
+            id ws = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+            NSString *trimmed = [@"  \t hi there \n" stringByTrimmingCharactersInSet:ws];
+            NSArray *parts = [@"a,b;;c" componentsSeparatedByCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@",;"]];
+            NSRange dr = [@"abc123" rangeOfCharacterFromSet:[NSCharacterSet decimalDigitCharacterSet]];
+            NSMutableCharacterSet *ms2 = [[NSCharacterSet letterCharacterSet] mutableCopy];
+            [ms2 addCharactersInString:@"_"];
+            int mem = [ms2 characterIsMember:'_'] * 100 + [ms2 characterIsMember:0xe9] * 10 + [[ms2 invertedSet] characterIsMember:'7'];
+            NSString *enc = [@"a b&c=ü" stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
+            NSScanner *sc = [NSScanner scannerWithString:@"width = 42, ratio=-1.5e1 color: 0xFF00 name \"Zoë\" rest"];
+            NSString *key = nil, *name = nil, *word = nil;
+            int w = 0; double r = 0; unsigned col = 0;
+            BOOL ok = [sc scanUpToString:@"=" intoString:&key] && [sc scanString:@"=" intoString:nil] && [sc scanInt:&w]
+                   && [sc scanString:@"," intoString:nil] && [sc scanUpToString:@"=" intoString:nil] && [sc scanString:@"=" intoString:nil]
+                   && [sc scanDouble:&r] && [sc scanCharactersFromSet:[NSCharacterSet letterCharacterSet] intoString:&word]
+                   && [sc scanString:@":" intoString:nil] && [sc scanHexInt:&col] && [sc scanUpToString:@"\"" intoString:nil]
+                   && [sc scanString:@"\"" intoString:nil] && [sc scanUpToString:@"\"" intoString:&name] && [sc scanString:@"\"" intoString:nil];
+            BOOL bad = [sc scanInt:&w];
+            NSString *restw = nil;
+            [sc scanUpToCharactersFromSet:ws intoString:&restw];
+            printf("charset: trim=[%s] parts=%s digit=%lu mem=%d enc=%s\n", [trimmed UTF8String], [[parts componentsJoinedByString:@"|"] UTF8String],
+                   (unsigned long)dr.location, mem, [enc UTF8String]);
+            printf("scanner: ok=%d key=[%s] w=%d r=%g word=%s col=%u name=%s bad=%d rest=%s end=%d\n", ok, [key UTF8String], w, r, [word UTF8String], col,
+                   [name UTF8String], bad, [restw UTF8String], [sc isAtEnd]);
+        }
     }
     /* Uncaught: Foundation's message, then the abort. */
     [NSException raise:@"Custom" format:@"bye %d", 3];

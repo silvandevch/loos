@@ -101,8 +101,17 @@ Beyond the values:
   (a binary plist of `$objects` linked by UIDs), secure coding with allowed classes, shared and
   cyclic references, and coding for the built-in classes.
 
-Not yet: `NSCharacterSet`, `NSScanner`, `NSFormatter`s, `NSAttributedString`, `NSOperationQueue`
-and threads (Prism runs one thread per process).
+NSCharacterSet (+ mutable, the predefined and URL-component sets) and NSScanner are in `libc/nscharset.m`.
+NSThread, NSLock/NSRecursiveLock/NSCondition/NSConditionLock, `-performSelectorOnMainThread:`
+and NSOperation/NSBlockOperation/NSInvocationOperation/NSOperationQueue are in `libc/nsthread.m`.
+libdispatch (`libc/dispatch.m`): main/global/serial/concurrent queues, async/sync/after/apply/barrier,
+groups, semaphores, queue-specific data, timer and DATA_* sources; the main queue is drained by the
+run loop and `dispatch_main()`. Limits: custom concurrent queues run their items in order,
+`dispatch_apply` runs on the calling thread, read/write/signal/proc/vnode sources never fire,
+worker threads have no run loop of their own.
+NSJSONSerialization, NSNumberFormatter, NSDateFormatter, NSISO8601DateFormatter and a fixed-offset
+NSTimeZone (no tz database; the local zone is UTC) are in `libc/nsjson.m`; formatting follows en_US.
+Not yet: `NSAttributedString`, dispatch_data/dispatch_io, other locales, NSCalendar.
 
 ## Processes
 
@@ -146,8 +155,12 @@ Known gaps today:
   pointer, rethrow, cleanups), `std::exception_ptr`, `__dynamic_cast`, function-local static
   guards, `std::terminate` and its handler, `operator new`/`delete`, the fundamental type_infos and
   `std::exception`/`bad_alloc`/`bad_cast`/`bad_typeid`. Apple's arm64 non-unique RTTI names are
-  honoured. Not yet: the rest of libc++ (`std::string`, streams, containers' out-of-line parts),
-  `__cxa_demangle`.
+  honoured. Not yet: `__cxa_demangle`.
+- libc++ (`/usr/lib/libc++.1.dylib`, LLVM 23.1.5 built by `libcxx/build.sh`, embedded when
+  `out/prism-libcxx/` has it): strings, string streams, containers, algorithms, smart pointers,
+  `std::function`, library exceptions, `std::thread`/`mutex`, `fstream`, `std::filesystem`,
+  `std::cout` (`tests/prism/stl.cpp`, both arches). Weak definitions bound with the self ordinal
+  are coalesced across images, as dyld does. Not yet: locales other than "C", time zones.
 - `statfs`, `fstatfs`, `getfsstat`, `getmntinfo` (`libc/statfs.c`): one APFS-style root volume.
 - Threads (x86_64 and arm64, one interpreter CPU per thread): real LoOS threads (`libc/pthread.c` over Prism's `bsdthread_create`), with
   futex-backed mutexes, condition variables, rwlocks, `os_unfair_lock`, keys, and per-thread errno

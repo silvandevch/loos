@@ -22,6 +22,6 @@ exports:
                     NSData, NSMutableData, NSConstantIntegerNumber,
                     NSConstantDoubleNumber, NSConstantFloatNumber, NSConstantArray, NSConstantDictionary,
                     NSSet, NSMutableSet, NSDate, NSException, NSTimer, NSRunLoop, NSURL, NSPropertyListSerialization, NSBundle,
-                    NSFileManager, NSError, NSProcessInfo, NSUUID, NSUserDefaults, NSNotification, NSNotificationCenter,
+                    NSFileManager, NSCharacterSet, NSMutableCharacterSet, NSScanner, NSError, NSProcessInfo, NSUUID, NSUserDefaults, NSNotification, NSNotificationCenter,
                     NSCoder, NSKeyedArchiver, NSKeyedUnarchiver, NSMutableString ]
 ...

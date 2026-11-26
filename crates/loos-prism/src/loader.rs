@@ -253,9 +253,11 @@ impl Resolver<'_> {
     /// Address for `name` imported by image `img` through `ordinal`.
     pub fn lookup(&mut self, img: usize, ordinal: i64, name: &str) -> Option<u64> {
         let target = match ordinal {
-            ORD_SELF => Some(img),
             ORD_MAIN => Some(0),
-            ORD_FLAT | ORD_WEAK => {
+            // A self bind of a symbol the image does not export is a coalesced weak definition
+            // (C++ vtables, inline template code): dyld finds it in whichever image has it.
+            ORD_SELF if self.in_image(img, name, 0).is_some() => Some(img),
+            ORD_SELF | ORD_FLAT | ORD_WEAK => {
                 return (0..self.images.len()).find_map(|i| self.in_image(i, name, 0)).or_else(|| Some(self.stub(name)));
             }
             o if o > 0 => match self.images[img].deps.get(o as usize - 1) {

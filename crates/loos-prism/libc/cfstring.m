@@ -223,6 +223,16 @@ static id mapped(id self, unsigned long mode) {
     return b ? _prism_cf_autoreleased_buffer(b) : 0;
 }
 - (const char *)UTF8String { return [self cStringUsingEncoding:4]; }
+- (id)dataUsingEncoding:(NSUInteger)e allowLossyConversion:(BOOL)lossy {
+    NSUInteger n;
+    char *b = [self _bytesUsingEncoding:e loss:lossy ? '?' : -1 length:&n];
+    if (!b) return nil;
+    id d = [NSData dataWithBytes:b length:n];
+    free(b);
+    return d;
+}
+- (id)dataUsingEncoding:(NSUInteger)e { return [self dataUsingEncoding:e allowLossyConversion:NO]; }
+- (id)initWithData:(NSData *)d encoding:(NSUInteger)e { return [self initWithBytes:[d bytes] length:[d length] encoding:e]; }
 - (BOOL)getCString:(char *)buf maxLength:(NSUInteger)max encoding:(NSUInteger)e {
     NSUInteger n;
     char *b = [self _bytesUsingEncoding:e loss:-1 length:&n];

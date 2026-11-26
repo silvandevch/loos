@@ -276,6 +276,7 @@ static BOOL blocks_pending(__NSCFRunLoop *rl) {
     for (id pair in rl->blocks) if (in_mode([pair objectAtIndex:0], rl->mode)) return YES;
     return NO;
 }
+int _prism_dispatch_main_drain(void), _prism_dispatch_busy(void), _prism_dispatch_main_pending(void);
 static int run_in_mode(id mode, double seconds, BOOL return_after_source) {
     __NSCFRunLoop *rl = loop();
     mode = mode_or_default(mode);
@@ -289,16 +290,20 @@ static int run_in_mode(id mode, double seconds, BOOL return_after_source) {
     for (;;) {
         @autoreleasepool {
             BOOL handled = service(rl);
+            handled |= _prism_dispatch_main_drain() > 0; /* the main dispatch queue is a common-modes source */
             if (rl->stopped) { rl->stopped = NO; result = STOPPED; break; }
             if (handled && return_after_source) { result = HANDLED; break; }
             BOOL any = blocks_pending(rl);
             for (__NSCFRunLoopSource *s in rl->sources) any |= s->valid && in_mode(s->modes, mode);
             for (__NSCFTimer *t in rl->timers) any |= in_mode(t->modes, mode);
+            BOOL busy = _prism_dispatch_busy();
+            any |= busy;
             if (!any) { result = FINISHED; break; }
             double now = CFAbsoluteTimeGetCurrent();
             if (now >= deadline) { result = TIMED_OUT; break; }
             BOOL pending = blocks_pending(rl);
             for (__NSCFRunLoopSource *s in rl->sources) pending |= s->valid && s->signaled && in_mode(s->modes, mode);
+            pending |= _prism_dispatch_main_pending();
             if (pending) continue;
             double wake = deadline;
             for (__NSCFTimer *t in rl->timers) if (t->fire < wake && in_mode(t->modes, mode)) wake = t->fire;
@@ -306,6 +311,7 @@ static int run_in_mode(id mode, double seconds, BOOL return_after_source) {
                 notify(32); /* before waiting */
                 double d = wake - now;
                 if (d > 1e6) d = 1e6;
+                if (busy && d > 0.002) d = 0.002; /* dispatch work may post to the main queue */
                 struct timespec ts = {(time_t)d, (long)((d - (time_t)d) * 1e9)};
                 nanosleep(&ts, 0);
                 notify(64); /* after waiting */

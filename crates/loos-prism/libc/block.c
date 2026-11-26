@@ -92,14 +92,17 @@ void _Block_object_dispose(const void *obj, const int flags) {
 
 size_t Block_size(void *b) { return ((struct block *)b)->descriptor->size; }
 
-void dispatch_once(long *pred, void *block) {
-    if (*pred == ~0l) return;
-    struct block *b = block;
-    ((void (*)(void *))b->invoke)(b);
-    *pred = ~0l;
-}
+/* 0: not run; 1: running on some thread (others wait); ~0: done. */
+int sched_yield(void);
 void dispatch_once_f(long *pred, void *ctx, void (*fn)(void *)) {
-    if (*pred == ~0l) return;
-    fn(ctx);
-    *pred = ~0l;
+    if (__atomic_load_n(pred, __ATOMIC_ACQUIRE) == ~0l) return;
+    long z = 0;
+    if (__atomic_compare_exchange_n(pred, &z, 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        fn(ctx);
+        __atomic_store_n(pred, ~0l, __ATOMIC_RELEASE);
+        return;
+    }
+    while (__atomic_load_n(pred, __ATOMIC_ACQUIRE) != ~0l) sched_yield();
 }
+static void once_block(void *b) { ((void (*)(void *))((struct block *)b)->invoke)(b); }
+void dispatch_once(long *pred, void *block) { dispatch_once_f(pred, block, once_block); }

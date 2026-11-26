@@ -31,6 +31,11 @@ with tarfile.open(dst, "w", format=tarfile.USTAR_FORMAT) as t:
         add(t, "bin/fs_" + a, open(f"{src}/fs_{a}", "rb").read())
         add(t, "bin/cxx_" + a, open(f"{src}/cxx_{a}", "rb").read())
         add(t, "bin/dns_" + a, open(f"{src}/dns_{a}", "rb").read())
+        add(t, "bin/http_" + a, open(f"{src}/http_{a}", "rb").read())
+        add(t, "bin/json_" + a, open(f"{src}/json_{a}", "rb").read())
+        add(t, "bin/gcd_" + a, open(f"{src}/gcd_{a}", "rb").read())
+        try: add(t, "bin/stl_" + a, open(f"{src}/stl_{a}", "rb").read())
+        except FileNotFoundError: pass
     for a in ("x86_64", "arm64"):
         mkdir(t, "Applications/dl_" + a)
         add(t, f"Applications/dl_{a}/dl", open(f"{src}/dl_{a}", "rb").read())
@@ -57,7 +62,7 @@ PY
 # Every image is built first; then the QEMU runs go in parallel (PRISM_JOBS at a time, default 4);
 # then each log is checked in order.
 lins=() titles=() shows=() secs=() wants=()
-case_() { lins+=("$1"); titles+=("$2"); shows+=("$3"); secs+=("$4"); shift 4; local IFS=$'\x1f'; wants+=("$*"); }
+case_() { [ -n "${PRISM_ONLY-}" ] && ! [[ "$1" =~ $PRISM_ONLY ]] && return; lins+=("$1"); titles+=("$2"); shows+=("$3"); secs+=("$4"); shift 4; local IFS=$'\x1f'; wants+=("$*"); }
 for prog in /bin/hello_x86_64 /bin/hello_arm64 /Applications/Hello.app; do
     case_ "HOME=/home,$prog" "$prog" "^(prism|heap|fmt|math|env|write|atexit|lin: program finished)" 120 \
         "ctor=42" "heap: abcdefghijklmnopqrstuvwxyz len=26" "fmt: [ 3.14|7   |beef|str|Z] n=21" "math: fib(20)=6765 dot=5.000 div=-176" \
@@ -82,7 +87,7 @@ for prog in /bin/cf_x86_64 /bin/cf_arm64; do
 done
 for prog in /Applications/Found_x86_64.app /Applications/Found_arm64.app; do
     case_ "HOME=/tmp,$prog" "$prog (Foundation: exceptions, sets, dates, run loop, URLs, property lists, bundle)" \
-        "^(prism:|exc:|set:|date:|delayed:|runloop:|url:|file:|path:|plist:|bundle:|fm:|proc:|defaults:|modes:|openstep:|archive:|\) same|\*\*\*)" 180 \
+        "^(prism:|exc:|set:|date:|delayed:|runloop:|url:|file:|path:|plist:|bundle:|fm:|proc:|defaults:|modes:|openstep:|archive:|charset:|scanner:|\) same|\*\*\*)" 180 \
         "exc: NSRangeException: *** -[NSConstantArray objectAtIndex:]: index 7 beyond bounds [0 .. 2] | code 42! | 1" \
         "set: count=3 has=1 n=3 sorted=a,c,d sub=1 cf=1/1" "delayed: hi" "runloop: first=4 ticks=3 cf=2 source=5 entries>=1 took=1 finished=1" \
         "url: https example.com 8443 /docs/a/index.html q=1 top | https://user@example.com:8443/docs/img/logo%20big.png logo big.png | files.example.org -1" \
@@ -94,6 +99,8 @@ for prog in /Applications/Found_x86_64.app /Applications/Found_arm64.app; do
         "defaults: answer=42 enabled=1 list=2 volume=7 name=default temp=1 file=1 changes=5 pings=2" "modes: default=0 mine=1 common=2" \
         "openstep: {/    k = \"two words\";/    n = (/        1,/        x/    );/}/|hello = \"Grüezi\";" \
         ") same=1 2001-01-01 00:01:00 +0000 t1+t2 __NSCFString 5 https://example.com/a ok refused=1/4864" \
+        "charset: trim=[hi there] parts=a|b||c digit=3 mem=111 enc=a%20b&c=%C3%BC" \
+        "scanner: ok=1 key=[width ] w=42 r=-15 word=color col=65280 name=Zoë bad=0 rest=rest end=1" \
         "*** Terminating app due to uncaught exception 'Custom', reason: 'bye 3'"
 done
 for prog in /Applications/dl_x86_64/dl /Applications/dl_arm64/dl; do
@@ -125,6 +132,36 @@ for cmd in /bin/dns_x86_64 /bin/dns_arm64; do
     case_ "$cmd loos.net=1" "$cmd (getaddrinfo, hosts, services, DNS)" "^(prism:|dns:|lin: program finished)" 120 \
         "dns: num=2/1/80/16 both=2/443 local=127.0.0.1 hosts=10.1.2.3/printer.lan/22 six=0/::5/28 svc=7777 passive=0.0.0.0 err=8/5/8 ni=printer.lan/https/10.1.2.3 hbn=printer.lan/10.1.2.3 cname=192.0.2.7/real.test aaaa=2001:db8::9 nx=8"
 done
+for cmd in /bin/http_x86_64 /bin/http_arm64; do
+    case_ "$cmd" "$cmd (NSURLSession: data, upload, download, delegate, redirects, chunked, errors)" "^(prism:|http|lin: program finished)" 180 \
+        "http: status=200 body=hello prism mime=text/plain enc=utf-8 len=11 ua=ua err=0" \
+        "http2: chunk=abcdefg redir=200/hello post=201/name=prism&x=1/POST/ok 404=404" \
+        "http3: refused=-1004 tls=-1200 cancel=-999 download=1/hello prism delegate=15/1/0 json=1/2 text=hello prism" \
+        "lin: program finished, status 0"
+done
+for cmd in /bin/json_x86_64 /bin/json_arm64; do
+    case_ "$cmd" "$cmd (NSJSONSerialization, number and date formatters, NSTimeZone)" "^(prism:|json|numfmt:|datefmt:|lin: program finished)" 180 \
+        "json: err=0 name=Zoë n=42 pi=3.25 big=12345678901234 neg=-100 ok=1 no=0 null=1 arr=3/two/1 esc=10" \
+        'json2: {"a":{"q":null,"z":true},"b":[1,2.5,"x\/y"],"s":"tab\t\"q\""} | {/  "k" : [/    1,/    2/  ]/} | broken=1/3840 frag=42 nofrag=1 valid=1/0' \
+        "numfmt: 1,234,567.891 1234.5 \$1,234.50 26% 1.2345E4 4" \
+        "datefmt: 2006-01-02 15:04:05 | 946684798 | Mon, 2 Jan 2006 3:04 PM | 2006-01-02T17:04+02:00 | Jan 2, 2006, 3:04 PM | 2006-01-02T15:04:05Z | 1582974000.25 | tz=19800/GMT-0100" \
+        "lin: program finished, status 0"
+done
+for cmd in /bin/gcd_x86_64 /bin/gcd_arm64; do
+    case_ "$cmd" "$cmd (libdispatch, NSThread, locks, NSOperationQueue)" "^(prism:|gcd|thread:|ops:|lin: program finished)" 180 \
+        "gcd: ordered=1 sync=50 label=org.loos.serial total=79800 gw=0 barrier=10 timeout=1 after=0 waited>=50:1 apply=45 once=1 spec=42" \
+        "gcd2: main=1 notify=1 ticks=3 cancelled=1 data=55" \
+        "thread: shared=8000 bg_main=0 recursive=1 stage=2 name=worker performed=1" \
+        "ops: sum=210 peak<=2:1 first=a deps=1 completed=1 cancelled=1/1 main=1 count=0" "lin: program finished, status 0"
+done
+if [ -f "$out/prism/stl_x86_64" ]; then
+for cmd in /bin/stl_x86_64 /bin/stl_arm64; do
+    case_ "$cmd" "$cmd (libc++: strings, containers, streams, smart pointers, exceptions, threads, filesystem)" "^(prism:|str:|cont:|ptr:|exc:|thr:|fs:|cout:|libc\\+\\+|lin: program finished)" 180 \
+        "str: >hello, prism 42 2.5 ff len=13 find=8 sum=31 up=>HELLO, PRISM num=77" "cont: sum=55 first=1 keys=abc um=1000/961" \
+        "ptr: u=5 use=3 f=42" "exc: caught=111 dtors=2" "thr: total=6000" "fs: lines=2 last=line2 size=12 exists=1 ext=.gz" \
+        "cout: 3 removed" "lin: program finished, status 0"
+done
+fi
 
 n=${#lins[@]}
 runs=$(mktemp -d)

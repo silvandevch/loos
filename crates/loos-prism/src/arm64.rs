@@ -1363,6 +1363,65 @@ impl Cpu {
             self.q[rd] = r;
             return Ok(());
         }
+        if i & 0x9f20_0400 == 0x0e20_0400 {
+            // Advanced SIMD three same (integer): 0 Q U 01110 size 1 Rm opcode 1 Rn Rd.
+            let (u, size, op) = ((i >> 29) & 1, (i >> 22) & 3, (i >> 11) & 0x1f);
+            let (a, b, d) = (self.q[rn], self.q[rm], self.q[rd]);
+            let width = if qbit { 128 } else { 64 };
+            if op == 0b00011 {
+                // Bitwise: size selects the operation, not a lane width.
+                let r = match (u, size) {
+                    (0, 0) => a & b,
+                    (0, 1) => a & !b,
+                    (0, 2) => a | b,
+                    (0, 3) => a | !b,
+                    (1, 0) => a ^ b,
+                    (1, 1) => (a & d) | (b & !d), // BSL
+                    (1, 2) => (a & b) | (d & !b), // BIT
+                    _ => (d & b) | (a & !b),      // BIF
+                };
+                self.q[rd] = r & mask;
+                return Ok(());
+            }
+            let es = 8u32 << size;
+            let lanes = width / es;
+            let m = ones(es);
+            let lane = |v: u128, l: u32| (v >> (l * es)) as u64 & m;
+            let s = |v: u64| sext(v, es);
+            let pairwise = matches!(op, 0b10100 | 0b10101 | 0b10111);
+            let mut r = 0u128;
+            for l in 0..lanes {
+                let (x, y) = if pairwise {
+                    // Lanes of a then b, combined two at a time.
+                    let src = |k: u32| if k < lanes { lane(a, k) } else { lane(b, k - lanes) };
+                    (src(2 * l), src(2 * l + 1))
+                } else {
+                    (lane(a, l), lane(b, l))
+                };
+                let all = |t: bool| if t { m } else { 0 };
+                let v = match (op, u) {
+                    (0b00110, 0) => all(s(x) > s(y)),
+                    (0b00110, 1) => all(x > y),
+                    (0b00111, 0) => all(s(x) >= s(y)),
+                    (0b00111, 1) => all(x >= y),
+                    (0b01100, 0) | (0b10100, 0) => if s(x) >= s(y) { x } else { y },
+                    (0b01100, 1) | (0b10100, 1) => x.max(y),
+                    (0b01101, 0) | (0b10101, 0) => if s(x) <= s(y) { x } else { y },
+                    (0b01101, 1) | (0b10101, 1) => x.min(y),
+                    (0b01110, 0) => (s(x) as i128 - s(y) as i128).unsigned_abs() as u64,
+                    (0b01110, 1) => x.abs_diff(y),
+                    (0b10000, 0) | (0b10111, 0) => x.wrapping_add(y),
+                    (0b10000, 1) => x.wrapping_sub(y),
+                    (0b10001, 0) => all(x & y != 0),
+                    (0b10001, 1) => all(x == y),
+                    (0b10011, 0) => x.wrapping_mul(y),
+                    _ => return undef,
+                } & m;
+                r |= (v as u128) << (l * es);
+            }
+            self.q[rd] = r;
+            return Ok(());
+        }
         undef
     }
 }

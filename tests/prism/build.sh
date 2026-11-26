@@ -76,3 +76,34 @@ for a in x86_64 arm64; do
     printf 'Hello from a resource' > "$app/Resources/greeting.txt"
     cp "$here/Found-Localizable.strings" "$app/Resources/en.lproj/Localizable.strings"
 done
+# The C++ standard library: compiled against LLVM's libc++ headers (libcxx/fetch.sh), linked
+# against Prism's built libc++ (libcxx/build.sh). Skipped when either is missing.
+lcx=$here/../../crates/loos-prism/libcxx
+lcxdylib=${PRISM_LIBCXX:-$here/../../out/prism-libcxx/libc++.1.dylib}
+lcxsrc=${LIBCXX_SRC:-$here/../../out/third_party/llvm-project}/libcxx
+if [ -f "$lcxdylib" ] && [ -f "$lcxsrc/include/__config" ]; then
+    mkdir -p "$out/libcxx-gen"
+    cp "$lcx/__config_site" "$out/libcxx-gen/__config_site"
+    sed 's/@_LIBCPP_ASSERTION_HANDLER_CONTENT@//' "$lcxsrc/vendor/llvm/default_assertion_handler.in" > "$out/libcxx-gen/__assertion_handler"
+    for a in x86_64 arm64; do
+        clang++ -target $a-apple-macos11 -std=c++20 -O1 -fno-stack-protector -nostdinc++ -nostdlibinc \
+            -isystem "$out/libcxx-gen" -isystem "$lcxsrc/include" -isystem "$here/../../crates/loos-prism/sdk/include" \
+            -Wno-macro-redefined -c "$here/stl.cpp" -o "$out/stl_$a.o"
+        "$ld" -arch $a -platform_version macos 11.0 11.0 -L"$here" -lSystem "$lcxdylib" "$out/stl_$a.o" -o "$out/stl_$a" -undefined dynamic_lookup -no_fixup_chains
+    done
+fi
+# libdispatch, NSThread, locks, NSOperationQueue (imports resolved by the loader: flat lookup).
+for a in x86_64 arm64; do
+    clang -target $a-apple-macos11 -O1 -fobjc-arc -fblocks -fno-stack-protector -c "$here/gcd.m" -o "$out/gcd_$a.o"
+    "$ld" -arch $a -platform_version macos 11.0 11.0 -L"$here" -lSystem -lobjc -lCoreFoundation "$out/gcd_$a.o" -o "$out/gcd_$a" -undefined dynamic_lookup -no_fixup_chains
+done
+# NSJSONSerialization, formatters, NSTimeZone.
+for a in x86_64 arm64; do
+    clang -target $a-apple-macos11 -O1 -fobjc-arc -fno-stack-protector -c "$here/json.m" -o "$out/json_$a.o"
+    "$ld" -arch $a -platform_version macos 11.0 11.0 -L"$here" -lSystem -lobjc -lCoreFoundation "$out/json_$a.o" -o "$out/json_$a" -undefined dynamic_lookup -no_fixup_chains
+done
+# NSURLSession against an in-process HTTP server.
+for a in x86_64 arm64; do
+    clang -target $a-apple-macos11 -O1 -fobjc-arc -fno-stack-protector -c "$here/http.m" -o "$out/http_$a.o"
+    "$ld" -arch $a -platform_version macos 11.0 11.0 -L"$here" -lSystem -lobjc -lCoreFoundation "$out/http_$a.o" -o "$out/http_$a" -undefined dynamic_lookup -no_fixup_chains
+done

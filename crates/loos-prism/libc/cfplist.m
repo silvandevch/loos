@@ -249,7 +249,10 @@ Boolean CFPropertyListIsValid(id plist, CFIndex format) {
 @implementation NSData (Files)
 + (id)dataWithContentsOfFile:(id)path { return [[read_file(path) copy] autorelease]; }
 + (id)dataWithContentsOfFile:(id)path options:(NSUInteger)o error:(id *)e { (void)o; if (e) *e = nil; return [self dataWithContentsOfFile:path]; }
-+ (id)dataWithContentsOfURL:(id)url { return [url isFileURL] ? [self dataWithContentsOfFile:[url path]] : nil; }
++ (id)dataWithContentsOfURL:(id)url {
+    extern id _prism_http_get(id, id *);
+    return [url isFileURL] ? [self dataWithContentsOfFile:[url path]] : url ? _prism_http_get(url, 0) : nil;
+}
 - (id)initWithContentsOfFile:(id)path {
     id d = read_file(path);
     if (!d) { [self release]; return nil; }
@@ -289,7 +292,12 @@ Boolean CFPropertyListIsValid(id plist, CFIndex format) {
     return [self stringWithContentsOfFile:path encoding:4 error:e];
 }
 + (id)stringWithContentsOfFile:(id)path { return [self stringWithContentsOfFile:path encoding:4 error:0]; }
-+ (id)stringWithContentsOfURL:(id)url encoding:(NSUInteger)enc error:(id *)e { return [url isFileURL] ? [self stringWithContentsOfFile:[url path] encoding:enc error:e] : nil; }
++ (id)stringWithContentsOfURL:(id)url encoding:(NSUInteger)enc error:(id *)e {
+    extern id _prism_http_get(id, id *);
+    if ([url isFileURL]) return [self stringWithContentsOfFile:[url path] encoding:enc error:e];
+    id d = url ? _prism_http_get(url, e) : nil;
+    return d ? [[[self alloc] initWithBytes:[d bytes] length:[d length] encoding:enc] autorelease] : nil;
+}
 - (id)initWithContentsOfFile:(id)path encoding:(NSUInteger)enc error:(id *)e {
     id d = read_file(path);
     if (e) *e = nil;
